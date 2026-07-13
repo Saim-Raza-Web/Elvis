@@ -38,9 +38,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // React core
-          'vendor-react': ['react', 'react-dom'],
-          // Charts library (heavy)
+          // Charts library (large — isolated for better caching)
           'vendor-recharts': ['recharts'],
           // Radix UI primitives
           'vendor-radix': [
@@ -55,8 +53,6 @@ export default defineConfig({
             '@radix-ui/react-tabs',
             '@radix-ui/react-tooltip',
           ],
-          // MUI (if used)
-          'vendor-mui': ['@mui/material', '@mui/icons-material'],
         },
       },
     },
