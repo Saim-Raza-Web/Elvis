@@ -5,29 +5,52 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const initialWarehouses = [
-  { id: "1", name: "Miami Hub", code: "MIA", location: "Miami, FL", country: "US", capacity: 5000, used: 3842, status: "active", manager: "Carlos Rivera", temp: "22°C", zones: 8 },
-  { id: "2", name: "Los Angeles DC", code: "LAX", location: "Los Angeles, CA", country: "US", capacity: 8000, used: 7621, status: "active", manager: "Sarah Chen", temp: "24°C", zones: 12 },
-  { id: "3", name: "Chicago Distribution", code: "ORD", location: "Chicago, IL", country: "US", capacity: 6500, used: 2100, status: "active", manager: "Mike Johnson", temp: "20°C", zones: 10 },
-  { id: "4", name: "New York East", code: "JFK", location: "Newark, NJ", country: "US", capacity: 4000, used: 3100, status: "active", manager: "Priya Patel", temp: "21°C", zones: 6 },
-  { id: "5", name: "Dallas Central", code: "DAL", location: "Dallas, TX", country: "US", capacity: 7000, used: 4500, status: "active", manager: "Tom Williams", temp: "26°C", zones: 11 },
-  { id: "6", name: "Seattle North", code: "SEA", location: "Seattle, WA", country: "US", capacity: 3500, used: 800, status: "inactive", manager: "Emma Davis", temp: "18°C", zones: 5 },
-];
+import { useEffect } from "react";
+import { warehousesService } from "../../services/warehouses.service";
 
-type WH = typeof initialWarehouses[0];
+type WH = {
+  _id: string;
+  name: string;
+  code: string;
+  location: string;
+  country: string;
+  capacity: number;
+  used: number;
+  status: string;
+  manager: string;
+  temp: string;
+  zones: number;
+};
 
-const blank = (): Omit<WH, "id" | "used" | "zones"> & { capacity: number } => ({
+const blank = (): Omit<WH, "_id" | "used" | "zones"> & { capacity: number } => ({
   name: "", code: "", location: "", country: "US", capacity: 5000, status: "active", manager: "", temp: "20°C",
 });
 
 export function Warehouses() {
   const { t } = useLang();
-  const [warehouses, setWarehouses] = useState(initialWarehouses);
+  const [warehouses, setWarehouses] = useState<WH[]>([]);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<WH | null>(null);
   const [form, setForm] = useState(blank());
   const [deleteTarget, setDeleteTarget] = useState<WH | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await warehousesService.getAll();
+      setWarehouses(data);
+    } catch (err) {
+      toast.error("Failed to load warehouses");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const filtered = warehouses.filter(
     (w) => w.name.toLowerCase().includes(search.toLowerCase()) || w.code.toLowerCase().includes(search.toLowerCase())
@@ -36,25 +59,34 @@ export function Warehouses() {
   function openAdd() { setForm(blank()); setShowAdd(true); }
   function openEdit(w: WH) { setEditTarget(w); setForm({ name: w.name, code: w.code, location: w.location, country: w.country, capacity: w.capacity, status: w.status, manager: w.manager, temp: w.temp }); }
 
-  function handleSave() {
+  async function handleSave() {
     if (!form.name || !form.code) { toast.error("Name and code are required."); return; }
-    if (showAdd) {
-      const newWh: WH = { ...form, id: String(Date.now()), used: 0, zones: 0 };
-      setWarehouses((prev) => [...prev, newWh]);
-      toast.success(`${t.warehouses.createSuccess}: "${form.name}"`);
-      setShowAdd(false);
-    } else if (editTarget) {
-      setWarehouses((prev) => prev.map((w) => w.id === editTarget.id ? { ...w, ...form } : w));
-      toast.success(`${t.warehouses.updateSuccess}: "${form.name}"`);
-      setEditTarget(null);
+    try {
+      if (showAdd) {
+        await warehousesService.create(form);
+        toast.success(`${t.warehouses.createSuccess}: "${form.name}"`);
+        setShowAdd(false);
+      } else if (editTarget) {
+        await warehousesService.update(editTarget._id, form);
+        toast.success(`${t.warehouses.updateSuccess}: "${form.name}"`);
+        setEditTarget(null);
+      }
+      loadData();
+    } catch (err) {
+      toast.error("Failed to save warehouse");
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!deleteTarget) return;
-    setWarehouses((prev) => prev.filter((w) => w.id !== deleteTarget.id));
-    toast.success(`${t.warehouses.deleteSuccess}: "${deleteTarget.name}"`);
-    setDeleteTarget(null);
+    try {
+      await warehousesService.delete(deleteTarget._id);
+      toast.success(`${t.warehouses.deleteSuccess}: "${deleteTarget.name}"`);
+      setDeleteTarget(null);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to delete warehouse");
+    }
   }
 
   const FormBody = () => (
@@ -114,7 +146,7 @@ export function Warehouses() {
           const pct = Math.round((w.used / w.capacity) * 100);
           const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
           return (
-            <div key={w.id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 50}ms` }}>
+            <div key={w._id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 50}ms` }}>
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-2">

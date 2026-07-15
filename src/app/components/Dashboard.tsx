@@ -2,29 +2,44 @@ import { ShoppingCart, Truck, Boxes, AlertTriangle, TrendingUp, Warehouse, Arrow
 import { StatCard, StatusBadge } from "./AppShell";
 import { useLang } from "../LangContext";
 
-const recentOrders = [
-  { id: "1", order_number: "ORD-00183", customer: "Apex Industries", status: "processing", total: 2341.00, channel: "web" },
-  { id: "2", order_number: "ORD-00182", customer: "Blue Horizon LLC", status: "shipped", total: 876.50, channel: "api" },
-  { id: "3", order_number: "ORD-00181", customer: "Nova Retail Group", status: "delivered", total: 4120.00, channel: "web" },
-  { id: "4", order_number: "ORD-00180", customer: "Summit Supply Co.", status: "pending", total: 639.99, channel: "mobile" },
-  { id: "5", order_number: "ORD-00179", customer: "Crestline Corp", status: "processing", total: 1887.25, channel: "api" },
-  { id: "6", order_number: "ORD-00178", customer: "TechFlow Systems", status: "delivered", total: 3250.00, channel: "web" },
-  { id: "7", order_number: "ORD-00177", customer: "Pacific Goods Inc.", status: "cancelled", total: 420.00, channel: "web" },
-];
-
-const warehouseStatus = [
-  { name: "Miami Hub", code: "MIA", capacity: 5000, used: 3842, status: "ok" },
-  { name: "Los Angeles", code: "LAX", capacity: 8000, used: 7621, status: "low" },
-  { name: "Chicago DC", code: "ORD", capacity: 6500, used: 2100, status: "ok" },
-];
+import { useEffect, useState } from "react";
+import { ordersService } from "../../services/orders.service";
+import { warehousesService } from "../../services/warehouses.service";
+import { inventoryService } from "../../services/inventory.service";
 
 export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) {
   const { t } = useLang();
 
-  const totalRevenue = 48320;
-  const pendingShipments = 12;
-  const totalStock = 24571;
-  const lowStockSKUs = 8;
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [warehouseStatus, setWarehouseStatus] = useState<any[]>([]);
+  const [totalStock, setTotalStock] = useState(0);
+  const [lowStockSKUs, setLowStockSKUs] = useState(0);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const pendingShipments = 12; // Placeholder
+
+  useEffect(() => {
+    async function fetchDashboard() {
+      try {
+        const [orders, whs, prods] = await Promise.all([
+          ordersService.getAll(),
+          warehousesService.getAll(),
+          inventoryService.getAll()
+        ]);
+        
+        setRecentOrders(orders.slice(0, 5));
+        setWarehouseStatus(whs.slice(0, 3));
+        
+        setTotalStock(prods.reduce((a: number, p: any) => a + (p.qty_available || 0), 0));
+        setLowStockSKUs(prods.filter((p: any) => p.status === "low").length);
+        
+        const rev = orders.filter((o: any) => o.status !== "cancelled" && o.status !== "pending").reduce((a: number, o: any) => a + (o.total || 0), 0);
+        setTotalRevenue(rev);
+      } catch (e) {
+        console.error("Dashboard fetch error", e);
+      }
+    }
+    fetchDashboard();
+  }, []);
 
   const quickActions = [
     { label: "Create order", icon: ShoppingCart, page: "orders" },
@@ -75,15 +90,15 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
               </tr>
             </thead>
             <tbody>
-              {recentOrders.map((order, i) => (
-                <tr key={order.id} className="border-t border-border animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
-                  <td className="px-4 py-2.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{order.order_number}</td>
-                  <td className="px-4 py-2.5 font-medium">{order.customer}</td>
+              {recentOrders.map((o, i) => (
+                <tr key={o._id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                  <td className="py-3 px-2 font-medium" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.875rem" }}>{o.orderId}</td>
+                  <td className="px-4 py-2.5 font-medium">{o.customer}</td>
                   <td className="px-4 py-2.5 hidden sm:table-cell">
-                    <span className="text-xs text-muted-foreground uppercase bg-secondary px-2 py-0.5 rounded">{order.channel}</span>
+                    <span className="text-xs text-muted-foreground uppercase bg-secondary px-2 py-0.5 rounded">{o.channel}</span>
                   </td>
-                  <td className="px-4 py-2.5"><StatusBadge status={order.status} /></td>
-                  <td className="px-4 py-2.5 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{order.total.toFixed(2)}</td>
+                  <td className="px-4 py-2.5"><StatusBadge status={o.status} /></td>
+                  <td className="px-4 py-2.5 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{o.total.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -118,7 +133,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
               <Warehouse className="size-4" /> {t.dashboard.warehouseUtil}
             </h3>
             <div className="space-y-3">
-              {warehouseStatus.map((w) => {
+              {warehouseStatus.map((w: any, i) => {
                 const pct = Math.round((w.used / w.capacity) * 100);
                 const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
                 return (

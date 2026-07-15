@@ -5,18 +5,10 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const allOrders = [
-  { id: "1", order_number: "ORD-00183", customer: "Apex Industries", email: "orders@apex.io", status: "processing", total: 2341.00, items: 5, channel: "web", date: "2026-06-26", warehouse: "MIA" },
-  { id: "2", order_number: "ORD-00182", customer: "Blue Horizon LLC", email: "bh@bluehorizon.com", status: "shipped", total: 876.50, items: 2, channel: "api", date: "2026-06-25", warehouse: "LAX" },
-  { id: "3", order_number: "ORD-00181", customer: "Nova Retail Group", email: "purchasing@novaretail.com", status: "delivered", total: 4120.00, items: 10, channel: "web", date: "2026-06-24", warehouse: "ORD" },
-  { id: "4", order_number: "ORD-00180", customer: "Summit Supply Co.", email: "supply@summit.co", status: "pending", total: 639.99, items: 3, channel: "mobile", date: "2026-06-24", warehouse: "MIA" },
-  { id: "5", order_number: "ORD-00179", customer: "Crestline Corp", email: "c@crestline.corp", status: "processing", total: 1887.25, items: 7, channel: "api", date: "2026-06-23", warehouse: "DAL" },
-  { id: "6", order_number: "ORD-00178", customer: "TechFlow Systems", email: "ops@techflow.com", status: "delivered", total: 3250.00, items: 8, channel: "web", date: "2026-06-22", warehouse: "LAX" },
-  { id: "7", order_number: "ORD-00177", customer: "Pacific Goods Inc.", email: "pg@pacific.biz", status: "cancelled", total: 420.00, items: 1, channel: "web", date: "2026-06-21", warehouse: "SEA" },
-  { id: "8", order_number: "ORD-00176", customer: "EastCoast Supplies", email: "ec@eastcoast.com", status: "shipped", total: 5100.00, items: 12, channel: "api", date: "2026-06-20", warehouse: "JFK" },
-  { id: "9", order_number: "ORD-00175", customer: "Red Rock Trading", email: "rr@redrock.trade", status: "delivered", total: 789.50, items: 4, channel: "web", date: "2026-06-19", warehouse: "DAL" },
-  { id: "10", order_number: "ORD-00174", customer: "Sigma Wholesale", email: "admin@sigma.ws", status: "processing", total: 6780.00, items: 20, channel: "api", date: "2026-06-18", warehouse: "ORD" },
-];
+import { useEffect } from "react";
+import { ordersService } from "../../services/orders.service";
+
+type Order = { _id: string; orderId: string; customer: string; email: string; channel: string; warehouse: string; items: number; total: number; status: string; date: string; notes: string; };
 
 const statusFilters = ["All", "pending", "processing", "shipped", "delivered", "cancelled"];
 
@@ -24,24 +16,46 @@ const blankOrder = () => ({ customer: "", email: "", channel: "web", warehouse: 
 
 export function Orders() {
   const { t } = useLang();
-  const [orders, setOrders] = useState(allOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankOrder());
+  const [isLoading, setIsLoading] = useState(true);
 
-  function handleCreate() {
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await ordersService.getAll();
+      setOrders(data);
+    } catch (err) {
+      toast.error("Failed to load orders");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleCreate() {
     if (!form.customer || !form.email) { toast.error("Customer name and email required."); return; }
     const num = `ORD-${String(orders.length + 184).padStart(5, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
-    setOrders((prev) => [...prev, { id: String(Date.now()), order_number: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse }]);
-    toast.success(`${t.orders.orderCreated}: ${num} for ${form.customer}.`);
-    setShowAdd(false);
-    setForm(blankOrder());
+    try {
+      await ordersService.create({ orderId: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse });
+      toast.success(`${t.orders.orderCreated}: ${num} for ${form.customer}.`);
+      setShowAdd(false);
+      setForm(blankOrder());
+      loadData();
+    } catch (err) {
+      toast.error("Failed to create order");
+    }
   }
 
   const filtered = orders.filter((o) => {
-    const matchSearch = o.order_number.toLowerCase().includes(search.toLowerCase()) || o.customer.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = o.orderId?.toLowerCase().includes(search.toLowerCase()) || o.customer?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "All" || o.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -55,7 +69,7 @@ export function Orders() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.orders.totalOrders, value: allOrders.length, icon: ShoppingCart, color: "text-primary" },
+          { label: t.orders.totalOrders, value: orders.length, icon: ShoppingCart, color: "text-primary" },
           { label: t.orders.pending, value: pendingCount, icon: Package, color: "text-warning" },
           { label: t.orders.processing, value: processingCount, icon: Package, color: "text-blue-500" },
           { label: t.orders.totalRevenue, value: `€${(totalRevenue / 1000).toFixed(1)}k`, icon: Package, color: "text-success" },
@@ -114,8 +128,8 @@ export function Orders() {
           </thead>
           <tbody>
             {filtered.map((o, i) => (
-              <tr key={o.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
-                <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{o.order_number}</td>
+              <tr key={o._id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
+                <td className="px-4 py-3 font-medium text-primary" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.875rem" }}>{o.orderId}</td>
                 <td className="px-4 py-3">
                   <div className="font-medium">{o.customer}</div>
                   <div className="text-xs text-muted-foreground">{o.email}</div>

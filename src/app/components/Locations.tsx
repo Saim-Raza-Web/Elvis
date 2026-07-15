@@ -5,31 +5,13 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
+import { useEffect } from "react";
+import { locationsService } from "../../services/locations.service";
+
 const whList = ["MIA", "LAX", "ORD", "JFK", "DAL"];
 
-const initialZones = [
-  { code: "RECV-A", name: "Receiving Zone A", type: "receiving", warehouse: "MIA", locations: 12, occupied: 8, capacity: 500 },
-  { code: "RECV-B", name: "Receiving Zone B", type: "receiving", warehouse: "MIA", locations: 8, occupied: 3, capacity: 300 },
-  { code: "PICK-A", name: "Picking Zone A", type: "picking", warehouse: "MIA", locations: 24, occupied: 20, capacity: 1200 },
-  { code: "PICK-B", name: "Picking Zone B", type: "picking", warehouse: "LAX", locations: 30, occupied: 28, capacity: 1800 },
-  { code: "BULK-A", name: "Bulk Storage A", type: "storage", warehouse: "MIA", locations: 40, occupied: 32, capacity: 8000 },
-  { code: "BULK-B", name: "Bulk Storage B", type: "storage", warehouse: "LAX", locations: 60, occupied: 58, capacity: 12000 },
-  { code: "PACK-1", name: "Packing Station 1", type: "packing", warehouse: "MIA", locations: 6, occupied: 2, capacity: 0 },
-  { code: "PACK-2", name: "Packing Station 2", type: "packing", warehouse: "LAX", locations: 6, occupied: 1, capacity: 0 },
-  { code: "SHIP-A", name: "Shipping Area A", type: "shipping", warehouse: "MIA", locations: 10, occupied: 6, capacity: 400 },
-  { code: "RETURN-A", name: "Returns Area A", type: "returns", warehouse: "MIA", locations: 8, occupied: 3, capacity: 200 },
-  { code: "BLOCK-A", name: "Blocked Stock A", type: "blocked", warehouse: "ORD", locations: 5, occupied: 2, capacity: 100 },
-  { code: "PALLET-A", name: "Pallet Storage A", type: "pallet", warehouse: "ORD", locations: 20, occupied: 14, capacity: 3000 },
-];
-
-const initialLocations = [
-  { code: "MIA-PICK-A-01-A", zone: "PICK-A", aisle: "01", shelf: "A", bin: "01", sku: "SKU-1001", product: "Premium Widget Alpha", qty: 48, capacity: 100, status: "ok" },
-  { code: "MIA-PICK-A-01-B", zone: "PICK-A", aisle: "01", shelf: "B", bin: "01", sku: "SKU-1006", product: "Precision Sensor Module", qty: 12, capacity: 50, status: "low" },
-  { code: "MIA-BULK-A-03-A", zone: "BULK-A", aisle: "03", shelf: "A", bin: "01", sku: "SKU-1003", product: "Steel Bracket Type-C", qty: 840, capacity: 1000, status: "ok" },
-  { code: "MIA-BULK-A-03-B", zone: "BULK-A", aisle: "03", shelf: "B", bin: "01", sku: "SKU-1005", product: "Nylon Cable Tie 500mm", qty: 2400, capacity: 3000, status: "ok" },
-  { code: "MIA-RECV-A-01-A", zone: "RECV-A", aisle: "01", shelf: "A", bin: "01", sku: null, product: null, qty: 0, capacity: 200, status: "ok" },
-  { code: "ORD-BLOCK-A-01-A", zone: "BLOCK-A", aisle: "01", shelf: "A", bin: "01", sku: "SKU-1004", product: "Lithium Battery Pack 12V", qty: 8, capacity: 50, status: "blocked" },
-];
+type Zone = { _id: string; code: string; name: string; type: string; warehouse: string; locations: number; occupied: number; capacity: number; };
+type Loc = { _id: string; code: string; zone: string; aisle: string; shelf: string; bin: string; sku: string | null; product: string | null; qty: number; capacity: number; status: string; };
 
 const zoneTypeColor: Record<string, string> = {
   receiving: "bg-blue-500/15 text-blue-500",
@@ -44,8 +26,8 @@ const zoneTypeColor: Record<string, string> = {
 
 export function Locations() {
   const { t } = useLang();
-  const [zones, setZones] = useState(initialZones);
-  const [locs, setLocs] = useState(initialLocations);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [locs, setLocs] = useState<Loc[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState("MIA");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"zones" | "locations">("zones");
@@ -57,6 +39,24 @@ export function Locations() {
   // Add Location modal
   const [showLoc, setShowLoc] = useState(false);
   const [locForm, setLocForm] = useState({ zone: "PICK-A", aisle: "", shelf: "", bin: "", sku: "", product: "", capacity: 100 });
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await locationsService.getAll();
+      setLocs(data.locations || []);
+      setZones(data.zones || []);
+    } catch (err) {
+      toast.error("Failed to load locations data");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const filteredZones = zones.filter(
     (z) => z.warehouse === selectedWarehouse &&
@@ -69,21 +69,25 @@ export function Locations() {
       (l.product ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
-  function handleAddZone() {
-    if (!zoneForm.code || !zoneForm.name) { toast.error("Zone code and name required."); return; }
-    setZones((prev) => [...prev, { ...zoneForm, occupied: 0 }]);
-    toast.success(`${t.locations.zoneCreated}: ${zoneForm.code}`);
-    setShowZone(false);
-    setZoneForm({ code: "", name: "", type: "storage", warehouse: "MIA", locations: 10, capacity: 1000 });
+  async function handleAddZone() {
+    if (!zoneForm.code || !zoneForm.name) return;
+    try {
+      await locationsService.create({ ...zoneForm, isZone: true });
+      toast.success(`${t.locations.zoneCreated}: ${zoneForm.code}`);
+      setShowZone(false);
+      loadData();
+    } catch (e) { toast.error("Failed to add zone"); }
   }
 
-  function handleAddLoc() {
-    if (!locForm.aisle || !locForm.shelf) { toast.error("Aisle and shelf are required."); return; }
-    const code = `${locForm.zone}-${locForm.aisle}-${locForm.shelf}-${locForm.bin || "01"}`;
-    setLocs((prev) => [...prev, { code, zone: locForm.zone, aisle: locForm.aisle, shelf: locForm.shelf, bin: locForm.bin || "01", sku: locForm.sku || null, product: locForm.product || null, qty: 0, capacity: locForm.capacity, status: "ok" }]);
-    toast.success(`${t.locations.locCreated}: ${code}`);
-    setShowLoc(false);
-    setLocForm({ zone: "PICK-A", aisle: "", shelf: "", bin: "", sku: "", product: "", capacity: 100 });
+  async function handleAddLoc() {
+    if (!locForm.aisle || !locForm.shelf || !locForm.bin) return;
+    const code = `${selectedWarehouse}-${locForm.zone}-${locForm.aisle}-${locForm.shelf}`;
+    try {
+      await locationsService.create({ ...locForm, code, qty: 0, status: "ok" });
+      toast.success(`${t.locations.locationCreated}: ${code}`);
+      setShowLoc(false);
+      loadData();
+    } catch (e) { toast.error("Failed to add location"); }
   }
 
   return (
@@ -93,7 +97,7 @@ export function Locations() {
         {[
           { label: t.locations.totalZones, value: zones.length, icon: MapPin, color: "text-primary" },
           { label: t.locations.totalLocations, value: zones.reduce((a, z) => a + z.locations, 0), icon: Boxes, color: "text-blue-500" },
-          { label: t.locations.occupied, value: `${Math.round(zones.reduce((a, z) => a + z.occupied, 0) / zones.reduce((a, z) => a + z.locations, 0) * 100)}%`, icon: Warehouse, color: "text-amber-500" },
+          { label: t.locations.occupied, value: `${Math.round(zones.reduce((a, z) => a + z.occupied, 0) / (zones.reduce((a, z) => a + z.locations, 0) || 1) * 100)}%`, icon: Warehouse, color: "text-amber-500" },
           { label: t.locations.lowBlocked, value: locs.filter((l) => l.status === "low" || l.status === "blocked").length, icon: AlertTriangle, color: "text-destructive" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
@@ -129,7 +133,7 @@ export function Locations() {
             const pct = Math.round((zone.occupied / zone.locations) * 100);
             const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
             return (
-              <div key={zone.code} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
+              <div key={zone._id || i} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
@@ -176,7 +180,7 @@ export function Locations() {
             </thead>
             <tbody>
               {filteredLocs.map((loc, i) => (
-                <tr key={loc.code} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
+                <tr key={loc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                   <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{loc.code}</td>
                   <td className="px-4 py-3 hidden md:table-cell"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${zoneTypeColor[zones.find((z) => z.code === loc.zone)?.type ?? "storage"]}`}>{loc.zone}</span></td>
                   <td className="px-4 py-3">

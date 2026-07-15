@@ -1,0 +1,58 @@
+import fs from 'fs';
+import path from 'path';
+
+const models = {
+  User: `import mongoose from 'mongoose';\n\nconst userSchema = new mongoose.Schema({\n  email: { type: String, required: true, unique: true },\n  password: { type: String, required: true },\n  name: { type: String },\n  role: { type: String, enum: ['admin', 'manager', 'warehouse_staff'], default: 'warehouse_staff' },\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('User', userSchema);`,
+  
+  Company: `import mongoose from 'mongoose';\n\nconst companySchema = new mongoose.Schema({\n  name: { type: String, required: true },\n  plan: { type: String, enum: ['starter', 'professional', 'enterprise'], default: 'starter' },\n  users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],\n  warehouses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' }]\n}, { timestamps: true });\n\nexport default mongoose.model('Company', companySchema);`,
+  
+  Warehouse: `import mongoose from 'mongoose';\n\nconst warehouseSchema = new mongoose.Schema({\n  name: { type: String, required: true },\n  code: { type: String, required: true, unique: true },\n  location: { type: String },\n  country: { type: String },\n  capacity: { type: Number },\n  used: { type: Number },\n  status: { type: String },\n  manager: { type: String },\n  temp: { type: String },\n  zones: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Zone' }],\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Warehouse', warehouseSchema);`,
+  
+  Zone: `import mongoose from 'mongoose';\n\nconst zoneSchema = new mongoose.Schema({\n  code: { type: String, required: true },\n  name: { type: String },\n  type: { type: String },\n  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  locations: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Location' }],\n  occupied: { type: Number },\n  capacity: { type: Number }\n}, { timestamps: true });\n\nexport default mongoose.model('Zone', zoneSchema);`,
+
+  Location: `import mongoose from 'mongoose';\n\nconst locationSchema = new mongoose.Schema({\n  code: { type: String, required: true },\n  zone: { type: mongoose.Schema.Types.ObjectId, ref: 'Zone' },\n  aisle: String,\n  shelf: String,\n  bin: String,\n  sku: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },\n  qty: Number,\n  capacity: Number,\n  status: String\n}, { timestamps: true });\n\nexport default mongoose.model('Location', locationSchema);`,
+
+  Product: `import mongoose from 'mongoose';\n\nconst productSchema = new mongoose.Schema({\n  sku: { type: String, required: true, unique: true },\n  name: String,\n  category: String,\n  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  price: Number,\n  qty_available: Number,\n  qty_reserved: Number,\n  qty_blocked: Number,\n  qty_ecommerce: Number,\n  qty_customer_owned: Number,\n  status: String,\n  owner: String,\n  reorder_point: Number,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Product', productSchema);`,
+
+  ASN: `import mongoose from 'mongoose';\n\nconst asnSchema = new mongoose.Schema({\n  asnId: { type: String, required: true, unique: true },\n  supplier: String,\n  origin: String,\n  carrier: String,\n  sku_count: Number,\n  expected_units: Number,\n  status: String,\n  expected_date: Date,\n  po: String,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('ASN', asnSchema);`,
+
+  Receipt: `import mongoose from 'mongoose';\n\nconst receiptSchema = new mongoose.Schema({\n  receiptId: { type: String, required: true, unique: true },\n  asn: { type: mongoose.Schema.Types.ObjectId, ref: 'ASN' },\n  sku: String,\n  product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },\n  expected: Number,\n  received: Number,\n  discrepancy: Number,\n  condition: String,\n  zone: String,\n  timestamp: Date\n}, { timestamps: true });\n\nexport default mongoose.model('Receipt', receiptSchema);`,
+
+  Transfer: `import mongoose from 'mongoose';\n\nconst transferSchema = new mongoose.Schema({\n  transferId: { type: String, required: true, unique: true },\n  sku: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },\n  product: String,\n  qty: Number,\n  from_wh: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  from_loc: String,\n  to_wh: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  to_loc: String,\n  status: String,\n  type: String,\n  requestedBy: String,\n  date: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Transfer', transferSchema);`,
+
+  PickTask: `import mongoose from 'mongoose';\n\nconst pickTaskSchema = new mongoose.Schema({\n  taskId: { type: String, required: true, unique: true },\n  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },\n  priority: String,\n  status: String,\n  assignee: String,\n  items: Number,\n  picked: Number,\n  zone: String,\n  started: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('PickTask', pickTaskSchema);`,
+
+  PackTask: `import mongoose from 'mongoose';\n\nconst packTaskSchema = new mongoose.Schema({\n  packId: { type: String, required: true, unique: true },\n  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },\n  customer: String,\n  items: Number,\n  picked: Number,\n  station: String,\n  priority: String,\n  status: String,\n  boxType: String,\n  weight: String,\n  material: String,\n  labelPrinted: Boolean,\n  weighed: Boolean,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('PackTask', packTaskSchema);`,
+
+  Order: `import mongoose from 'mongoose';\n\nconst orderSchema = new mongoose.Schema({\n  orderId: { type: String, required: true, unique: true },\n  customer: String,\n  email: String,\n  channel: String,\n  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  items: Number,\n  total: Number,\n  status: String,\n  notes: String,\n  date: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Order', orderSchema);`,
+
+  Shipment: `import mongoose from 'mongoose';\n\nconst shipmentSchema = new mongoose.Schema({\n  shipmentId: { type: String, required: true, unique: true },\n  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },\n  customer: String,\n  carrier: String,\n  tracking: String,\n  origin: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  destination: String,\n  status: String,\n  weight: String,\n  date: Date,\n  eta: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Shipment', shipmentSchema);`,
+
+  Return: `import mongoose from 'mongoose';\n\nconst returnSchema = new mongoose.Schema({\n  returnId: { type: String, required: true, unique: true },\n  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },\n  customer: String,\n  reason: String,\n  items: Number,\n  amount: Number,\n  status: String,\n  date: Date,\n  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Return', returnSchema);`,
+
+  Customer: `import mongoose from 'mongoose';\n\nconst customerSchema = new mongoose.Schema({\n  name: String,\n  contact: String,\n  email: String,\n  phone: String,\n  country: String,\n  orders: Number,\n  total_spend: Number,\n  status: String,\n  tier: String,\n  last_activity: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Customer', customerSchema);`,
+
+  Lead: `import mongoose from 'mongoose';\n\nconst leadSchema = new mongoose.Schema({\n  leadId: { type: String, required: true, unique: true },\n  name: String,\n  contact: String,\n  email: String,\n  value: Number,\n  stage: String,\n  probability: Number,\n  assignee: String,\n  last_contact: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Lead', leadSchema);`,
+
+  Invoice: `import mongoose from 'mongoose';\n\nconst invoiceSchema = new mongoose.Schema({\n  invoiceId: { type: String, required: true, unique: true },\n  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },\n  amount: Number,\n  status: String,\n  issued: Date,\n  due: Date,\n  items: Number,\n  notes: String,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Invoice', invoiceSchema);`,
+
+  Transaction: `import mongoose from 'mongoose';\n\nconst transactionSchema = new mongoose.Schema({\n  txnId: { type: String, required: true, unique: true },\n  date: Date,\n  description: String,\n  type: String,\n  amount: Number,\n  account: String,\n  category: String,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Transaction', transactionSchema);`,
+
+  Carrier: `import mongoose from 'mongoose';\n\nconst carrierSchema = new mongoose.Schema({\n  name: String,\n  type: String,\n  status: String,\n  account: String,\n  on_time: String,\n  cost_avg: String,\n  shipments_mtd: Number,\n  regions: [String],\n  label: Boolean,\n  tracking: Boolean,\n  features: [String],\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('Carrier', carrierSchema);`,
+
+  CarrierRule: `import mongoose from 'mongoose';\n\nconst carrierRuleSchema = new mongoose.Schema({\n  name: String,\n  condition: String,\n  carrier: { type: mongoose.Schema.Types.ObjectId, ref: 'Carrier' },\n  active: Boolean,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('CarrierRule', carrierRuleSchema);`,
+
+  EcommerceChannel: `import mongoose from 'mongoose';\n\nconst ecommerceChannelSchema = new mongoose.Schema({\n  name: String,\n  platform: String,\n  url: String,\n  apiKey: String,\n  status: String,\n  orders_today: Number,\n  synced_at: Date,\n  products: Number,\n  pending_sync: Number,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('EcommerceChannel', ecommerceChannelSchema);`,
+
+  ActivityLog: `import mongoose from 'mongoose';\n\nconst activityLogSchema = new mongoose.Schema({\n  logId: { type: String, required: true, unique: true },\n  user: String,\n  role: String,\n  action: String,\n  module: String,\n  detail: String,\n  ip: String,\n  timestamp: Date,\n  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }\n}, { timestamps: true });\n\nexport default mongoose.model('ActivityLog', activityLogSchema);`
+};
+
+const modelsDir = path.join(process.cwd(), 'server', 'models');
+if (!fs.existsSync(modelsDir)) {
+  fs.mkdirSync(modelsDir, { recursive: true });
+}
+
+for (const [name, content] of Object.entries(models)) {
+  fs.writeFileSync(path.join(modelsDir, name + '.js'), content);
+}
+console.log('✅ Created 22 Mongoose models');

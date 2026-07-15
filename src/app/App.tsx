@@ -5,6 +5,8 @@ import { AppShell, PrimaryButton } from "./components/AppShell";
 import type { Page } from "./components/AppShell";
 import { LangProvider, useLang } from "./LangContext";
 import type { Lang } from "./i18n";
+import { HomePage } from "./components/HomePage";
+import { LoginPage } from "./components/LoginPage";
 import { Dashboard } from "./components/Dashboard";
 import { Warehouses } from "./components/Warehouses";
 import { Locations } from "./components/Locations";
@@ -26,11 +28,24 @@ import { Subscription } from "./components/Subscription";
 import { Settings } from "./components/Settings";
 import { ActivityLog } from "./components/ActivityLog";
 import { Admin } from "./components/Admin";
+import { authService } from "../services/auth.service";
+
+// Screen states
+type Screen = "home" | "login" | "app";
 
 export default function App() {
+  const [screen, setScreen] = useState<Screen>("home");
+  const [loginMode, setLoginMode] = useState<"login" | "signup">("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [isDark, setIsDark] = useState(true);
   const [lang, setLang] = useState<Lang>("en");
+
+  // Restore session from localStorage via authService
+  useEffect(() => {
+    if (authService.isAuthenticated()) {
+      setScreen("app");
+    }
+  }, []);
 
   useEffect(() => {
     if (isDark) {
@@ -39,6 +54,45 @@ export default function App() {
       document.documentElement.classList.remove("dark");
     }
   }, [isDark]);
+
+  function handleLoginSuccess() {
+    setScreen("app");
+    setCurrentPage("dashboard");
+  }
+
+  function handleLogout() {
+    authService.logout();
+    setScreen("home");
+  }
+
+  if (screen === "home") {
+    return (
+      <LangProvider lang={lang}>
+        <Toaster position="bottom-right" richColors />
+        <HomePage
+          lang={lang}
+          setLang={setLang}
+          onLogin={() => { setLoginMode("login"); setScreen("login"); }}
+          onEnterApp={() => { setLoginMode("signup"); setScreen("login"); }}
+        />
+      </LangProvider>
+    );
+  }
+
+  if (screen === "login") {
+    return (
+      <LangProvider lang={lang}>
+        <Toaster position="bottom-right" richColors />
+        <LoginPage
+          lang={lang}
+          setLang={setLang}
+          initialMode={loginMode}
+          onSuccess={handleLoginSuccess}
+          onBack={() => setScreen("home")}
+        />
+      </LangProvider>
+    );
+  }
 
   return (
     <LangProvider lang={lang}>
@@ -50,13 +104,14 @@ export default function App() {
         setIsDark={setIsDark}
         lang={lang}
         setLang={setLang}
+        onLogout={handleLogout}
       />
     </LangProvider>
   );
 }
 
 function AppInner({
-  currentPage, setCurrentPage, isDark, setIsDark, lang, setLang,
+  currentPage, setCurrentPage, isDark, setIsDark, lang, setLang, onLogout,
 }: {
   currentPage: Page;
   setCurrentPage: (p: Page) => void;
@@ -64,6 +119,7 @@ function AppInner({
   setIsDark: (v: boolean) => void;
   lang: Lang;
   setLang: (l: Lang) => void;
+  onLogout: () => void;
 }) {
   const { t } = useLang();
   const p = t.pages[currentPage as keyof typeof t.pages] ?? { title: currentPage, sub: "" };
@@ -120,6 +176,7 @@ function AppInner({
       pageTitle={p.title}
       pageSubtitle={p.sub}
       pageActions={pageActions[currentPage]}
+      onLogout={onLogout}
     >
       {renderPage()}
     </AppShell>

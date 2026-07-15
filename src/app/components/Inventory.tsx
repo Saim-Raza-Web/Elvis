@@ -5,27 +5,15 @@ import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-type Product = { id: string; sku: string; name: string; category: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string };
+import { useEffect } from "react";
+import { inventoryService } from "../../services/inventory.service";
 
-const products = [
-  { id: "1", sku: "SKU-1001", name: "Premium Widget Alpha", category: "Widgets", qty_available: 1200, qty_reserved: 40, qty_blocked: 0, qty_ecommerce: 200, qty_customer: 0, owner: "internal", price: 45.99, warehouse: "MIA", status: "ok" },
-  { id: "2", sku: "SKU-1002", name: "Industrial Bolt Set (100pk)", category: "Hardware", qty_available: 15, qty_reserved: 0, qty_blocked: 0, qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 12.50, warehouse: "LAX", status: "low" },
-  { id: "3", sku: "SKU-1003", name: "Steel Bracket Type-C", category: "Hardware", qty_available: 3300, qty_reserved: 100, qty_blocked: 0, qty_ecommerce: 0, qty_customer: 500, owner: "mixed", price: 8.75, warehouse: "ORD", status: "ok" },
-  { id: "4", sku: "SKU-1004", name: "Lithium Battery Pack 12V", category: "Electronics", qty_available: 80, qty_reserved: 8, qty_blocked: 8, qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 89.00, warehouse: "MIA", status: "low" },
-  { id: "5", sku: "SKU-1005", name: "Nylon Cable Tie 500mm", category: "Accessories", qty_available: 5200, qty_reserved: 400, qty_blocked: 0, qty_ecommerce: 800, qty_customer: 0, owner: "internal", price: 0.25, warehouse: "DAL", status: "ok" },
-  { id: "6", sku: "SKU-1006", name: "Precision Sensor Module", category: "Electronics", qty_available: 312, qty_reserved: 8, qty_blocked: 0, qty_ecommerce: 80, qty_customer: 0, owner: "internal", price: 129.99, warehouse: "LAX", status: "ok" },
-  { id: "7", sku: "SKU-1007", name: "Hydraulic Pump A300", category: "Industrial", qty_available: 12, qty_reserved: 0, qty_blocked: 0, qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 450.00, warehouse: "DAL", status: "low" },
-  { id: "8", sku: "SKU-1008", name: "Foam Packing Material", category: "Packaging", qty_available: 8000, qty_reserved: 200, qty_blocked: 0, qty_ecommerce: 0, qty_customer: 1200, owner: "customer", price: 1.10, warehouse: "JFK", status: "ok" },
-  { id: "9", sku: "SKU-1009", name: "Stainless Hex Bolt M8", category: "Hardware", qty_available: 11800, qty_reserved: 200, qty_blocked: 0, qty_ecommerce: 0, qty_customer: 3000, owner: "customer", price: 0.08, warehouse: "ORD", status: "ok" },
-  { id: "10", sku: "SKU-1010", name: "Network Switch 24-port", category: "Electronics", qty_available: 7, qty_reserved: 0, qty_blocked: 2, qty_ecommerce: 4, qty_customer: 0, owner: "internal", price: 299.99, warehouse: "LAX", status: "low" },
-  { id: "11", sku: "SKU-1011", name: "LED Strip Light 5m", category: "Electronics", qty_available: 430, qty_reserved: 20, qty_blocked: 0, qty_ecommerce: 120, qty_customer: 0, owner: "internal", price: 18.50, warehouse: "MIA", status: "ok" },
-  { id: "12", sku: "SKU-1012", name: "Pallet Jack Manual", category: "Industrial", qty_available: 3, qty_reserved: 0, qty_blocked: 0, qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 850.00, warehouse: "ORD", status: "low" },
-];
+type Product = { _id: string; sku: string; name: string; category: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string };
 
 const categories = ["All", "Widgets", "Hardware", "Electronics", "Industrial", "Accessories", "Packaging"];
 
 
-const blankProduct = (): Omit<Product, "id"> => ({
+const blankProduct = (): Omit<Product, "_id"> => ({
   sku: "", name: "", category: "Widgets", qty_available: 0, qty_reserved: 0, qty_blocked: 0,
   qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 0, warehouse: "MIA", status: "ok",
 });
@@ -40,7 +28,7 @@ export function Inventory() {
     { id: "ecommerce", label: t.inventory.ecommerce, icon: Globe },
     { id: "customer", label: t.inventory.customerOwned, icon: Users },
   ];
-  const [productList, setProductList] = useState<Product[]>(products.map((p, i) => ({ ...p, id: String(i + 1) })));
+  const [productList, setProductList] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [filterLow, setFilterLow] = useState(false);
@@ -49,19 +37,41 @@ export function Inventory() {
   const [editTarget, setEditTarget] = useState<Product | null>(null);
   const [form, setForm] = useState(blankProduct());
 
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await inventoryService.getAll();
+      setProductList(data);
+    } catch (err) {
+      toast.error("Failed to load inventory");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
   function openAdd() { setForm(blankProduct()); setShowAdd(true); }
   function openEdit(p: Product) { setEditTarget(p); setForm({ ...p }); }
-  function handleSave() {
+  async function handleSave() {
     if (!form.sku || !form.name) { toast.error("SKU and name are required."); return; }
-    if (showAdd) {
-      if (productList.find((p) => p.sku === form.sku)) { toast.error("SKU already exists."); return; }
-      setProductList((prev) => [...prev, { ...form, id: String(Date.now()), status: form.qty_available <= 20 ? "low" : "ok" }]);
-      toast.success(`"${form.name}" added to inventory.`);
-      setShowAdd(false);
-    } else if (editTarget) {
-      setProductList((prev) => prev.map((p) => p.id === editTarget.id ? { ...p, ...form, status: form.qty_available <= 20 ? "low" : "ok" } : p));
-      toast.success(`"${form.name}" updated.`);
-      setEditTarget(null);
+    try {
+      if (showAdd) {
+        await inventoryService.create({ ...form, status: form.qty_available <= 20 ? "low" : "ok" });
+        toast.success(`"${form.name}" added to inventory.`);
+        setShowAdd(false);
+      } else if (editTarget) {
+        await inventoryService.update(editTarget._id, { ...form, status: form.qty_available <= 20 ? "low" : "ok" });
+        toast.success(`"${form.name}" updated.`);
+        setEditTarget(null);
+      }
+      loadData();
+    } catch (err) {
+      toast.error("Failed to save product");
     }
   }
 
@@ -97,7 +107,7 @@ export function Inventory() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.inventory.totalSKUs, value: products.length, icon: Boxes, color: "text-primary" },
+          { label: t.inventory.totalSKUs, value: productList.length, icon: Boxes, color: "text-primary" },
           { label: t.inventory.lowStock, value: lowCount, icon: AlertTriangle, color: "text-destructive" },
           { label: t.inventory.reservedUnits, value: totalReserved.toLocaleString(), icon: Lock, color: "text-warning" },
           { label: t.inventory.inventoryValue, value: `€${(totalValue / 1000).toFixed(0)}k`, icon: TrendingDown, color: "text-amber-500" },
@@ -157,7 +167,7 @@ export function Inventory() {
           </thead>
           <tbody>
             {filtered.map((p, i) => (
-              <tr key={p.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
+              <tr key={p._id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                 <td className="px-4 py-3 text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{p.sku}</td>
                 <td className="px-4 py-3 font-medium">{p.name}</td>
                 <td className="px-4 py-3 hidden md:table-cell"><span className="text-xs bg-secondary px-2 py-0.5 rounded">{p.category}</span></td>

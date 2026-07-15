@@ -10,6 +10,7 @@ import {
 import type { Lang } from "../i18n";
 import { useT } from "../i18n";
 import { useLang } from "../LangContext";
+import { authService } from "../../services/auth.service";
 
 export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "transfers" | "picking" | "packing"
@@ -104,13 +105,14 @@ interface AppShellProps {
   children: React.ReactNode;
   lang: Lang;
   setLang: (l: Lang) => void;
+  onLogout?: () => void;
 }
 
 export function AppShell({
   currentPage, setCurrentPage,
   isDark, setIsDark,
   pageTitle, pageSubtitle, pageActions,
-  children, lang, setLang,
+  children, lang, setLang, onLogout,
 }: AppShellProps) {
   const t = useT(lang);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -121,6 +123,11 @@ export function AppShell({
   const [notifs, setNotifs] = useState(notifications);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [searchVal, setSearchVal] = useState("");
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    setCurrentUser(authService.getCurrentUser());
+  }, []);
 
   const unread = notifs.filter((n) => !n.read_at).length;
   const navSections = buildNavSections(t.nav);
@@ -270,20 +277,20 @@ export function AppShell({
           </div>
 
           <div className="relative">
-            <button onClick={() => { setUserOpen((v) => !v); setNotifOpen(false); setCompanyOpen(false); }} className="size-9 rounded-full bg-gradient-to-br from-primary to-accent outline outline-1 outline-black/10 hover-scale cursor-pointer grid place-items-center text-xs font-bold text-primary-foreground">
-              DL
+            <button onClick={() => { setUserOpen((v) => !v); setNotifOpen(false); setCompanyOpen(false); }} className="size-9 rounded-full bg-gradient-to-br from-primary to-accent outline outline-1 outline-black/10 hover-scale cursor-pointer grid place-items-center text-xs font-bold text-primary-foreground uppercase">
+              {currentUser?.name ? currentUser.name.substring(0, 2) : (currentUser?.email ? currentUser.email.substring(0, 2) : "DL")}
             </button>
             {userOpen && (
               <div className="absolute top-full right-0 mt-2 w-56 bg-card border border-border rounded-xl shadow-xl p-1 z-50 animate-fade-in-down">
                 <div className="px-3 py-2 text-xs">
-                  <div className="font-semibold truncate">admin@demologistics.io</div>
-                  <div className="text-muted-foreground truncate">{activeCompany.name}</div>
+                  <div className="font-semibold truncate">{currentUser?.email || "admin@demologistics.io"}</div>
+                  <div className="text-muted-foreground truncate">{currentUser?.name || activeCompany.name}</div>
                 </div>
                 <div className="h-px bg-border" />
                 <button onClick={() => navigate("subscription")} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-secondary"><CreditCard className="size-4" /> {t.nav.subscription}</button>
                 <button onClick={() => navigate("settings")} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-secondary"><Settings2 className="size-4" /> {t.nav.settings}</button>
                 <button onClick={() => navigate("activity")} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-secondary"><History className="size-4" /> {t.nav.activity}</button>
-                <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-secondary text-destructive"><LogOut className="size-4" /> {t.common.signOut}</button>
+                <button onClick={() => { setUserOpen(false); onLogout?.(); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-secondary text-destructive"><LogOut className="size-4" /> {t.common.signOut}</button>
               </div>
             )}
           </div>
