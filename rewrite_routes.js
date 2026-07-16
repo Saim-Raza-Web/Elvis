@@ -1,6 +1,31 @@
-import express from 'express';
+import fs from 'fs';
+import path from 'path';
+
+const routeToModel = {
+  'warehouses': 'Warehouse',
+  'locations': 'Location',
+  'inventory': 'Product',
+  'receiving': 'Receipt',
+  'transfers': 'Transfer',
+  'picking': 'PickTask',
+  'packing': 'PackTask',
+  'orders': 'Order',
+  'ecommerce': 'EcommerceChannel',
+  'shipping': 'Shipment',
+  'carriers': 'Carrier',
+  'returns': 'Return',
+  'crm': 'Customer',
+  'billing': 'Invoice',
+  'accounting': 'Transaction',
+  'activity': 'ActivityLog'
+};
+
+const routesDir = path.join(process.cwd(), 'server', 'routes');
+
+for (const [routeName, modelName] of Object.entries(routeToModel)) {
+  const content = `import express from 'express';
 import { protect } from '../middleware/auth.js';
-import Model from '../models/ActivityLog.js';
+import Model from '../models/${modelName}.js';
 
 const router = express.Router();
 
@@ -60,3 +85,9 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 export default router;
+`;
+
+  fs.writeFileSync(path.join(routesDir, `${routeName}.js`), content);
+}
+
+console.log('Routes successfully rewritten with CRUD logic!');
