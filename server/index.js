@@ -19,11 +19,23 @@ app.use(morgan('dev'));
 // MongoDB Connection
 const MONGO_URI = process.env.MONGO_URI;
 
-mongoose.connect(MONGO_URI)
+mongoose.connect(MONGO_URI, {
+  serverSelectionTimeoutMS: 5000 // fail fast if not connected
+})
   .then(() => console.log('✅ Connected to MongoDB Atlas'))
   .catch(err => {
     console.error('❌ MongoDB connection error:', err.message);
   });
+
+// Database health check middleware
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(500).json({
+      message: 'Database connection failed. Please ensure MONGO_URI is set in Vercel Environment Variables, and that your MongoDB Atlas Network Access is set to allow all IPs (0.0.0.0/0) because Vercel uses dynamic IPs.'
+    });
+  }
+  next();
+});
 
 // Routes
 import authRoutes from './routes/auth.js';
