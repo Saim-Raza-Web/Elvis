@@ -19,22 +19,36 @@ app.use(morgan('dev'));
 // MongoDB Connection
 const MONGO_URI = process.env.MONGO_URI;
 
-mongoose.connect(MONGO_URI, {
-  serverSelectionTimeoutMS: 5000 // fail fast if not connected
-})
-  .then(() => console.log('✅ Connected to MongoDB Atlas'))
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err.message);
-  });
+let cachedDb = global.mongoose;
+if (!cachedDb) {
+  cachedDb = global.mongoose = { conn: null, promise: null };
+}
 
-// Database health check middleware
-app.use((req, res, next) => {
-  if (mongoose.connection.readyState !== 1) {
+async function connectToDatabase() {
+  if (cachedDb.conn) return cachedDb.conn;
+  
+  if (!cachedDb.promise) {
+    cachedDb.promise = mongoose.connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 5000
+    }).then((mongoose) => mongoose);
+  }
+  
+  cachedDb.conn = await cachedDb.promise;
+  return cachedDb.conn;
+}
+
+// Database connection middleware for Serverless
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err);
     return res.status(500).json({
-      message: 'Database connection failed. Please ensure MONGO_URI is set in Vercel Environment Variables, and that your MongoDB Atlas Network Access is set to allow all IPs (0.0.0.0/0) because Vercel uses dynamic IPs.'
+      message: 'Database connection failed. Please ensure MONGO_URI is correctly set in Vercel Environment Variables.',
+      error: err.message
     });
   }
-  next();
 });
 
 // Routes
