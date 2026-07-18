@@ -17,8 +17,11 @@ router.post('/register', async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({ email, password: hashedPassword, name, role: 'admin' });
     
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN
+    const secret = process.env.JWT_SECRET || 'fallback_secret_key';
+    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+
+    const token = jwt.sign({ id: user._id }, secret, {
+      expiresIn
     });
     return res.status(201).json({ token, user });
   } catch (error) {
@@ -41,8 +44,11 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
     
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN
+    const secret = process.env.JWT_SECRET || 'fallback_secret_key';
+    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+
+    const token = jwt.sign({ id: user._id }, secret, {
+      expiresIn
     });
     
     return res.json({ token, user });
