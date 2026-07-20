@@ -8,6 +8,7 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
+import { reportsService } from "../../services/reports.service";
 
 const revenueData = [
   { month: "Jan", revenue: 38200, orders: 62, returns: 3 },
@@ -76,15 +77,25 @@ export function Reports() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [schedForm, setSchedForm] = useState({ report: "overview", freq: "weekly", email: "", format: "pdf" });
 
-  function handleExportPDF() {
-    toast.success(`${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} report exported as PDF — check your downloads.`);
+  async function handleExportPDF() {
+    try {
+      await reportsService.exportPDF(activeTab);
+      toast.success(`${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} report exported as PDF — check your downloads.`);
+    } catch (error) {
+      toast.error("Failed to export report");
+    }
   }
 
-  function handleScheduleReport() {
+  async function handleScheduleReport() {
     if (!schedForm.email) { toast.error("Recipient email is required."); return; }
-    toast.success(`${schedForm.report} report scheduled ${schedForm.freq} → ${schedForm.email}`);
-    setShowSchedule(false);
-    setSchedForm({ report: "overview", freq: "weekly", email: "", format: "pdf" });
+    try {
+      await reportsService.scheduleReport(schedForm);
+      toast.success(`${schedForm.report} report scheduled ${schedForm.freq} → ${schedForm.email}`);
+      setShowSchedule(false);
+      setSchedForm({ report: "overview", freq: "weekly", email: "", format: "pdf" });
+    } catch (error) {
+      toast.error("Failed to schedule report");
+    }
   }
 
   return (

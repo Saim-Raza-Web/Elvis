@@ -1,17 +1,14 @@
 import { useState } from "react";
-import { Globe, Plus, RefreshCw, ShoppingCart, Package, AlertTriangle, CheckCircle2, ArrowUpRight, Zap } from "lucide-react";
+import { Globe, Plus, RefreshCw, ShoppingCart, Package, AlertTriangle, CheckCircle2, ArrowUpRight, Zap, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const channels = [
-  { id: "1", name: "Shopify — demologistics", platform: "Shopify", url: "demologistics.myshopify.com", status: "connected", orders_today: 14, synced_at: "2026-06-26 10:42", products: 1240, pending_sync: 0 },
-  { id: "2", name: "Amazon EU", platform: "Amazon", url: "amazon.co.uk seller", status: "connected", orders_today: 31, synced_at: "2026-06-26 10:38", products: 320, pending_sync: 2 },
-  { id: "3", name: "WooCommerce Store", platform: "WooCommerce", url: "shop.demologistics.io", status: "syncing", orders_today: 5, synced_at: "2026-06-26 10:00", products: 890, pending_sync: 8 },
-  { id: "4", name: "eBay Listings", platform: "eBay", url: "ebay.com/usr/demolog", status: "disconnected", orders_today: 0, synced_at: "2026-06-20 09:00", products: 120, pending_sync: 0 },
-  { id: "5", name: "Mirakl Marketplace", platform: "Mirakl", url: "marketplace.mirakl.net", status: "connected", orders_today: 7, synced_at: "2026-06-26 10:30", products: 450, pending_sync: 1 },
-];
+import { useEffect } from "react";
+import { ecommerceService } from "../../services/ecommerce.service";
+
+type Channel = { _id: string; id: string; name: string; platform: string; url: string; status: string; orders_today: number; synced_at: string; products: number; pending_sync: number };
 
 const platformIcon: Record<string, string> = {
   Shopify: "🟢",
@@ -31,31 +28,87 @@ const recentChannelOrders = [
 
 export function Ecommerce() {
   const { t } = useLang();
-  const [channelList, setChannelList] = useState(channels);
+  const [channelList, setChannelList] = useState<Channel[]>([]);
   const [search, setSearch] = useState("");
   const [showConnect, setShowConnect] = useState(false);
+  const [editMode, setEditMode] = useState<"connect" | "edit">("connect");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [connectForm, setConnectForm] = useState({ name: "", platform: "Shopify", url: "", apiKey: "" });
 
-  function handleConnect() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await ecommerceService.getAll();
+      setChannelList(data.map((d: any) => ({ ...d, id: d._id, synced_at: d.synced_at?.slice(0, 10) || "Never" })));
+    } catch (err) {
+      toast.error("Failed to load ecommerce channels");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleConnect() {
     if (!connectForm.name || !connectForm.url) { toast.error("Channel name and URL required."); return; }
-    setChannelList((prev) => [...prev, { id: String(Date.now()), name: connectForm.name, platform: connectForm.platform, url: connectForm.url, status: "syncing", orders_today: 0, synced_at: "Just now", products: 0, pending_sync: 0 }]);
-    toast.success(`${t.ecommerce.channelConnected}: ${connectForm.name}`);
-    setShowConnect(false);
-    setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" });
+    try {
+      if (editMode === "connect") {
+        await ecommerceService.create({ ...connectForm, status: "connected", orders_today: 0, products: 0, pending_sync: 0, synced_at: new Date().toISOString() });
+        toast.success(`${t.ecommerce.channelConnected}: ${connectForm.name}`);
+      } else {
+        await ecommerceService.update(editingId!, { name: connectForm.name, platform: connectForm.platform, url: connectForm.url });
+        toast.success(`Channel updated: ${connectForm.name}`);
+      }
+      setShowConnect(false);
+      setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" });
+      loadData();
+    } catch (err) { toast.error("Failed to save channel"); }
   }
 
   function handleQuickConnect(platform: string) {
+    setEditMode("connect");
     setConnectForm((f) => ({ ...f, platform, name: platform + " Store" }));
     setShowConnect(true);
   }
 
-  function handleSync(id: string, name: string) {
+  function openEditChannel(ch: Channel) {
+    setEditMode("edit");
+    setEditingId(ch._id);
+    setConnectForm({ name: ch.name, platform: ch.platform, url: ch.url, apiKey: "" });
+    setShowConnect(true);
+  }
+
+  async function handleDeleteChannel(id: string) {
+    if (!confirm("Remove this channel?")) return;
+    try {
+      await ecommerceService.delete(id);
+      toast.success("Channel removed.");
+      loadData();
+    } catch (err) { toast.error("Failed to delete channel"); }
+  }
+
+  async function handleSync(id: string, name: string) {
     toast.info(`${t.ecommerce.syncStarted} ${name}…`);
-    setTimeout(() => toast.success(`${name} ${t.ecommerce.syncCompleted}.`), 1500);
+    try {
+      await ecommerceService.update(id, { status: "syncing" });
+      loadData();
+      
+      setTimeout(async () => {
+        await ecommerceService.update(id, { status: "connected", synced_at: new Date().toISOString(), pending_sync: 0 });
+        toast.success(`${name} ${t.ecommerce.syncCompleted}.`);
+        loadData();
+      }, 1500);
+    } catch (err) {
+      toast.error("Sync failed.");
+    }
   }
 
   const totalOrdersToday = channelList.reduce((a, c) => a + c.orders_today, 0);
-  const connected = channelList.filter((c) => c.status === "connected").length;
+  const connected = channelList.filter((c) => c.status === "connected" || c.status === "syncing").length;
 
   return (
     <div className="space-y-6">
@@ -79,7 +132,7 @@ export function Ecommerce() {
         <div className="lg:col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="font-bold">Sales channels</h3>
-            <PrimaryButton icon={Plus} onClick={() => setShowConnect(true)}>{t.ecommerce.connectChannel}</PrimaryButton>
+            <PrimaryButton icon={Plus} onClick={() => { setEditMode("connect"); setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" }); setShowConnect(true); }}>{t.ecommerce.connectChannel}</PrimaryButton>
           </div>
 
           {channelList.map((ch, i) => (
@@ -108,11 +161,14 @@ export function Ecommerce() {
                     <span className="bg-warning/15 text-warning text-[10px] font-bold px-2 py-0.5 rounded-full">{ch.pending_sync} pending</span>
                   )}
                   <div className="flex gap-1">
-                    <button onClick={() => handleSync(ch.id, ch.name)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title={t.ecommerce.syncNow}>
-                      <RefreshCw className="size-3.5" />
+                    <button onClick={() => handleSync(ch._id, ch.name)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title={t.ecommerce.syncNow}>
+                      <RefreshCw className={`size-3.5 ${ch.status === "syncing" ? "animate-spin" : ""}`} />
                     </button>
-                    <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
-                      <ArrowUpRight className="size-3.5" />
+                    <button onClick={() => openEditChannel(ch)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
+                      <Edit3 className="size-3.5" />
+                    </button>
+                    <button onClick={() => handleDeleteChannel(ch._id)} className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground">
+                      <Trash2 className="size-3.5" />
                     </button>
                   </div>
                 </div>
@@ -173,7 +229,7 @@ export function Ecommerce() {
       </div>
 
       {/* Connect channel modal */}
-      <Modal open={showConnect} onClose={() => setShowConnect(false)} title={t.ecommerce.connectChannel} subtitle="Integrate a new sales channel" footer={<><ModalCancel onClose={() => setShowConnect(false)} /><ModalSubmit onClick={handleConnect}>{t.common.connect}</ModalSubmit></>}>
+      <Modal open={showConnect} onClose={() => setShowConnect(false)} title={editMode === "connect" ? t.ecommerce.connectChannel : "Edit Channel"} subtitle="Integrate a new sales channel" footer={<><ModalCancel onClose={() => setShowConnect(false)} /><ModalSubmit onClick={handleConnect}>{editMode === "connect" ? t.common.connect : "Save Changes"}</ModalSubmit></>}>
         <Row>
           <Field label={t.ecommerce.platform}><Select value={connectForm.platform} onChange={(e) => setConnectForm({ ...connectForm, platform: e.target.value })}>
             {["Shopify","Amazon","WooCommerce","eBay","Mirakl","Zalando","PrestaShop","Magento"].map((p) => <option key={p}>{p}</option>)}

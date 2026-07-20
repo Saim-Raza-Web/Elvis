@@ -3,16 +3,10 @@ import { toast } from "sonner";
 import { SecondaryButton } from "./AppShell";
 import { useLang } from "../LangContext";
 
-const transactions = [
-  { id: "TXN-5512", date: "2026-06-26", description: "Invoice INV-0087 - Apex Industries", type: "credit", amount: 4200.00, account: "Accounts Receivable", category: "Revenue" },
-  { id: "TXN-5511", date: "2026-06-25", description: "Warehouse rent - Miami Hub June", type: "debit", amount: 8500.00, account: "Operating Expenses", category: "Facility" },
-  { id: "TXN-5510", date: "2026-06-25", description: "Invoice INV-0086 - Nova Retail Group", type: "credit", amount: 8750.00, account: "Accounts Receivable", category: "Revenue" },
-  { id: "TXN-5509", date: "2026-06-24", description: "FedEx shipping costs - June batch", type: "debit", amount: 1240.50, account: "Shipping Expenses", category: "Logistics" },
-  { id: "TXN-5508", date: "2026-06-23", description: "Payroll - Warehouse staff June", type: "debit", amount: 22100.00, account: "Payroll", category: "HR" },
-  { id: "TXN-5507", date: "2026-06-22", description: "Invoice INV-0082 - Crestline Corp", type: "credit", amount: 3800.00, account: "Accounts Receivable", category: "Revenue" },
-  { id: "TXN-5506", date: "2026-06-20", description: "Equipment maintenance - LAX DC", type: "debit", amount: 650.00, account: "Maintenance", category: "Facility" },
-  { id: "TXN-5505", date: "2026-06-18", description: "Insurance premium Q2", type: "debit", amount: 4800.00, account: "Insurance", category: "Operating" },
-];
+import { useEffect, useState } from "react";
+import { accountingService } from "../../services/accounting.service";
+
+type Transaction = { _id: string; id: string; date: string; description: string; type: string; amount: number; account: string; category: string; txnId?: string };
 
 const accounts = [
   { name: "Cash & Cash Equivalents", balance: 142500, change: +8200 },
@@ -25,6 +19,24 @@ const accounts = [
 
 export function Accounting() {
   const { t } = useLang();
+  const [transactionList, setTransactionList] = useState<Transaction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await accountingService.getAll();
+      setTransactionList(data.map((d: any) => ({ ...d, id: d.txnId || d._id, date: d.date?.slice(0, 10) || "—" })));
+    } catch (err) {
+      toast.error("Failed to load transactions");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
   const totalRevenue = 521400;
   const totalExpenses = 284000;
   const netProfit = totalRevenue - totalExpenses;
@@ -96,7 +108,7 @@ export function Accounting() {
               </tr>
             </thead>
             <tbody>
-              {transactions.map((t, i) => (
+              {transactionList.map((t, i) => (
                 <tr key={t.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{t.id}</td>
                   <td className="px-4 py-2.5">

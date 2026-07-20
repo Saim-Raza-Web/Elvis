@@ -2,12 +2,12 @@ import mongoose from 'mongoose';
 
 const transferSchema = new mongoose.Schema({
   transferId: { type: String, required: true, unique: true },
-  sku: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+  sku: String,
   product: String,
   qty: Number,
-  from_wh: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+  from_wh: String,
   from_loc: String,
-  to_wh: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+  to_wh: String,
   to_loc: String,
   status: String,
   type: String,

@@ -1,21 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ShieldCheck, Building2, Users, CreditCard, BarChart3, Server, AlertTriangle, CheckCircle2, Activity, Globe, Plus, Edit3, Trash2 } from "lucide-react";
 import { StatusBadge } from "./AppShell";
 import { useLang } from "../LangContext";
-
-const companies = [
-  { id: "1", name: "demologistics HQ", plan: "Professional", users: 5, warehouses: 3, orders_mtd: 183, revenue_mtd: 58320, status: "active", created: "2025-01-15" },
-  { id: "2", name: "West Coast Hub", plan: "Starter", users: 2, warehouses: 1, orders_mtd: 42, revenue_mtd: 12400, status: "active", created: "2025-06-01" },
-  { id: "3", name: "EU Operations", plan: "Enterprise", users: 12, warehouses: 6, orders_mtd: 890, revenue_mtd: 312000, status: "active", created: "2024-09-10" },
-  { id: "4", name: "Test Company", plan: "Starter", users: 1, warehouses: 0, orders_mtd: 0, revenue_mtd: 0, status: "inactive", created: "2026-05-01" },
-];
-
-const systemMetrics = [
-  { label: "API requests (24h)", value: "142,820", change: "+12%", trend: "up" },
-  { label: "DB query time (avg)", value: "4.2ms", change: "-8%", trend: "down" },
-  { label: "Error rate", value: "0.02%", change: "-0.01%", trend: "down" },
-  { label: "Uptime (30d)", value: "99.98%", change: "stable", trend: "stable" },
-];
+import { adminService } from "../../services/admin.service";
+import { toast } from "sonner";
+import { Modal, Field, Input, Row, ModalCancel, ModalSubmit, Select } from "./Modal";
 
 const recentSignups = [
   { company: "Logistica Norte SA", plan: "Professional", country: "ES", date: "2026-06-24" },
@@ -26,6 +15,48 @@ const recentSignups = [
 export function Admin() {
   const { t } = useLang();
   const [activeTab, setActiveTab] = useState("companies");
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [systemMetrics, setSystemMetrics] = useState<any[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name: "", plan: "starter", status: "active" });
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [comps, mets] = await Promise.all([adminService.getCompanies(), adminService.getMetrics()]);
+        setCompanies(comps);
+        setSystemMetrics(mets);
+      } catch(e) {
+        toast.error("Failed to load admin data");
+      }
+    }
+    load();
+  }, []);
+
+  async function handleAddCompany() {
+    if(!form.name) return toast.error("Name is required");
+    try {
+      await adminService.createCompany(form);
+      toast.success("Company created");
+      setShowAdd(false);
+      setForm({ name: "", plan: "starter", status: "active" });
+      const comps = await adminService.getCompanies();
+      setCompanies(comps);
+    } catch(e) {
+      toast.error("Failed to create company");
+    }
+  }
+
+  async function handleDeleteCompany(id: string) {
+    try {
+      await adminService.deleteCompany(id);
+      toast.success("Company deleted");
+      const comps = await adminService.getCompanies();
+      setCompanies(comps);
+    } catch(e) {
+      toast.error("Failed to delete company");
+    }
+  }
 
   const tabs = [
     { id: "companies", label: "Companies", icon: Building2 },
@@ -33,9 +64,9 @@ export function Admin() {
     { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
   ];
 
-  const totalRevenueMRR = 299 * companies.filter((c) => c.plan === "Professional").length
-    + 99 * companies.filter((c) => c.plan === "Starter").length
-    + 999 * companies.filter((c) => c.plan === "Enterprise").length;
+  const totalRevenueMRR = 299 * companies.filter((c) => c.plan === "professional").length
+    + 99 * companies.filter((c) => c.plan === "starter").length
+    + 999 * companies.filter((c) => c.plan === "enterprise").length;
 
   return (
     <div className="space-y-6">
@@ -72,7 +103,7 @@ export function Admin() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold">All companies</h3>
-            <button className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
+            <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
               <Plus className="size-3.5" /> Add company
             </button>
           </div>
@@ -92,22 +123,22 @@ export function Admin() {
               </thead>
               <tbody>
                 {companies.map((c, i) => (
-                  <tr key={c.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
+                  <tr key={c._id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                     <td className="px-4 py-3">
                       <div className="font-semibold">{c.name}</div>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${c.plan === "Enterprise" ? "bg-amber-500/15 text-amber-500" : c.plan === "Professional" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"}`}>{c.plan}</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${c.plan === "enterprise" ? "bg-amber-500/15 text-amber-500" : c.plan === "professional" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"}`}>{c.plan}</span>
                     </td>
-                    <td className="px-4 py-3 text-right hidden sm:table-cell">{c.users}</td>
-                    <td className="px-4 py-3 text-right hidden lg:table-cell">{c.warehouses}</td>
-                    <td className="px-4 py-3 text-right hidden md:table-cell" style={{ fontFamily: "JetBrains Mono, monospace" }}>{c.orders_mtd}</td>
-                    <td className="px-4 py-3 text-center"><StatusBadge status={c.status} /></td>
-                    <td className="px-4 py-3 text-right hidden sm:table-cell text-xs text-muted-foreground">{c.created}</td>
+                    <td className="px-4 py-3 text-right hidden sm:table-cell">{c.users?.length || 0}</td>
+                    <td className="px-4 py-3 text-right hidden lg:table-cell">{c.warehouses?.length || 0}</td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell" style={{ fontFamily: "JetBrains Mono, monospace" }}>{c.orders_mtd || 0}</td>
+                    <td className="px-4 py-3 text-center"><StatusBadge status={c.status || "active"} /></td>
+                    <td className="px-4 py-3 text-right hidden sm:table-cell text-xs text-muted-foreground">{c.createdAt?.slice(0, 10)}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
-                        <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
+                        <button onClick={() => handleDeleteCompany(c._id)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -115,6 +146,18 @@ export function Admin() {
               </tbody>
             </table>
           </div>
+
+          <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Company" subtitle="Provision a new workspace" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddCompany}>Create Company</ModalSubmit></>}>
+            <Field label="Company Name" required><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+            <Row>
+              <Field label="Plan"><Select value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}>
+                <option value="starter">Starter</option><option value="professional">Professional</option><option value="enterprise">Enterprise</option>
+              </Select></Field>
+              <Field label="Status"><Select value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                <option value="active">Active</option><option value="inactive">Inactive</option>
+              </Select></Field>
+            </Row>
+          </Modal>
 
           {/* Recent signups */}
           <div className="rounded-xl border border-border bg-card p-5">

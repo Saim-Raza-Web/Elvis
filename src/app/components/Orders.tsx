@@ -20,6 +20,8 @@ export function Orders() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
+  const [editTarget, setEditTarget] = useState<Order | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [form, setForm] = useState(blankOrder());
   const [isLoading, setIsLoading] = useState(true);
 
@@ -39,18 +41,40 @@ export function Orders() {
     loadData();
   }, []);
 
-  async function handleCreate() {
+  function openEdit(o: Order) {
+    setEditTarget(o);
+    setForm({ customer: o.customer, email: o.email, channel: o.channel, warehouse: o.warehouse, items: o.items, total: o.total, notes: o.notes });
+  }
+
+  async function handleSave() {
     if (!form.customer || !form.email) { toast.error("Customer name and email required."); return; }
-    const num = `ORD-${String(orders.length + 184).padStart(5, "0")}`;
-    const today = new Date().toISOString().slice(0, 10);
     try {
-      await ordersService.create({ orderId: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse });
-      toast.success(`${t.orders.orderCreated}: ${num} for ${form.customer}.`);
-      setShowAdd(false);
-      setForm(blankOrder());
+      if (editTarget) {
+        await ordersService.update(editTarget._id, form);
+        toast.success(`Order updated for ${form.customer}.`);
+        setEditTarget(null);
+      } else {
+        const num = `ORD-${String(orders.length + 184).padStart(5, "0")}`;
+        const today = new Date().toISOString().slice(0, 10);
+        await ordersService.create({ orderId: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse });
+        toast.success(`${t.orders.orderCreated}: ${num} for ${form.customer}.`);
+        setShowAdd(false);
+      }
       loadData();
     } catch (err) {
-      toast.error("Failed to create order");
+      toast.error("Failed to save order");
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await ordersService.delete(deleteTarget._id);
+      toast.success(`Order deleted.`);
+      setDeleteTarget(null);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to delete order");
     }
   }
 
@@ -107,7 +131,7 @@ export function Orders() {
             </button>
           ))}
         </div>
-        <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.orders.newOrder}</PrimaryButton>
+        <PrimaryButton icon={Plus} onClick={() => { setForm(blankOrder()); setShowAdd(true); }}>{t.orders.newOrder}</PrimaryButton>
       </div>
 
       {/* Table */}
@@ -143,9 +167,14 @@ export function Orders() {
                 <td className="px-4 py-3 text-center"><StatusBadge status={o.status} /></td>
                 <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{o.total.toFixed(2)}</td>
                 <td className="px-4 py-3 text-right">
-                  <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
-                    <Eye className="size-3.5" />
-                  </button>
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => openEdit(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
+                      <Eye className="size-3.5" />
+                    </button>
+                    <button onClick={() => setDeleteTarget(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-red-500">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -156,24 +185,32 @@ export function Orders() {
         </table>
       </div>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.orders.newOrder} subtitle="Create a manual order" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.common.create}</ModalSubmit></>}>
-        <Row>
-          <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Company or person" /></Field>
-          <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="orders@company.com" /></Field>
-        </Row>
-        <Row>
-          <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })}>
-            <option value="web">Web</option><option value="api">API</option><option value="mobile">Mobile</option><option value="phone">Phone</option>
-          </Select></Field>
-          <Field label={t.orders.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
-            {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
-          </Select></Field>
-        </Row>
-        <Row>
-          <Field label={t.orders.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm({ ...form, items: Number(e.target.value) })} /></Field>
-          <Field label={t.orders.orderTotal}><Input type="number" step="0.01" value={form.total} onChange={(e) => setForm({ ...form, total: Number(e.target.value) })} /></Field>
-        </Row>
-        <Field label={t.common.notes}><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Special instructions…" /></Field>
+      {/* Add / Edit Modal */}
+      {[{ open: showAdd, onClose: () => setShowAdd(false), title: t.orders.newOrder }, { open: !!editTarget, onClose: () => setEditTarget(null), title: "Edit Order" }].map((m) => (
+        <Modal key={m.title} open={m.open} onClose={m.onClose} title={m.title} subtitle="Order Details" footer={<><ModalCancel onClose={m.onClose} /><ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit></>}>
+          <Row>
+            <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Company or person" /></Field>
+            <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="orders@company.com" /></Field>
+          </Row>
+          <Row>
+            <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })}>
+              <option value="web">Web</option><option value="api">API</option><option value="mobile">Mobile</option><option value="phone">Phone</option>
+            </Select></Field>
+            <Field label={t.orders.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
+              {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+            </Select></Field>
+          </Row>
+          <Row>
+            <Field label={t.orders.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm({ ...form, items: Number(e.target.value) })} /></Field>
+            <Field label={t.orders.orderTotal}><Input type="number" step="0.01" value={form.total} onChange={(e) => setForm({ ...form, total: Number(e.target.value) })} /></Field>
+          </Row>
+          <Field label={t.common.notes}><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Special instructions…" /></Field>
+        </Modal>
+      ))}
+
+      {/* Delete Confirmation */}
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Order" width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
+        <p className="text-sm text-muted-foreground">Are you sure you want to delete order <strong>{deleteTarget?.orderId}</strong>? This cannot be undone.</p>
       </Modal>
     </div>
   );

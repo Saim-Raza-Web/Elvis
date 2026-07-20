@@ -1,24 +1,28 @@
 import api from './api';
 
 export const adminService = {
-  getAll: async (params = {}) => {
-    const response = await api.get('/admin', { params });
+  getUsers: async () => {
+    const response = await api.get('/admin/users');
     return response.data;
   },
-  getById: async (id) => {
-    const response = await api.get('/admin/' + id);
+  getCompanies: async () => {
+    const response = await api.get('/admin/companies');
     return response.data;
   },
-  create: async (data) => {
-    const response = await api.post('/admin', data);
+  createCompany: async (data: any) => {
+    const response = await api.post('/admin/companies', data);
     return response.data;
   },
-  update: async (id, data) => {
-    const response = await api.put('/admin/' + id, data);
+  updateCompany: async (id: string, data: any) => {
+    const response = await api.put(`/admin/companies/${id}`, data);
     return response.data;
   },
-  delete: async (id) => {
-    const response = await api.delete('/admin/' + id);
+  deleteCompany: async (id: string) => {
+    const response = await api.delete(`/admin/companies/${id}`);
+    return response.data;
+  },
+  getMetrics: async () => {
+    const response = await api.get('/admin/metrics');
     return response.data;
   }
 };

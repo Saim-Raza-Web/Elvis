@@ -5,14 +5,10 @@ import { StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const pickingTasks = [
-  { id: "T001", order: "ORD-00183", priority: "high", status: "in_progress", assignee: "Alex M.", items: 5, picked: 3, zone: "A-12", started: "09:14" },
-  { id: "T002", order: "ORD-00182", priority: "normal", status: "pending", assignee: "Jamie L.", items: 2, picked: 0, zone: "B-07", started: "—" },
-  { id: "T003", order: "ORD-00179", priority: "high", status: "completed", assignee: "Chris R.", items: 7, picked: 7, zone: "C-03", started: "08:55" },
-  { id: "T004", order: "ORD-00180", priority: "low", status: "pending", assignee: "Sam K.", items: 3, picked: 0, zone: "A-08", started: "—" },
-  { id: "T005", order: "ORD-00178", priority: "normal", status: "in_progress", assignee: "Dana P.", items: 8, picked: 5, zone: "D-02", started: "09:30" },
-  { id: "T006", order: "ORD-00177", priority: "low", status: "completed", assignee: "Alex M.", items: 1, picked: 1, zone: "A-01", started: "08:30" },
-];
+import { useEffect } from "react";
+import { pickingService } from "../../services/picking.service";
+
+type PickTask = { _id: string; id: string; order: string; priority: string; status: string; assignee: string; items: number; picked: number; zone: string; started: string; taskId?: string };
 
 const priorityColor: Record<string, string> = {
   high: "text-destructive bg-destructive/10",
@@ -22,7 +18,7 @@ const priorityColor: Record<string, string> = {
 
 export function Picking() {
   const { t } = useLang();
-  const [tasks, setTasks] = useState(pickingTasks);
+  const [tasks, setTasks] = useState<PickTask[]>([]);
   const [view, setView] = useState<"board" | "list">("board");
   const [scanValue, setScanValue] = useState("");
   const [showManual, setShowManual] = useState(false);
@@ -32,22 +28,75 @@ export function Picking() {
   const inProgress = tasks.filter((task) => task.status === "in_progress");
   const completed = tasks.filter((task) => task.status === "completed");
 
-  function handleScanStart() {
-    if (!scanValue.trim()) { toast.error("No barcode detected. Enter or scan a barcode."); return; }
-    toast.success(`${t.picking.scanConfirmed}: "${scanValue.trim()}".`);
-    setScanValue("");
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await pickingService.getAll();
+      setTasks(data.map((d: any) => ({ ...d, id: d.taskId || d._id })));
+    } catch (err) {
+      toast.error("Failed to load pick tasks");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
-  function handleManualPick() {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleScanStart() {
+    if (!scanValue.trim()) { toast.error("No barcode detected. Enter or scan a barcode."); return; }
+    
+    const task = tasks.find(t => t.id.toLowerCase() === scanValue.trim().toLowerCase());
+    if (!task) {
+      toast.error(`No task found with ID "${scanValue.trim()}".`);
+      return;
+    }
+
+    if (task.status === "completed") {
+      toast.info(`Task ${task.id} is already completed.`);
+      return;
+    }
+
+    try {
+      const newStatus = task.status === "pending" ? "in_progress" : "completed";
+      const newPicked = newStatus === "completed" ? task.items : task.picked;
+      await pickingService.update(task._id, { status: newStatus, picked: newPicked });
+      toast.success(`${t.picking.scanConfirmed}: "${task.id}" is now ${newStatus.replace("_", " ")}.`);
+      setScanValue("");
+      loadData();
+    } catch (err) {
+      toast.error("Failed to update task via scan.");
+    }
+  }
+
+  async function handleTaskAction(task: PickTask) {
+    try {
+      const newStatus = task.status === "pending" ? "in_progress" : "completed";
+      const newPicked = newStatus === "completed" ? task.items : task.picked;
+      await pickingService.update(task._id, { status: newStatus, picked: newPicked });
+      toast.success(`Task ${task.id} is now ${newStatus.replace("_", " ")}.`);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to update task status.");
+    }
+  }
+
+  async function handleManualPick() {
     if (!manualForm.order) { toast.error("Order number is required."); return; }
     const id = `T${String(tasks.length + 1).padStart(3, "0")}`;
-    setTasks((prev) => [...prev, { id, order: manualForm.order, priority: manualForm.priority, status: "pending", assignee: manualForm.assignee || "Unassigned", items: manualForm.items, picked: 0, zone: manualForm.zone, started: "—" }]);
-    toast.success(`${t.picking.taskCreated}: ${id} — ${manualForm.order}.`);
-    setShowManual(false);
-    setManualForm({ order: "", zone: "", assignee: "", priority: "normal", items: 1 });
+    try {
+      await pickingService.create({ ...manualForm, taskId: id, status: "pending", picked: 0, started: "—" });
+      toast.success(`${t.picking.taskCreated}: ${id} — ${manualForm.order}.`);
+      setShowManual(false);
+      setManualForm({ order: "", zone: "", assignee: "", priority: "normal", items: 1 });
+      loadData();
+    } catch (err) { toast.error("Failed to create manual pick task"); }
   }
 
-  const TaskCard = ({ task }: { task: typeof pickingTasks[0] }) => (
+  const TaskCard = ({ task }: { task: PickTask }) => (
     <div className="bg-card border border-border rounded-xl p-4 hover-lift animate-pop-in">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-bold text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{task.id}</span>
@@ -70,10 +119,21 @@ export function Picking() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex items-center justify-between text-xs text-muted-foreground mt-4">
         <div className="flex items-center gap-1"><User className="size-3" />{task.assignee}</div>
         <div className="flex items-center gap-1"><Clock className="size-3" />{task.started}</div>
       </div>
+
+      {task.status !== "completed" && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <button
+            onClick={() => handleTaskAction(task)}
+            className="w-full py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95"
+          >
+            {task.status === "pending" ? "Start Pick" : "Complete Pick"}
+          </button>
+        </div>
+      )}
     </div>
   );
 

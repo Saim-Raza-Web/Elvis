@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { ordersService } from "../../services/orders.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { inventoryService } from "../../services/inventory.service";
+import { shippingService } from "../../services/shipping.service";
 
 export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) {
   const { t } = useLang();
@@ -15,15 +16,16 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
   const [totalStock, setTotalStock] = useState(0);
   const [lowStockSKUs, setLowStockSKUs] = useState(0);
   const [totalRevenue, setTotalRevenue] = useState(0);
-  const pendingShipments = 12; // Placeholder
+  const [pendingShipments, setPendingShipments] = useState(0);
 
   useEffect(() => {
     async function fetchDashboard() {
       try {
-        const [orders, whs, prods] = await Promise.all([
+        const [orders, whs, prods, shipments] = await Promise.all([
           ordersService.getAll(),
           warehousesService.getAll(),
-          inventoryService.getAll()
+          inventoryService.getAll(),
+          shippingService.getAll()
         ]);
         
         setRecentOrders(orders.slice(0, 5));
@@ -31,6 +33,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
         
         setTotalStock(prods.reduce((a: number, p: any) => a + (p.qty_available || 0), 0));
         setLowStockSKUs(prods.filter((p: any) => p.status === "low").length);
+        setPendingShipments(shipments.filter((s: any) => s.status === "processing" || s.status === "pending").length);
         
         const rev = orders.filter((o: any) => o.status !== "cancelled" && o.status !== "pending").reduce((a: number, o: any) => a + (o.total || 0), 0);
         setTotalRevenue(rev);

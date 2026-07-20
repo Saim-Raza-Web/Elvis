@@ -125,17 +125,17 @@ function AppInner({
   const p = t.pages[currentPage as keyof typeof t.pages] ?? { title: currentPage, sub: "" };
 
   const pageActions: Partial<Record<Page, React.ReactNode>> = {
-    warehouses: <PrimaryButton icon={Plus}>{t.warehouses.addWarehouse}</PrimaryButton>,
-    locations: <PrimaryButton icon={Plus}>{t.locations.addLocation}</PrimaryButton>,
-    inventory: <PrimaryButton icon={Plus}>{t.inventory.addProduct}</PrimaryButton>,
-    receiving: <PrimaryButton icon={Plus}>{t.receiving.newASN}</PrimaryButton>,
-    transfers: <PrimaryButton icon={Plus}>{t.transfers.newTransfer}</PrimaryButton>,
-    orders: <PrimaryButton icon={Plus}>{t.orders.newOrder}</PrimaryButton>,
-    ecommerce: <PrimaryButton icon={Plus}>{t.ecommerce.connectChannel}</PrimaryButton>,
-    shipping: <PrimaryButton icon={Plus}>{t.shipping.newShipment}</PrimaryButton>,
-    carriers: <PrimaryButton icon={Plus}>{t.carriers.addCarrier}</PrimaryButton>,
-    returns: <PrimaryButton icon={Plus}>{t.returns.createReturn}</PrimaryButton>,
-    crm: <PrimaryButton icon={Plus}>{t.crm.addCustomer}</PrimaryButton>,
+    warehouses: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-warehouse'))} icon={Plus}>{t.warehouses.addWarehouse}</PrimaryButton>,
+    locations: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-location'))} icon={Plus}>{t.locations.addLocation}</PrimaryButton>,
+    inventory: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-product'))} icon={Plus}>{t.inventory.addProduct}</PrimaryButton>,
+    receiving: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-asn'))} icon={Plus}>{t.receiving.newASN}</PrimaryButton>,
+    transfers: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-transfer'))} icon={Plus}>{t.transfers.newTransfer}</PrimaryButton>,
+    orders: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-order'))} icon={Plus}>{t.orders.newOrder}</PrimaryButton>,
+    ecommerce: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-connect-channel'))} icon={Plus}>{t.ecommerce.connectChannel}</PrimaryButton>,
+    shipping: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-shipment'))} icon={Plus}>{t.shipping.newShipment}</PrimaryButton>,
+    carriers: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-carrier'))} icon={Plus}>{t.carriers.addCarrier}</PrimaryButton>,
+    returns: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-create-return'))} icon={Plus}>{t.returns.createReturn}</PrimaryButton>,
+    crm: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-customer'))} icon={Plus}>{t.crm.addCustomer}</PrimaryButton>,
   };
 
   function renderPage() {

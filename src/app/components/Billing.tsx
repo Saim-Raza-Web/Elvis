@@ -5,38 +5,57 @@ import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const invoices = [
-  { id: "INV-0087", customer: "Apex Industries", amount: 4200.00, status: "paid", issued: "2026-06-15", due: "2026-07-15", items: 3 },
-  { id: "INV-0086", customer: "Nova Retail Group", amount: 8750.00, status: "paid", issued: "2026-06-10", due: "2026-07-10", items: 7 },
-  { id: "INV-0085", customer: "Blue Horizon LLC", amount: 1340.50, status: "unpaid", issued: "2026-06-01", due: "2026-07-01", items: 2 },
-  { id: "INV-0084", customer: "TechFlow Systems", amount: 6200.00, status: "overdue", issued: "2026-05-20", due: "2026-06-20", items: 5 },
-  { id: "INV-0083", customer: "Summit Supply Co.", amount: 920.00, status: "unpaid", issued: "2026-06-20", due: "2026-07-20", items: 4 },
-  { id: "INV-0082", customer: "Crestline Corp", amount: 3800.00, status: "paid", issued: "2026-06-05", due: "2026-07-05", items: 6 },
-  { id: "INV-0081", customer: "EastCoast Supplies", amount: 2150.00, status: "draft", issued: "2026-06-25", due: "2026-07-25", items: 3 },
-  { id: "INV-0080", customer: "Red Rock Trading", amount: 640.00, status: "overdue", issued: "2026-05-15", due: "2026-06-15", items: 2 },
-];
+import { useEffect } from "react";
+import { billingService } from "../../services/billing.service";
+
+type Invoice = { _id: string; id: string; customer: string; amount: number; status: string; issued: string; due: string; items: number; invoiceId?: string };
 
 const blankInvoice = () => ({ customer: "", amount: 0, items: 1, issued: new Date().toISOString().slice(0, 10), due: "", notes: "" });
 
 export function Billing() {
   const { t } = useLang();
-  const [invoiceList, setInvoiceList] = useState(invoices);
+  const [invoiceList, setInvoiceList] = useState<Invoice[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankInvoice());
 
-  function handleCreate() {
-    if (!form.customer || !form.amount) { toast.error("Customer and amount required."); return; }
-    const id = `INV-${String(invoiceList.length + 88).padStart(4, "0")}`;
-    setInvoiceList((prev) => [...prev, { id, customer: form.customer, amount: Number(form.amount), status: "draft", issued: form.issued, due: form.due || "TBD", items: Number(form.items) }]);
-    toast.success(t.billing.invoiceCreated.replace("{id}", id).replace("{customer}", form.customer));
-    setShowAdd(false);
-    setForm(blankInvoice());
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await billingService.getAll();
+      setInvoiceList(data.map((d: any) => ({ ...d, id: d.invoiceId || d._id, issued: d.issued?.slice(0, 10) || "—", due: d.due?.slice(0, 10) || "—" })));
+    } catch (err) {
+      toast.error("Failed to load invoices");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
-  function handleSend(inv: typeof invoiceList[0]) {
-    toast.success(t.billing.invoiceSent.replace("{id}", inv.id).replace("{customer}", inv.customer));
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleCreate() {
+    if (!form.customer || !form.amount) { toast.error("Customer and amount required."); return; }
+    const id = `INV-${String(invoiceList.length + 88).padStart(4, "0")}`;
+    try {
+      await billingService.create({ invoiceId: id, customer: form.customer, amount: Number(form.amount), status: "draft", issued: form.issued, due: form.due || form.issued, items: Number(form.items) });
+      toast.success(t.billing.invoiceCreated.replace("{id}", id).replace("{customer}", form.customer));
+      setShowAdd(false);
+      setForm(blankInvoice());
+      loadData();
+    } catch (err) { toast.error("Failed to create invoice"); }
+  }
+
+  async function handleSend(inv: typeof invoiceList[0]) {
+    try {
+      await billingService.update(inv._id, { status: "unpaid" });
+      toast.success(t.billing.invoiceSent.replace("{id}", inv.id).replace("{customer}", inv.customer));
+      loadData();
+    } catch (err) { toast.error("Failed to send invoice"); }
   }
 
   const filters = ["All", "draft", "unpaid", "paid", "overdue"];
@@ -50,7 +69,7 @@ export function Billing() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.billing.totalInvoices, value: invoices.length, icon: ReceiptText, color: "text-primary" },
+          { label: t.billing.totalInvoices, value: invoiceList.length, icon: ReceiptText, color: "text-primary" },
           { label: t.billing.revenueCollected, value: `€${(paid / 1000).toFixed(1)}k`, icon: CheckCircle2, color: "text-success" },
           { label: t.billing.outstanding, value: `€${outstanding.toFixed(0)}`, icon: Clock, color: "text-warning" },
           { label: t.billing.overdue, value: overdue, icon: AlertCircle, color: "text-destructive" },

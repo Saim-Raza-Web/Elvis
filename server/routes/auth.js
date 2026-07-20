@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import { protect } from '../middleware/auth.js';
 
+import Company from '../models/Company.js';
+
 const router = express.Router();
 
 // Register route
@@ -15,7 +17,18 @@ router.post('/register', async (req, res, next) => {
       return res.status(400).json({ message: 'User already exists' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({ email, password: hashedPassword, name, role: 'admin' });
+    
+    // Create new Company for the user
+    const company = await Company.create({
+      name: `${name || email.split('@')[0]}'s Workspace`,
+      plan: 'free'
+    });
+    
+    const user = await User.create({ email, password: hashedPassword, name, role: 'admin', company: company._id });
+    
+    // Link user to company
+    company.users.push(user._id);
+    await company.save();
     
     const secret = process.env.JWT_SECRET || 'fallback_secret_key';
     const expiresIn = process.env.JWT_EXPIRES_IN || '7d';

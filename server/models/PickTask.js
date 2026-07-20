@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const pickTaskSchema = new mongoose.Schema({
   taskId: { type: String, required: true, unique: true },
-  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+  order: String,
   priority: String,
   status: String,
   assignee: String,

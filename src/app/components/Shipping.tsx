@@ -5,15 +5,10 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const shipments = [
-  { id: "SHP-0430", order: "ORD-00183", customer: "Apex Industries", carrier: "FedEx", tracking: "784512345670", origin: "MIA", destination: "Chicago, IL", status: "in_transit", weight: "12.4 kg", date: "2026-06-25", eta: "2026-06-28" },
-  { id: "SHP-0429", order: "ORD-00182", customer: "Blue Horizon LLC", carrier: "UPS", tracking: "1Z999AA1012345678", origin: "LAX", destination: "Seattle, WA", status: "in_transit", weight: "5.8 kg", date: "2026-06-25", eta: "2026-06-27" },
-  { id: "SHP-0428", order: "ORD-00181", customer: "Nova Retail Group", carrier: "DHL", tracking: "DHL122456789", origin: "ORD", destination: "New York, NY", status: "delivered", weight: "28.3 kg", date: "2026-06-24", eta: "2026-06-26" },
-  { id: "SHP-0427", order: "ORD-00179", customer: "Crestline Corp", carrier: "USPS", tracking: "9400111202555435117669", origin: "DAL", destination: "Denver, CO", status: "processing", weight: "3.1 kg", date: "2026-06-24", eta: "2026-06-29" },
-  { id: "SHP-0426", order: "ORD-00178", customer: "TechFlow Systems", carrier: "FedEx", tracking: "784512345671", origin: "LAX", destination: "Portland, OR", status: "delivered", weight: "9.7 kg", date: "2026-06-23", eta: "2026-06-25" },
-  { id: "SHP-0425", order: "ORD-00176", customer: "EastCoast Supplies", carrier: "UPS", tracking: "1Z999AA1012345679", origin: "JFK", destination: "Boston, MA", status: "in_transit", weight: "45.2 kg", date: "2026-06-22", eta: "2026-06-27" },
-  { id: "SHP-0424", order: "ORD-00175", customer: "Red Rock Trading", carrier: "DHL", tracking: "DHL122456790", origin: "DAL", destination: "Phoenix, AZ", status: "delivered", weight: "7.0 kg", date: "2026-06-21", eta: "2026-06-23" },
-];
+import { useEffect } from "react";
+import { shippingService } from "../../services/shipping.service";
+
+type Shipment = { _id: string; id: string; order: string; customer: string; carrier: string; tracking: string; origin: string; destination: string; status: string; weight: string; date: string; eta: string; shipmentId?: string };
 
 const carriers = ["All", "FedEx", "UPS", "DHL", "USPS"];
 
@@ -21,20 +16,52 @@ const blankShipment = () => ({ order: "", customer: "", carrier: "FedEx", origin
 
 export function Shipping() {
   const { t } = useLang();
-  const [shipmentList, setShipmentList] = useState(shipments);
+  const [shipmentList, setShipmentList] = useState<Shipment[]>([]);
   const [search, setSearch] = useState("");
   const [carrier, setCarrier] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankShipment());
 
-  function handleCreate() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await shippingService.getAll();
+      setShipmentList(data.map((d: any) => ({ ...d, id: d.shipmentId || d._id, date: d.date?.slice(0, 10) || "—", eta: d.eta?.slice(0, 10) || "—" })));
+    } catch (err) {
+      toast.error("Failed to load shipments");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleCreate() {
     if (!form.order || !form.destination) { toast.error("Order and destination are required."); return; }
     const id = `SHP-${String(shipmentList.length + 431).padStart(4, "0")}`;
     const tracking = Math.random().toString().slice(2, 20);
-    setShipmentList((prev) => [...prev, { id, order: form.order, customer: form.customer, carrier: form.carrier, tracking, origin: form.origin, destination: form.destination, status: "processing", weight: form.weight || "—", date: new Date().toISOString().slice(0, 10), eta: form.eta || "TBD" }]);
-    toast.success(`${t.shipping.shipmentCreated}: ${id}`);
-    setShowAdd(false);
-    setForm(blankShipment());
+    try {
+      await shippingService.create({ ...form, shipmentId: id, tracking, status: "processing", weight: form.weight || "—", date: new Date().toISOString().slice(0, 10), eta: form.eta || "TBD" });
+      toast.success(`${t.shipping.shipmentCreated}: ${id}`);
+      setShowAdd(false);
+      setForm(blankShipment());
+      loadData();
+    } catch (err) { toast.error("Failed to create shipment"); }
+  }
+
+  async function handleStatusUpdate(s: Shipment) {
+    try {
+      const newStatus = s.status === "processing" ? "in_transit" : "delivered";
+      await shippingService.update(s._id, { status: newStatus });
+      toast.success(`Shipment ${s.id} is now ${newStatus.replace("_", " ")}.`);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to update shipment status");
+    }
   }
 
   const filtered = shipmentList.filter((s) => {
@@ -123,7 +150,7 @@ export function Shipping() {
             </div>
 
             {/* Tracking + details */}
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
               <span style={{ fontFamily: "JetBrains Mono, monospace" }}>{s.tracking.slice(0, 16)}…</span>
               <div className="flex items-center gap-2">
                 <span>{s.weight}</span>
@@ -131,6 +158,17 @@ export function Shipping() {
                 <span>ETA {s.eta}</span>
               </div>
             </div>
+            
+            {s.status !== "delivered" && (
+              <div className="mt-4 pt-3 border-t border-border flex justify-end">
+                <button
+                  onClick={() => handleStatusUpdate(s)}
+                  className="px-4 py-1.5 bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground rounded-lg text-xs font-semibold transition-colors"
+                >
+                  {s.status === "processing" ? "Ship (In Transit)" : "Mark Delivered"}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

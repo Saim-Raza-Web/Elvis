@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const packTaskSchema = new mongoose.Schema({
   packId: { type: String, required: true, unique: true },
-  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+  order: String,
   customer: String,
   items: Number,
   picked: Number,

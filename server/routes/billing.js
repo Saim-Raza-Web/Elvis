@@ -9,7 +9,8 @@ router.use(protect); // Secure all routes by default
 // GET all
 router.get('/', async (req, res, next) => {
   try {
-    const items = await Model.find();
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const items = await Model.find({ company: req.user.company });
     res.json(items);
   } catch (err) {
     next(err);
@@ -19,7 +20,8 @@ router.get('/', async (req, res, next) => {
 // GET by ID
 router.get('/:id', async (req, res, next) => {
   try {
-    const item = await Model.findById(req.params.id);
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const item = await Model.findOne({ _id: req.params.id, company: req.user.company });
     if (!item) return res.status(404).json({ message: 'Not found' });
     res.json(item);
   } catch (err) {
@@ -30,7 +32,9 @@ router.get('/:id', async (req, res, next) => {
 // CREATE
 router.post('/', async (req, res, next) => {
   try {
-    const item = await Model.create(req.body);
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const data = { ...req.body, company: req.user.company };
+    const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {
     next(err);
@@ -40,7 +44,12 @@ router.post('/', async (req, res, next) => {
 // UPDATE
 router.put('/:id', async (req, res, next) => {
   try {
-    const item = await Model.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const item = await Model.findOneAndUpdate(
+      { _id: req.params.id, company: req.user.company }, 
+      req.body, 
+      { new: true }
+    );
     if (!item) return res.status(404).json({ message: 'Not found' });
     res.json(item);
   } catch (err) {
@@ -51,7 +60,8 @@ router.put('/:id', async (req, res, next) => {
 // DELETE
 router.delete('/:id', async (req, res, next) => {
   try {
-    const item = await Model.findByIdAndDelete(req.params.id);
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });
     if (!item) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Deleted successfully' });
   } catch (err) {

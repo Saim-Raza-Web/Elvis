@@ -5,29 +5,20 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-type ASN = { id: string; supplier: string; origin: string; carrier: string; sku_count: number; expected_units: number; status: string; expected_date: string; po: string };
+import { useEffect } from "react";
+import { asnService } from "../../services/asn.service";
+import { receivingService } from "../../services/receiving.service";
 
-const initialASNs: ASN[] = [
-  { id: "ASN-0041", supplier: "TechParts GmbH", origin: "Frankfurt, DE", carrier: "DHL", sku_count: 8, expected_units: 420, status: "pending", expected_date: "2026-06-27", po: "PO-2210" },
-  { id: "ASN-0040", supplier: "Pacific Components", origin: "Shenzhen, CN", carrier: "FedEx", sku_count: 15, expected_units: 1200, status: "in_transit", expected_date: "2026-06-28", po: "PO-2208" },
-  { id: "ASN-0039", supplier: "Euro Hardware SA", origin: "Barcelona, ES", carrier: "UPS", sku_count: 5, expected_units: 300, status: "in_transit", expected_date: "2026-06-27", po: "PO-2207" },
-  { id: "ASN-0038", supplier: "Global Supply Co.", origin: "Chicago, US", carrier: "USPS", sku_count: 3, expected_units: 80, status: "completed", expected_date: "2026-06-25", po: "PO-2205" },
-  { id: "ASN-0037", supplier: "Nexus Industrial", origin: "Milan, IT", carrier: "DHL", sku_count: 12, expected_units: 650, status: "partial", expected_date: "2026-06-24", po: "PO-2203" },
-];
+type ASN = { _id: string; id: string; supplier: string; origin: string; carrier: string; sku_count: number; expected_units: number; status: string; expected_date: string; po: string };
 
-const recentReceipts = [
-  { id: "RCV-0112", asn: "ASN-0038", sku: "SKU-1001", product: "Premium Widget Alpha", expected: 120, received: 120, discrepancy: 0, condition: "ok", zone: "RECV-A", time: "09:42" },
-  { id: "RCV-0111", asn: "ASN-0037", sku: "SKU-1007", product: "Hydraulic Pump A300", expected: 50, received: 48, discrepancy: -2, condition: "ok", zone: "RECV-B", time: "08:30" },
-  { id: "RCV-0110", asn: "ASN-0037", sku: "SKU-1004", product: "Lithium Battery Pack 12V", expected: 100, received: 92, discrepancy: -8, condition: "damaged", zone: "RECV-A", time: "08:15" },
-];
-
-const blankASN = (): Omit<ASN, "id" | "status"> => ({
+const blankASN = (): Omit<ASN, "id" | "status" | "_id"> => ({
   supplier: "", origin: "", carrier: "DHL", sku_count: 1, expected_units: 0, expected_date: "", po: "",
 });
 
 export function Receiving() {
   const { t } = useLang();
-  const [asns, setAsns] = useState(initialASNs);
+  const [asns, setAsns] = useState<ASN[]>([]);
+  const [recentReceipts, setRecentReceipts] = useState<any[]>([]);
   const [activeAsn, setActiveAsn] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState(false);
   const [scanned, setScanned] = useState("");
@@ -35,31 +26,80 @@ export function Receiving() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankASN());
 
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const [asnData, receiptData] = await Promise.all([
+        asnService.getAll(),
+        receivingService.getAll()
+      ]);
+      setAsns(asnData);
+      setRecentReceipts(receiptData.slice(0, 5));
+    } catch (err) {
+      toast.error("Failed to load ASNs and Receipts");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
   const filtered = asns.filter((a) =>
-    a.id.toLowerCase().includes(search.toLowerCase()) || a.supplier.toLowerCase().includes(search.toLowerCase())
+    a.id?.toLowerCase().includes(search.toLowerCase()) || a.supplier?.toLowerCase().includes(search.toLowerCase())
   );
 
   const pending = asns.filter((a) => a.status === "pending" || a.status === "in_transit").length;
 
-  function handleConfirmScan() {
+  async function handleConfirmScan() {
     if (!scanned.trim()) { toast.error(t.receiving.scanError); return; }
-    toast.success(`${t.receiving.scanConfirmed}: "${scanned.trim()}".`);
-    setScanned("");
-    setScanMode(false);
+    try {
+      const receiptId = `RCV-${Math.floor(Math.random() * 10000)}`;
+      await receivingService.create({
+        receiptId,
+        product: scanned.trim(),
+        expected: 1,
+        received: 1,
+        discrepancy: 0,
+        condition: "good",
+        zone: "Z-1",
+        asn: activeAsn || "WALK-IN",
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+      toast.success(`${t.receiving.scanConfirmed}: "${scanned.trim()}".`);
+      setScanned("");
+      setScanMode(false);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to process scan");
+    }
   }
 
-  function handleStartReceiving(asn: ASN) {
-    setAsns((prev) => prev.map((a) => a.id === asn.id ? { ...a, status: "in_progress" } : a));
-    toast.info(`${t.receiving.startReceiving}: ${asn.id} — ${asn.supplier}.`);
+  async function handleStartReceiving(asn: ASN) {
+    try {
+      await asnService.update(asn._id, { status: "in_progress" });
+      toast.info(`${t.receiving.startReceiving}: ${asn.id} — ${asn.supplier}.`);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to update status");
+    }
   }
 
-  function handleCreateASN() {
+  async function handleCreateASN() {
     if (!form.supplier || !form.po) { toast.error("Supplier and PO number are required."); return; }
     const newId = `ASN-${String(asns.length + 42).padStart(4, "0")}`;
-    setAsns((prev) => [...prev, { ...form, id: newId, status: "pending" }]);
-    toast.success(`${t.receiving.asnCreated}: ${newId} — ${form.supplier}.`);
-    setShowAdd(false);
-    setForm(blankASN());
+    try {
+      await asnService.create({ ...form, id: newId, status: "pending", expected_units: Number(form.expected_units), sku_count: Number(form.sku_count) });
+      toast.success(`${t.receiving.asnCreated}: ${newId} — ${form.supplier}.`);
+      setShowAdd(false);
+      setForm(blankASN());
+      loadData();
+    } catch (err) {
+      toast.error("Failed to create ASN");
+    }
   }
 
   return (
@@ -190,13 +230,13 @@ export function Receiving() {
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="p-4 border-b border-border"><h3 className="font-bold text-sm">{t.receiving.recentReceipts}</h3></div>
           <div className="divide-y divide-border">
-            {recentReceipts.map((r) => (
-              <div key={r.id} className="p-3 hover:bg-secondary/30 transition-colors">
+            {recentReceipts.map((r, i) => (
+              <div key={r._id || i} className="p-3 hover:bg-secondary/30 transition-colors">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{r.id}</span>
-                  <span className="text-[10px] text-muted-foreground">{r.time}</span>
+                  <span className="text-xs font-bold text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{r.receiptId || `RCV-${i}`}</span>
+                  <span className="text-[10px] text-muted-foreground">{r.time || "Recent"}</span>
                 </div>
-                <div className="text-sm font-medium truncate">{r.product}</div>
+                <div className="text-sm font-medium truncate">{r.product?.name || r.product || "Unknown Product"}</div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-xs text-muted-foreground">Recv: <span className="font-bold text-foreground">{r.received}</span>/{r.expected}</span>
                   {r.discrepancy !== 0 && (
@@ -204,9 +244,10 @@ export function Receiving() {
                   )}
                   {r.condition === "damaged" && <span className="text-[10px] bg-destructive/15 text-destructive px-1.5 py-0.5 rounded font-bold">DAMAGED</span>}
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-0.5">Zone: {r.zone} · {r.asn}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">Zone: {r.zone} · {r.asn?.asnId || r.asn || "N/A"}</div>
               </div>
             ))}
+            {recentReceipts.length === 0 && <div className="p-4 text-center text-muted-foreground text-sm">No recent receipts.</div>}
           </div>
         </div>
       </div>

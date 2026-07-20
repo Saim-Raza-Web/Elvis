@@ -35,10 +35,15 @@ export function Locations() {
   // Add Zone modal
   const [showZone, setShowZone] = useState(false);
   const [zoneForm, setZoneForm] = useState({ code: "", name: "", type: "storage", warehouse: "MIA", locations: 10, capacity: 1000 });
+  const [editZoneTarget, setEditZoneTarget] = useState<Zone | null>(null);
+  const [deleteZoneTarget, setDeleteZoneTarget] = useState<Zone | null>(null);
 
   // Add Location modal
   const [showLoc, setShowLoc] = useState(false);
   const [locForm, setLocForm] = useState({ zone: "PICK-A", aisle: "", shelf: "", bin: "", sku: "", product: "", capacity: 100 });
+  const [editLocTarget, setEditLocTarget] = useState<Loc | null>(null);
+  const [deleteLocTarget, setDeleteLocTarget] = useState<Loc | null>(null);
+
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
@@ -72,22 +77,54 @@ export function Locations() {
   async function handleAddZone() {
     if (!zoneForm.code || !zoneForm.name) return;
     try {
-      await locationsService.create({ ...zoneForm, isZone: true });
-      toast.success(`${t.locations.zoneCreated}: ${zoneForm.code}`);
-      setShowZone(false);
+      if (editZoneTarget) {
+        await locationsService.update(editZoneTarget._id, { ...zoneForm, isZone: true });
+        toast.success(`Zone updated.`);
+        setEditZoneTarget(null);
+      } else {
+        await locationsService.create({ ...zoneForm, isZone: true });
+        toast.success(`${t.locations.zoneCreated}: ${zoneForm.code}`);
+        setShowZone(false);
+      }
       loadData();
-    } catch (e) { toast.error("Failed to add zone"); }
+    } catch (e) { toast.error("Failed to save zone"); }
+  }
+
+  async function handleDeleteZone() {
+    if (!deleteZoneTarget) return;
+    try {
+      await locationsService.delete(deleteZoneTarget._id);
+      toast.success(`Zone deleted.`);
+      setDeleteZoneTarget(null);
+      loadData();
+    } catch (e) { toast.error("Failed to delete zone"); }
   }
 
   async function handleAddLoc() {
     if (!locForm.aisle || !locForm.shelf || !locForm.bin) return;
     const code = `${selectedWarehouse}-${locForm.zone}-${locForm.aisle}-${locForm.shelf}`;
     try {
-      await locationsService.create({ ...locForm, code, qty: 0, status: "ok" });
-      toast.success(`${t.locations.locationCreated}: ${code}`);
-      setShowLoc(false);
+      if (editLocTarget) {
+        await locationsService.update(editLocTarget._id, { ...locForm, code });
+        toast.success(`Location updated.`);
+        setEditLocTarget(null);
+      } else {
+        await locationsService.create({ ...locForm, code, qty: 0, status: "ok" });
+        toast.success(`${t.locations.locationCreated}: ${code}`);
+        setShowLoc(false);
+      }
       loadData();
-    } catch (e) { toast.error("Failed to add location"); }
+    } catch (e) { toast.error("Failed to save location"); }
+  }
+
+  async function handleDeleteLoc() {
+    if (!deleteLocTarget) return;
+    try {
+      await locationsService.delete(deleteLocTarget._id);
+      toast.success(`Location deleted.`);
+      setDeleteLocTarget(null);
+      loadData();
+    } catch (e) { toast.error("Failed to delete location"); }
   }
 
   return (
@@ -144,7 +181,11 @@ export function Locations() {
                     </div>
                     <div className="text-sm text-muted-foreground">{zone.name}</div>
                   </div>
-                  <span className="text-xs font-bold bg-secondary px-2 py-1 rounded">{zone.warehouse}</span>
+                  <div className="flex gap-1 items-center">
+                    <span className="text-xs font-bold bg-secondary px-2 py-1 rounded">{zone.warehouse}</span>
+                    <button onClick={() => { setEditZoneTarget(zone); setZoneForm({ code: zone.code, name: zone.name, type: zone.type, warehouse: zone.warehouse, locations: zone.locations, capacity: zone.capacity }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
+                    <button onClick={() => setDeleteZoneTarget(zone)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
+                  </div>
                 </div>
                 <div className="mb-3">
                   <div className="flex justify-between mb-1">
@@ -188,9 +229,15 @@ export function Locations() {
                   </td>
                   <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{loc.qty > 0 ? loc.qty : "—"}</td>
                   <td className="px-4 py-3 text-center"><StatusBadge status={loc.status} /></td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-1">
+                      <button onClick={() => { setEditLocTarget(loc); setLocForm({ zone: loc.zone, aisle: loc.aisle, shelf: loc.shelf, bin: loc.bin, sku: loc.sku || "", product: loc.product || "", capacity: loc.capacity }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
+                      <button onClick={() => setDeleteLocTarget(loc)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {filteredLocs.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
+              {filteredLocs.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -235,6 +282,57 @@ export function Locations() {
           <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder="SKU-XXXX" /></Field>
           <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
         </Row>
+      </Modal>
+
+      {/* Edit Zone Modal */}
+      <Modal open={!!editZoneTarget} onClose={() => setEditZoneTarget(null)} title="Edit Zone" footer={<><ModalCancel onClose={() => setEditZoneTarget(null)} /><ModalSubmit onClick={handleAddZone}>{t.common.save}</ModalSubmit></>}>
+        <Row>
+          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
+          <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
+            {whList.map((w) => <option key={w}>{w}</option>)}
+          </Select></Field>
+        </Row>
+        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>
+        <Row>
+          <Field label={t.locations.zoneType}><Select value={zoneForm.type} onChange={(e) => setZoneForm({ ...zoneForm, type: e.target.value })}>
+            {Object.keys(zoneTypeColor).map((typeKey) => (
+              <option key={typeKey} value={typeKey}>
+                {t.locations.types[typeKey as keyof typeof t.locations.types] ?? typeKey}
+              </option>
+            ))}
+          </Select></Field>
+          <Field label={t.locations.totalLocations}><Input type="number" value={zoneForm.locations} onChange={(e) => setZoneForm({ ...zoneForm, locations: Number(e.target.value) })} /></Field>
+        </Row>
+        <Field label={t.warehouses.capacity}><Input type="number" value={zoneForm.capacity} onChange={(e) => setZoneForm({ ...zoneForm, capacity: Number(e.target.value) })} /></Field>
+      </Modal>
+
+      {/* Delete Zone Modal */}
+      <Modal open={!!deleteZoneTarget} onClose={() => setDeleteZoneTarget(null)} title="Delete Zone" width="sm" footer={<><ModalCancel onClose={() => setDeleteZoneTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteZone}>{t.common.delete}</ModalSubmit></>}>
+        <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteZoneTarget?.code}</strong>? This cannot be undone.</p>
+      </Modal>
+
+      {/* Edit Location Modal */}
+      <Modal open={!!editLocTarget} onClose={() => setEditLocTarget(null)} title="Edit Location" footer={<><ModalCancel onClose={() => setEditLocTarget(null)} /><ModalSubmit onClick={handleAddLoc}>{t.common.save}</ModalSubmit></>}>
+        <Field label={t.common.zone} required><Select value={locForm.zone} onChange={(e) => setLocForm({ ...locForm, zone: e.target.value })}>
+          {zones.map((z) => <option key={z.code} value={z.code}>{z.code} — {z.name}</option>)}
+        </Select></Field>
+        <Row>
+          <Field label={t.locations.aisle} required><Input value={locForm.aisle} onChange={(e) => setLocForm({ ...locForm, aisle: e.target.value })} placeholder="01" /></Field>
+          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder="A" /></Field>
+        </Row>
+        <Row>
+          <Field label={t.locations.bin}><Input value={locForm.bin} onChange={(e) => setLocForm({ ...locForm, bin: e.target.value })} placeholder="01" /></Field>
+          <Field label={t.warehouses.capacity}><Input type="number" value={locForm.capacity} onChange={(e) => setLocForm({ ...locForm, capacity: Number(e.target.value) })} /></Field>
+        </Row>
+        <Row>
+          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder="SKU-XXXX" /></Field>
+          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
+        </Row>
+      </Modal>
+
+      {/* Delete Location Modal */}
+      <Modal open={!!deleteLocTarget} onClose={() => setDeleteLocTarget(null)} title="Delete Location" width="sm" footer={<><ModalCancel onClose={() => setDeleteLocTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteLoc}>{t.common.delete}</ModalSubmit></>}>
+        <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteLocTarget?.code}</strong>? This cannot be undone.</p>
       </Modal>
     </div>
   );

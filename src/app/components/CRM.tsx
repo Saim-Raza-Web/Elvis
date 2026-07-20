@@ -1,28 +1,16 @@
 import { useState } from "react";
-import { Users, Search, Plus, Mail, Phone, ShoppingCart, Star, MessageCircle, Calendar, ArrowRight, TrendingUp } from "lucide-react";
+import { Users, Search, Plus, Mail, Phone, ShoppingCart, Star, MessageCircle, Calendar, ArrowRight, TrendingUp, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const customers = [
-  { id: "1", name: "Apex Industries", contact: "David Chen", email: "d.chen@apex.io", phone: "+1 305 555 0101", country: "US", orders: 28, total_spend: 42100, status: "active", tier: "gold", last_activity: "2026-06-26" },
-  { id: "2", name: "Blue Horizon LLC", contact: "Sarah Kim", email: "sk@bluehorizon.com", phone: "+1 213 555 0234", country: "US", orders: 14, total_spend: 18750, status: "active", tier: "silver", last_activity: "2026-06-25" },
-  { id: "3", name: "Nova Retail Group", contact: "Marco Rossi", email: "m.rossi@novaretail.com", phone: "+39 02 555 0345", country: "IT", orders: 42, total_spend: 87300, status: "active", tier: "platinum", last_activity: "2026-06-24" },
-  { id: "4", name: "Summit Supply Co.", contact: "Emily Walsh", email: "e.walsh@summit.co", phone: "+1 312 555 0456", country: "US", orders: 7, total_spend: 9200, status: "active", tier: "bronze", last_activity: "2026-06-20" },
-  { id: "5", name: "Crestline Corp", contact: "Raj Patel", email: "rpatel@crestline.corp", phone: "+1 469 555 0567", country: "US", orders: 19, total_spend: 31400, status: "active", tier: "silver", last_activity: "2026-06-23" },
-  { id: "6", name: "Pacific Goods Inc.", contact: "Amara Lee", email: "a.lee@pacific.biz", phone: "+1 206 555 0678", country: "US", orders: 3, total_spend: 1200, status: "inactive", tier: "bronze", last_activity: "2026-05-10" },
-  { id: "7", name: "TechFlow Systems", contact: "Chris Roberts", email: "c.roberts@techflow.com", phone: "+1 503 555 0789", country: "US", orders: 31, total_spend: 56700, status: "active", tier: "gold", last_activity: "2026-06-22" },
-  { id: "8", name: "EastCoast Supplies", contact: "Diana Prince", email: "dp@eastcoast.com", phone: "+1 617 555 0890", country: "US", orders: 22, total_spend: 38900, status: "active", tier: "silver", last_activity: "2026-06-26" },
-];
+import { useEffect } from "react";
+import { crmService } from "../../services/crm.service";
+import { leadsService } from "../../services/leads.service";
 
-const leads = [
-  { id: "L001", name: "Meridian Logistics", contact: "Tom Baker", email: "t.baker@meridian.com", value: 18000, stage: "demo", probability: 60, assignee: "Sarah K.", last_contact: "2026-06-25" },
-  { id: "L002", name: "Nordic Freight AB", contact: "Ingrid Larsson", email: "i.larsson@nordic.se", value: 45000, stage: "proposal", probability: 75, assignee: "Admin", last_contact: "2026-06-24" },
-  { id: "L003", name: "Iberia Trade SL", contact: "Carlos Ruiz", email: "c.ruiz@iberiatrade.es", value: 22000, stage: "contacted", probability: 30, assignee: "Admin", last_contact: "2026-06-22" },
-  { id: "L004", name: "Sunrise Retail", contact: "Amy Chen", email: "amy@sunrise.com", value: 9500, stage: "qualified", probability: 45, assignee: "Sarah K.", last_contact: "2026-06-20" },
-  { id: "L005", name: "Alpine Supplies GmbH", contact: "Klaus Müller", email: "k.muller@alpine.de", value: 67000, stage: "negotiation", probability: 80, assignee: "Admin", last_contact: "2026-06-26" },
-];
+type Customer = { _id: string; id: string; name: string; contact: string; email: string; phone: string; country: string; orders: number; total_spend: number; status: string; tier: string; last_activity: string };
+type Lead = { _id: string; id: string; name: string; contact: string; email: string; value: number; stage: string; probability: number; assignee: string; last_contact: string };
 
 const pipeline = ["contacted", "qualified", "demo", "proposal", "negotiation", "closed"];
 
@@ -44,24 +32,108 @@ const tierColors: Record<string, string> = {
 
 export function CRM() {
   const { t } = useLang();
-  const [customerList, setCustomerList] = useState(customers);
-  const [leadList, setLeadList] = useState(leads);
+  const [customerList, setCustomerList] = useState<Customer[]>([]);
+  const [leadList, setLeadList] = useState<Lead[]>([]);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"customers" | "leads" | "pipeline">("customers");
+  
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" as string });
+  const [editMode, setEditMode] = useState<"add" | "edit">("add");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" });
 
-  function handleAdd() {
-    if (!form.name || !form.email) { toast.error("Company name and email required."); return; }
-    if (view === "leads") {
-      setLeadList((prev) => [...prev, { id: `L${String(prev.length + 6).padStart(3, "0")}`, name: form.name, contact: form.contact, email: form.email, value: 0, stage: "contacted", probability: 20, assignee: "Admin", last_contact: new Date().toISOString().slice(0, 10) }]);
-      toast.success(t.crm.leadAdded.replace("{name}", form.name));
-    } else {
-      setCustomerList((prev) => [...prev, { id: String(Date.now()), name: form.name, contact: form.contact, email: form.email, phone: form.phone, country: form.country, orders: 0, total_spend: 0, status: "active", tier: form.tier, last_activity: new Date().toISOString().slice(0, 10) }]);
-      toast.success(t.crm.customerAdded.replace("{name}", form.name));
+  const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const [custData, leadData] = await Promise.all([crmService.getAll(), leadsService.getAll()]);
+      setCustomerList(custData.map((d: any) => ({ ...d, id: d._id, orders: d.orders || 0, total_spend: d.total_spend || 0, last_activity: d.last_activity?.slice(0, 10) || "—" })));
+      setLeadList(leadData.map((d: any) => ({ ...d, id: d.leadId || d._id, value: d.value || 0, probability: d.probability || 0, last_contact: d.last_contact?.slice(0, 10) || "—" })));
+    } catch (err) {
+      toast.error("Failed to load CRM data");
+    } finally {
+      setIsLoading(false);
     }
-    setShowAdd(false);
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleSave() {
+    if (!form.name || !form.email) { toast.error("Company name and email required."); return; }
+    try {
+      if (editMode === "add") {
+        if (view === "leads" || view === "pipeline") {
+          await leadsService.create({ name: form.name, contact: form.contact, email: form.email, value: 0, stage: "contacted", probability: 20, assignee: "Admin", last_contact: new Date().toISOString().slice(0, 10) });
+          toast.success(t.crm.leadAdded.replace("{name}", form.name));
+        } else {
+          await crmService.create({ name: form.name, contact: form.contact, email: form.email, phone: form.phone, country: form.country, orders: 0, total_spend: 0, status: "active", tier: form.tier, last_activity: new Date().toISOString().slice(0, 10) });
+          toast.success(t.crm.customerAdded.replace("{name}", form.name));
+        }
+      } else {
+        if (view === "leads" || view === "pipeline") {
+          await leadsService.update(editingId!, { name: form.name, contact: form.contact, email: form.email });
+          toast.success("Lead updated.");
+        } else {
+          await crmService.update(editingId!, { name: form.name, contact: form.contact, email: form.email, phone: form.phone, country: form.country, tier: form.tier });
+          toast.success("Customer updated.");
+        }
+      }
+      setShowAdd(false);
+      loadData();
+    } catch (err) { toast.error("Failed to save record"); }
+  }
+
+  async function handleDeleteCustomer(id: string) {
+    if (!confirm("Delete customer?")) return;
+    try {
+      await crmService.delete(id);
+      toast.success("Customer deleted.");
+      loadData();
+    } catch (err) { toast.error("Failed to delete customer"); }
+  }
+
+  async function handleDeleteLead(id: string) {
+    if (!confirm("Delete lead?")) return;
+    try {
+      await leadsService.delete(id);
+      toast.success("Lead deleted.");
+      loadData();
+    } catch (err) { toast.error("Failed to delete lead"); }
+  }
+
+  function openEditCustomer(c: Customer) {
+    setEditMode("edit");
+    setEditingId(c._id);
+    setForm({ name: c.name, contact: c.contact, email: c.email, phone: c.phone, country: c.country, tier: c.tier });
+    setShowAdd(true);
+  }
+
+  function openEditLead(l: Lead) {
+    setEditMode("edit");
+    setEditingId(l._id);
+    setForm({ name: l.name, contact: l.contact, email: l.email, phone: "", country: "US", tier: "bronze" });
+    setShowAdd(true);
+  }
+
+  function openAddModal() {
+    setEditMode("add");
     setForm({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" });
+    setShowAdd(true);
+  }
+
+  async function handleDrop(e: React.DragEvent, stage: string) {
+    e.preventDefault();
+    if (!draggedLead || draggedLead.stage === stage) return;
+    try {
+      await leadsService.update(draggedLead._id, { stage });
+      toast.success(`Lead moved to ${stage}`);
+      loadData();
+    } catch (err) { toast.error("Failed to move lead"); }
+    setDraggedLead(null);
   }
 
   const filteredCustomers = customerList.filter((c) =>
@@ -107,7 +179,7 @@ export function CRM() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t.common.search + "…"} className="pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors w-48" style={{ fontSize: "0.875rem" }} />
           </div>
-          <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{view === "leads" ? t.crm.addLead : t.crm.addCustomer}</PrimaryButton>
+          <PrimaryButton icon={Plus} onClick={openAddModal}>{view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer}</PrimaryButton>
         </div>
       </div>
 
@@ -134,6 +206,10 @@ export function CRM() {
                 <div className="text-center"><div className="text-muted-foreground">{t.crm.totalOrders}</div><div className="font-bold mt-0.5">{c.orders}</div></div>
                 <div className="text-center"><div className="text-muted-foreground">{t.crm.spend}</div><div className="font-bold mt-0.5">€{(c.total_spend / 1000).toFixed(0)}k</div></div>
                 <div className="text-center"><div className="text-muted-foreground">{t.common.status}</div><div className="mt-0.5"><StatusBadge status={c.status} /></div></div>
+              </div>
+              <div className="flex items-center justify-end gap-1 mt-3">
+                <button onClick={() => openEditCustomer(c)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
+                <button onClick={() => handleDeleteCustomer(c._id)} className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"><Trash2 className="size-3.5" /></button>
               </div>
             </div>
           ))}
@@ -170,8 +246,8 @@ export function CRM() {
                   <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground text-xs">{l.assignee}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-1">
-                      <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><MessageCircle className="size-3.5" /></button>
-                      <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><ArrowRight className="size-3.5" /></button>
+                      <button onClick={() => openEditLead(l)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
+                      <button onClick={() => handleDeleteLead(l._id)} className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"><Trash2 className="size-3.5" /></button>
                     </div>
                   </td>
                 </tr>
@@ -188,14 +264,27 @@ export function CRM() {
               const stageLeads = leadList.filter((l) => l.stage === stage);
               const stageValue = stageLeads.reduce((a, l) => a + l.value, 0);
               return (
-                <div key={stage} className="w-64">
+                <div 
+                  key={stage} 
+                  className="w-64"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleDrop(e, stage)}
+                >
                   <div className="flex items-center justify-between mb-2 px-1">
                     <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full capitalize ${stageColor[stage]}`}>{(t.crm.stages as Record<string, string>)[stage] ?? stage}</span>
                     <span className="text-xs text-muted-foreground">€{(stageValue / 1000).toFixed(0)}k</span>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 min-h-24 p-1 rounded-xl bg-secondary/10">
                     {stageLeads.map((l) => (
-                      <div key={l.id} className="bg-card border border-border rounded-xl p-3 hover-lift cursor-pointer">
+                      <div 
+                        key={l.id} 
+                        className="bg-card border border-border rounded-xl p-3 hover-lift cursor-grab active:cursor-grabbing"
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggedLead(l);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                      >
                         <div className="font-semibold text-sm mb-0.5">{l.name}</div>
                         <div className="text-xs text-muted-foreground mb-2">{l.contact}</div>
                         <div className="flex items-center justify-between">
@@ -215,23 +304,25 @@ export function CRM() {
         </div>
       )}
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={view === "leads" ? t.crm.addLead : t.crm.addCustomer} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAdd}>{view === "leads" ? t.crm.addLead : t.crm.addCustomer}</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer) : "Edit Record"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer) : "Save Changes"}</ModalSubmit></>}>
         <Row>
           <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Company Inc." /></Field>
           <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="Full name" /></Field>
         </Row>
         <Row>
           <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="contact@company.com" /></Field>
-          <Field label={t.common.phone}><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 555 000 0000" /></Field>
+          {(view === "customers") && <Field label={t.common.phone}><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 555 000 0000" /></Field>}
         </Row>
-        <Row>
-          <Field label={t.crm.country}><Select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
-            {["US","DE","FR","ES","IT","GB","NL","SE","PT","BR"].map((c) => <option key={c}>{c}</option>)}
-          </Select></Field>
-          {view !== "leads" && <Field label={t.crm.tier}><Select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
-            <option value="bronze">Bronze</option><option value="silver">Silver</option><option value="gold">Gold</option><option value="platinum">Platinum</option>
-          </Select></Field>}
-        </Row>
+        {(view === "customers") && (
+          <Row>
+            <Field label={t.crm.country}><Select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
+              {["US","DE","FR","ES","IT","GB","NL","SE","PT","BR"].map((c) => <option key={c}>{c}</option>)}
+            </Select></Field>
+            <Field label={t.crm.tier}><Select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
+              <option value="bronze">Bronze</option><option value="silver">Silver</option><option value="gold">Gold</option><option value="platinum">Platinum</option>
+            </Select></Field>
+          </Row>
+        )}
       </Modal>
     </div>
   );

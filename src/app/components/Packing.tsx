@@ -4,13 +4,10 @@ import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
 import { useLang } from "../LangContext";
 
-const initialQueue = [
-  { id: "PCK-0058", order: "ORD-00183", customer: "Apex Industries", items: 5, picked: 5, station: "PACK-1", priority: "high", status: "ready" },
-  { id: "PCK-0057", order: "ORD-00182", customer: "Blue Horizon LLC", items: 2, picked: 2, station: "PACK-2", priority: "normal", status: "packing" },
-  { id: "PCK-0056", order: "ORD-00180", customer: "Summit Supply Co.", items: 3, picked: 3, station: "PACK-1", priority: "low", status: "ready" },
-  { id: "PCK-0055", order: "ORD-00179", customer: "Crestline Corp", items: 7, picked: 7, station: "PACK-3", priority: "high", status: "completed" },
-  { id: "PCK-0054", order: "ORD-00178", customer: "TechFlow Systems", items: 8, picked: 6, station: "PACK-2", priority: "normal", status: "picking" },
-];
+import { useEffect } from "react";
+import { packingService } from "../../services/packing.service";
+
+type PackTask = { _id: string; id: string; order: string; customer: string; items: number; picked: number; station: string; priority: string; status: string; packId?: string };
 
 const initialPackItems = [
   { sku: "SKU-1001", product: "Premium Widget Alpha", qty: 2, scanned: 2, verified: true },
@@ -26,7 +23,7 @@ const priorityColor: Record<string, string> = {
 
 export function Packing() {
   const { t } = useLang();
-  const [queue, setQueue] = useState(initialQueue);
+  const [queue, setQueue] = useState<PackTask[]>([]);
   const [packItems, setPackItems] = useState(initialPackItems);
   const [activeTask, setActiveTask] = useState<string | null>("PCK-0057");
   const [scanned, setScanned] = useState("");
@@ -39,6 +36,24 @@ export function Packing() {
   const activePack = queue.find((p) => p.id === activeTask);
   const allVerified = packItems.every((i) => i.verified);
 
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await packingService.getAll();
+      setQueue(data.map((d: any) => ({ ...d, id: d.packId || d._id })));
+    } catch (err) {
+      toast.error("Failed to load packing queue");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
   function handleVerify() {
     if (!scanned.trim()) { toast.error("Scan or enter a barcode first."); return; }
     const item = packItems.find((i) => i.sku === scanned.trim() || i.product.toLowerCase().includes(scanned.toLowerCase()));
@@ -49,29 +64,43 @@ export function Packing() {
     setScanned("");
   }
 
-  function handlePrintLabel() {
+  async function handlePrintLabel() {
     if (!activePack) return;
-    setLabelPrinted(true);
-    toast.success(`Shipping label for ${activePack.order} sent to printer.`);
+    try {
+      await packingService.update(activePack._id, { label_printed: true });
+      setLabelPrinted(true);
+      toast.success(`Shipping label for ${activePack.order} sent to printer.`);
+    } catch (err) {
+      toast.error("Failed to update label status");
+    }
   }
 
-  function handleWeigh() {
+  async function handleWeigh() {
+    if (!activePack) return;
     const w = parseFloat(weight);
     if (isNaN(w) || w <= 0) { toast.error("Enter a valid weight."); return; }
-    setWeighed(true);
-    toast.success(`Package weighed: ${weight} kg.`);
+    try {
+      await packingService.update(activePack._id, { weight: w });
+      setWeighed(true);
+      toast.success(`Package weighed: ${weight} kg.`);
+    } catch (err) {
+      toast.error("Failed to update weight");
+    }
   }
 
-  function handleCompleteShip() {
+  async function handleCompleteShip() {
     if (!activePack) return;
     if (!labelPrinted) { toast.error("Print shipping label before completing."); return; }
     if (!allVerified) { toast.error("All items must be verified before shipping."); return; }
-    setQueue((prev) => prev.map((p) => p.id === activePack.id ? { ...p, status: "completed" } : p));
-    toast.success(`${activePack.order} packed and queued for shipping!`);
-    setActiveTask(null);
-    setPackItems(initialPackItems.map((i) => ({ ...i, scanned: 0, verified: false })));
-    setLabelPrinted(false);
-    setWeighed(false);
+    try {
+      await packingService.update(activePack._id, { status: "completed" });
+      toast.success(`${activePack.order} packed and queued for shipping!`);
+      setActiveTask(null);
+      setPackItems(initialPackItems.map((i) => ({ ...i, scanned: 0, verified: false })));
+      setLabelPrinted(false);
+      setWeighed(false);
+      loadData();
+    } catch (err) { toast.error("Failed to complete packing"); }
   }
 
   return (

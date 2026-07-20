@@ -2,11 +2,11 @@ import mongoose from 'mongoose';
 
 const shipmentSchema = new mongoose.Schema({
   shipmentId: { type: String, required: true, unique: true },
-  order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+  order: String,
   customer: String,
   carrier: String,
   tracking: String,
-  origin: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+  origin: String,
   destination: String,
   status: String,
   weight: String,

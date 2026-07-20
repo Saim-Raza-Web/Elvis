@@ -1,21 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { History, Search, Filter, ShoppingCart, Package, Truck, Users, ReceiptText, Settings2, Warehouse, ArrowRightLeft, User } from "lucide-react";
 import { useLang } from "../LangContext";
+import { activityService } from "../../services/activity.service";
+import { toast } from "sonner";
 
-const actions = [
-  { id: "LOG-9921", user: "Alex M.", role: "Warehouse Staff", action: "Completed pick task", module: "picking", detail: "Pick task PCK-0055 — ORD-00179 (7 items)", ip: "192.168.1.42", time: "2026-06-26 10:44:02" },
-  { id: "LOG-9920", user: "admin@demologistics.io", role: "Admin", action: "Created invoice", module: "billing", detail: "INV-0087 — Apex Industries €4,200.00", ip: "192.168.1.10", time: "2026-06-26 10:38:11" },
-  { id: "LOG-9919", user: "System", role: "Automation", action: "Stock replenishment triggered", module: "inventory", detail: "SKU-1001 below reorder point → TRF-0089 created", ip: "system", time: "2026-06-26 10:30:00" },
-  { id: "LOG-9918", user: "Sarah K.", role: "Manager", action: "Approved return", module: "returns", detail: "RET-0041 — Meridian Corp, 2 items approved for refund", ip: "192.168.1.22", time: "2026-06-26 10:22:31" },
-  { id: "LOG-9917", user: "admin@demologistics.io", role: "Admin", action: "New order received", module: "orders", detail: "ORD-00183 — Apex Industries €2,341.00 (Shopify)", ip: "10.0.0.1", time: "2026-06-26 10:15:44" },
-  { id: "LOG-9916", user: "Tom W.", role: "Warehouse Staff", action: "Received shipment", module: "receiving", detail: "ASN-0038 — Global Supply Co. 120 units SKU-1001", ip: "192.168.1.55", time: "2026-06-26 09:42:18" },
-  { id: "LOG-9915", user: "Chris R.", role: "Warehouse Staff", action: "Completed pick task", module: "picking", detail: "Pick task PCK-0055 — ORD-00179 completed", ip: "192.168.1.43", time: "2026-06-26 09:30:05" },
-  { id: "LOG-9914", user: "admin@demologistics.io", role: "Admin", action: "User permission updated", module: "settings", detail: "Mike Johnson role changed to ADMIN", ip: "192.168.1.10", time: "2026-06-26 09:15:00" },
-  { id: "LOG-9913", user: "System", role: "Automation", action: "Shipment status updated", module: "shipping", detail: "SHP-0428 delivered — DHL tracking confirmed", ip: "system", time: "2026-06-26 08:55:22" },
-  { id: "LOG-9912", user: "Priya P.", role: "Manager", action: "Adjusted inventory", module: "inventory", detail: "SKU-1007 quantity adjusted: 14 → 12 (audit)", ip: "192.168.1.30", time: "2026-06-26 08:30:00" },
-  { id: "LOG-9911", user: "System", role: "Automation", action: "Low stock alert sent", module: "inventory", detail: "SKU-8821 below reorder point — notification sent", ip: "system", time: "2026-06-25 23:00:01" },
-  { id: "LOG-9910", user: "admin@demologistics.io", role: "Admin", action: "Company settings updated", module: "settings", detail: "Timezone changed to America/New_York", ip: "192.168.1.10", time: "2026-06-25 18:45:00" },
-];
+type Activity = { _id: string; id: string; user: string; role: string; action: string; module: string; detail: string; ip: string; time: string; timestamp?: string; logId?: string };
 
 const moduleIcon: Record<string, React.ElementType> = {
   picking: Package,
@@ -48,6 +37,24 @@ export function ActivityLog() {
   const [search, setSearch] = useState("");
   const [moduleFilter, setModuleFilter] = useState("All");
   const [userFilter, setUserFilter] = useState("All");
+  const [actions, setActions] = useState<Activity[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await activityService.getAll();
+      setActions(data.map((d: any) => ({ ...d, id: d.logId || d._id, time: d.timestamp?.slice(0, 19).replace("T", " ") || "—" })));
+    } catch (err) {
+      toast.error("Failed to load activity logs");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const users = ["All", ...Array.from(new Set(actions.map((a) => a.user)))];
 

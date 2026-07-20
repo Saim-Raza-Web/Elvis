@@ -1,40 +1,106 @@
 import { useState } from "react";
-import { Building2, Plus, Truck, CheckCircle2, Zap, Edit3 } from "lucide-react";
+import { Building2, Plus, Truck, CheckCircle2, Zap, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const carriers = [
-  { id: "1", name: "FedEx", type: "international", status: "active", account: "FX-7842110", on_time: 94, cost_avg: 8.20, shipments_mtd: 142, regions: ["US", "EU", "APAC"], label: true, tracking: true, features: ["Express", "Ground", "Freight"] },
-  { id: "2", name: "UPS", type: "international", status: "active", account: "1Z999AA1", on_time: 91, cost_avg: 7.80, shipments_mtd: 98, regions: ["US", "EU"], label: true, tracking: true, features: ["Standard", "Express", "Access Point"] },
-  { id: "3", name: "DHL", type: "international", status: "active", account: "DHL-EU-4421", on_time: 97, cost_avg: 9.40, shipments_mtd: 211, regions: ["EU", "APAC", "LATAM"], label: true, tracking: true, features: ["Express", "Parcel", "Freight"] },
-  { id: "4", name: "USPS", type: "domestic", status: "active", account: "USPS-0081", on_time: 88, cost_avg: 5.10, shipments_mtd: 67, regions: ["US"], label: true, tracking: true, features: ["Priority", "First Class", "Ground"] },
-  { id: "5", name: "Correos Spain", type: "domestic", status: "active", account: "COR-ES-2210", on_time: 86, cost_avg: 4.20, shipments_mtd: 33, regions: ["ES"], label: true, tracking: false, features: ["Standard", "Certified"] },
-  { id: "6", name: "Chronopost", type: "regional", status: "inactive", account: "CHR-FR-9921", on_time: 92, cost_avg: 11.00, shipments_mtd: 0, regions: ["FR", "EU"], label: true, tracking: true, features: ["Express 13h", "Classic"] },
-];
+import { useEffect } from "react";
+import { carriersService } from "../../services/carriers.service";
+import { carrierRulesService } from "../../services/carrier_rules.service";
 
-const carrierRules = [
-  { id: "R1", name: "Domestic express < 2kg", condition: "Weight ≤ 2kg + Destination: US + Priority: Express", carrier: "FedEx", active: true },
-  { id: "R2", name: "EU standard delivery", condition: "Destination: EU + Priority: Standard", carrier: "DHL", active: true },
-  { id: "R3", name: "Economy US domestic", condition: "Weight ≤ 5kg + Destination: US + Priority: Economy", carrier: "USPS", active: true },
-  { id: "R4", name: "Spain local delivery", condition: "Destination: ES + Weight ≤ 30kg", carrier: "Correos Spain", active: false },
-  { id: "R5", name: "Heavy freight international", condition: "Weight > 30kg + Destination: any", carrier: "UPS", active: true },
-];
+type Carrier = { _id: string; id: string; name: string; type: string; status: string; account: string; on_time: number; cost_avg: number; shipments_mtd: number; regions: string[]; label: boolean; tracking: boolean; features: string[] };
+type CarrierRule = { _id: string; id: string; name: string; condition: string; carrier: string; active: boolean };
 
 export function Carriers() {
   const { t } = useLang();
-  const [carrierList, setCarrierList] = useState(carriers);
+  const [carrierList, setCarrierList] = useState<Carrier[]>([]);
+  const [carrierRules, setCarrierRules] = useState<CarrierRule[]>([]);
   const [view, setView] = useState<"carriers" | "rules">("carriers");
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" });
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [editMode, setEditMode] = useState<"add" | "edit">("add");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  function handleAdd() {
+  const [form, setForm] = useState({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" });
+  const [ruleForm, setRuleForm] = useState({ name: "", condition: "", carrier: "", active: true });
+
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const [carrierData, ruleData] = await Promise.all([carriersService.getAll(), carrierRulesService.getAll()]);
+      setCarrierList(carrierData.map((d: any) => ({ ...d, id: d._id, shipments_mtd: d.shipments_mtd || 0, on_time: d.on_time || 90, cost_avg: d.cost_avg || 8 })));
+      setCarrierRules(ruleData.map((d: any) => ({ ...d, id: d._id })));
+    } catch (err) {
+      toast.error("Failed to load carriers");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleSaveCarrier() {
     if (!form.name || !form.account) { toast.error("Carrier name and account are required."); return; }
-    setCarrierList((prev) => [...prev, { id: String(Date.now()), name: form.name, type: form.type, status: form.status, account: form.account, on_time: form.on_time, cost_avg: form.cost_avg, shipments_mtd: 0, regions: form.regions.split(",").map((r) => r.trim()), label: true, tracking: true, features: ["Standard"] }]);
-    toast.success(`Carrier "${form.name}" added.`);
-    setShowAdd(false);
-    setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" });
+    try {
+      if (editMode === "add") {
+        await carriersService.create({ name: form.name, type: form.type, status: form.status, account: form.account, on_time: form.on_time, cost_avg: form.cost_avg, shipments_mtd: 0, regions: form.regions.split(",").map((r) => r.trim()), label: true, tracking: true, features: ["Standard"] });
+        toast.success(`Carrier "${form.name}" added.`);
+      } else {
+        await carriersService.update(editingId!, { name: form.name, type: form.type, status: form.status, account: form.account, on_time: form.on_time, cost_avg: form.cost_avg, regions: form.regions.split(",").map((r) => r.trim()) });
+        toast.success(`Carrier updated.`);
+      }
+      setShowAdd(false);
+      loadData();
+    } catch (err) { toast.error("Failed to save carrier"); }
+  }
+
+  function openEditCarrier(c: Carrier) {
+    setEditMode("edit");
+    setEditingId(c._id);
+    setForm({ name: c.name, type: c.type, account: c.account, status: c.status, on_time: c.on_time, cost_avg: c.cost_avg, regions: c.regions.join(", ") });
+    setShowAdd(true);
+  }
+
+  async function handleSaveRule() {
+    if (!ruleForm.name || !ruleForm.condition) { toast.error("Name and condition are required."); return; }
+    try {
+      if (editMode === "add") {
+        await carrierRulesService.create(ruleForm);
+        toast.success(`Rule "${ruleForm.name}" added.`);
+      } else {
+        await carrierRulesService.update(editingId!, ruleForm);
+        toast.success(`Rule updated.`);
+      }
+      setShowRuleModal(false);
+      loadData();
+    } catch (err) { toast.error("Failed to save rule"); }
+  }
+
+  async function handleDeleteRule(id: string) {
+    if (!confirm("Delete this rule?")) return;
+    try {
+      await carrierRulesService.delete(id);
+      toast.success("Rule deleted.");
+      loadData();
+    } catch (err) { toast.error("Failed to delete rule"); }
+  }
+
+  function openAddRule() {
+    setEditMode("add");
+    setRuleForm({ name: "", condition: "", carrier: "", active: true });
+    setShowRuleModal(true);
+  }
+
+  function openEditRule(r: CarrierRule) {
+    setEditMode("edit");
+    setEditingId(r._id);
+    setRuleForm({ name: r.name, condition: r.condition, carrier: r.carrier, active: r.active });
+    setShowRuleModal(true);
   }
 
   return (
@@ -60,7 +126,17 @@ export function Carriers() {
           <button onClick={() => setView("carriers")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "carriers" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.nav.carriers}</button>
           <button onClick={() => setView("rules")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.carriers.autoRules}</button>
         </div>
-        <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{view === "carriers" ? t.carriers.addCarrier : t.common.new}</PrimaryButton>
+        <PrimaryButton icon={Plus} onClick={() => {
+          if (view === "carriers") {
+            setEditMode("add");
+            setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" });
+            setShowAdd(true);
+          } else {
+            openAddRule();
+          }
+        }}>
+          {view === "carriers" ? t.carriers.addCarrier : t.common.new}
+        </PrimaryButton>
       </div>
 
       {view === "carriers" ? (
@@ -80,7 +156,7 @@ export function Carriers() {
                     ))}
                   </div>
                 </div>
-                <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
+                <button onClick={() => openEditCarrier(carrier)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
               </div>
 
               {/* Performance */}
@@ -136,7 +212,8 @@ export function Carriers() {
                     <div className="text-[10px] text-muted-foreground">{t.carriers.assignedCarrier}</div>
                     <div className="font-bold text-sm text-primary">{rule.carrier}</div>
                   </div>
-                  <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
+                  <button onClick={() => openEditRule(rule)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
+                  <button onClick={() => handleDeleteRule(rule._id)} className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"><Trash2 className="size-3.5" /></button>
                 </div>
               </div>
             </div>
@@ -144,19 +221,37 @@ export function Carriers() {
         </div>
       )}
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.carriers.addCarrier} subtitle="Connect a shipping carrier" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAdd}>{t.carriers.addCarrier}</ModalSubmit></>}>
+      {/* Carrier Modal */}
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editMode === "add" ? t.carriers.addCarrier : "Edit Carrier"} subtitle="Connect a shipping carrier" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSaveCarrier}>{editMode === "add" ? t.carriers.addCarrier : "Save Changes"}</ModalSubmit></>}>
         <Row>
           <Field label={t.carriers.carrierName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="FedEx, DHL…" /></Field>
           <Field label={t.common.type}><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
             <option value="international">International</option><option value="domestic">Domestic</option><option value="regional">Regional</option>
           </Select></Field>
         </Row>
-        <Field label={t.carriers.accountNo} required><Input value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })} placeholder="ACC-XXXXXX" /></Field>
+        <Row>
+          <Field label={t.carriers.accountNo} required><Input value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })} placeholder="ACC-XXXXXX" /></Field>
+          <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+            <option value="active">Active</option><option value="inactive">Inactive</option>
+          </Select></Field>
+        </Row>
         <Row>
           <Field label={t.carriers.avgCost}><Input type="number" step="0.1" value={form.cost_avg} onChange={(e) => setForm({ ...form, cost_avg: Number(e.target.value) })} /></Field>
           <Field label={t.carriers.onTimeRate}><Input type="number" value={form.on_time} onChange={(e) => setForm({ ...form, on_time: Number(e.target.value) })} /></Field>
         </Row>
         <Field label={t.carriers.regions} hint={t.carriers.regionsHint}><Input value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder="US, EU" /></Field>
+      </Modal>
+
+      {/* Rule Modal */}
+      <Modal open={showRuleModal} onClose={() => setShowRuleModal(false)} title={editMode === "add" ? "Add Rule" : "Edit Rule"} subtitle="Automate carrier assignment" footer={<><ModalCancel onClose={() => setShowRuleModal(false)} /><ModalSubmit onClick={handleSaveRule}>{editMode === "add" ? "Create Rule" : "Save Changes"}</ModalSubmit></>}>
+        <Field label="Rule Name" required><Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="e.g., Heavy items to UPS" /></Field>
+        <Field label="Condition" required><Input value={ruleForm.condition} onChange={(e) => setRuleForm({ ...ruleForm, condition: e.target.value })} placeholder="e.g., Weight > 50 lbs" /></Field>
+        <Row>
+          <Field label="Assigned Carrier"><Input value={ruleForm.carrier} onChange={(e) => setRuleForm({ ...ruleForm, carrier: e.target.value })} placeholder="e.g., UPS Ground" /></Field>
+          <Field label="Active Status"><Select value={ruleForm.active ? "true" : "false"} onChange={(e) => setRuleForm({ ...ruleForm, active: e.target.value === "true" })}>
+            <option value="true">Active</option><option value="false">Inactive</option>
+          </Select></Field>
+        </Row>
       </Modal>
     </div>
   );

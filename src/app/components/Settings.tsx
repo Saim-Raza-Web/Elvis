@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus } from "lucide-react";
 import { useLang } from "../LangContext";
+import { adminService } from "../../services/admin.service";
+import { settingsService } from "../../services/settings.service";
+import { toast } from "sonner";
+
+type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
 
 const settingsTabIds = ["general", "notifications", "security", "team", "roles", "api"] as const;
 const settingsTabIcons = [Settings2, Bell, Shield, Users, LockKeyhole, Key];
@@ -30,13 +35,7 @@ const roles = [
 
 const permissionModules = ["dashboard", "warehouses", "inventory", "orders", "billing", "reports", "settings", "admin"] as const;
 
-const teamMembers = [
-  { name: "David Chen", email: "d.chen@demologistics.io", role: "OWNER", joined: "2025-01-15" },
-  { name: "Sarah Kim", email: "s.kim@demologistics.io", role: "ADMIN", joined: "2025-03-01" },
-  { name: "Mike Johnson", email: "m.johnson@demologistics.io", role: "MEMBER", joined: "2025-04-12" },
-  { name: "Priya Patel", email: "p.patel@demologistics.io", role: "MEMBER", joined: "2025-06-01" },
-  { name: "Tom Williams", email: "t.williams@demologistics.io", role: "MEMBER", joined: "2026-01-20" },
-];
+
 
 const apiKeys = [
   { name: "Production API Key", key: "sk_live_...xyz8", created: "2026-01-01", lastUsed: "2026-06-26", status: "active" },
@@ -62,6 +61,60 @@ export function Settings() {
   const [orderNotifs, setOrderNotifs] = useState(true);
   const [lowStockNotifs, setLowStockNotifs] = useState(true);
   const [shipmentNotifs, setShipmentNotifs] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  async function loadSettings() {
+    try {
+      setLoading(true);
+      const data = await settingsService.getCompanySettings();
+      if (data) {
+        setCompanyName(data.name || "demologistics HQ");
+        setTimezone(data.timezone || "America/New_York");
+        setCurrency(data.currency || "EUR");
+        setEmailNotifs(data.emailNotifs ?? true);
+        setOrderNotifs(data.orderNotifs ?? true);
+        setLowStockNotifs(data.lowStockNotifs ?? true);
+        setShipmentNotifs(data.shipmentNotifs ?? false);
+      }
+    } catch (err) {
+      toast.error("Failed to load settings");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  async function handleSaveGeneral() {
+    try {
+      await settingsService.updateCompanySettings({ name: companyName, timezone, currency });
+      toast.success("General settings saved.");
+    } catch (err) {
+      toast.error("Failed to save settings");
+    }
+  }
+
+  async function handleToggleNotif(field: string, val: boolean) {
+    try {
+      await settingsService.updateCompanySettings({ [field]: val });
+      if (field === 'emailNotifs') setEmailNotifs(val);
+      if (field === 'orderNotifs') setOrderNotifs(val);
+      if (field === 'lowStockNotifs') setLowStockNotifs(val);
+      if (field === 'shipmentNotifs') setShipmentNotifs(val);
+      toast.success("Notification preferences updated.");
+    } catch (err) {
+      toast.error("Failed to update preferences");
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === "team") {
+      adminService.getUsers().then(data => setTeamMembers(data)).catch(() => toast.error("Failed to load users"));
+    }
+  }, [activeTab]);
 
   const Toggle = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
     <button
@@ -147,7 +200,7 @@ export function Settings() {
                   </select>
                 </div>
               </div>
-              <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all">
+              <button onClick={handleSaveGeneral} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all">
                 <Save className="size-4" /> {t.settings.saveChanges}
               </button>
             </div>
@@ -158,10 +211,10 @@ export function Settings() {
           <div className="rounded-xl border border-border bg-card p-6 space-y-5">
             <h3 className="font-bold">{t.settings.notifPrefs}</h3>
             {[
-              { label: t.settings.emailNotifs, sub: t.settings.emailNotifsSub, value: emailNotifs, toggle: () => setEmailNotifs(!emailNotifs) },
-              { label: t.settings.orderAlerts, sub: t.settings.orderAlertsSub, value: orderNotifs, toggle: () => setOrderNotifs(!orderNotifs) },
-              { label: t.settings.lowStockAlerts, sub: t.settings.lowStockAlertsSub, value: lowStockNotifs, toggle: () => setLowStockNotifs(!lowStockNotifs) },
-              { label: t.settings.shipmentUpdates, sub: t.settings.shipmentUpdatesSub, value: shipmentNotifs, toggle: () => setShipmentNotifs(!shipmentNotifs) },
+              { label: t.settings.emailNotifs, sub: t.settings.emailNotifsSub, value: emailNotifs, toggle: () => handleToggleNotif('emailNotifs', !emailNotifs) },
+              { label: t.settings.orderAlerts, sub: t.settings.orderAlertsSub, value: orderNotifs, toggle: () => handleToggleNotif('orderNotifs', !orderNotifs) },
+              { label: t.settings.lowStockAlerts, sub: t.settings.lowStockAlertsSub, value: lowStockNotifs, toggle: () => handleToggleNotif('lowStockNotifs', !lowStockNotifs) },
+              { label: t.settings.shipmentUpdates, sub: t.settings.shipmentUpdatesSub, value: shipmentNotifs, toggle: () => handleToggleNotif('shipmentNotifs', !shipmentNotifs) },
             ].map((n) => (
               <div key={n.label} className="flex items-center justify-between py-3 border-b border-border last:border-0">
                 <div>
@@ -232,7 +285,7 @@ export function Settings() {
                     <td className="px-4 py-3 hidden sm:table-cell">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${m.role === "OWNER" ? "bg-primary/15 text-primary" : m.role === "ADMIN" ? "bg-amber-500/15 text-amber-500" : "bg-secondary text-muted-foreground"}`}>{m.role}</span>
                     </td>
-                    <td className="px-4 py-3 hidden md:table-cell text-xs text-muted-foreground">{m.joined}</td>
+                    <td className="px-4 py-3 hidden md:table-cell text-xs text-muted-foreground">{m.createdAt?.slice(0, 10)}</td>
                     <td className="px-4 py-3 text-right">
                       {m.role !== "OWNER" && (
                         <button className="text-xs text-muted-foreground hover:text-destructive transition-colors">Remove</button>

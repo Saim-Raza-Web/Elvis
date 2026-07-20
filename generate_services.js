@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const services = [
-  'warehouses', 'locations', 'inventory', 'receiving',
+  'warehouses', 'locations', 'inventory', 'receiving', 'asn',
   'transfers', 'picking', 'packing', 'orders', 'ecommerce',
   'shipping', 'carriers', 'returns', 'crm', 'billing',
   'accounting', 'reports', 'settings', 'activity', 'admin', 'dashboard'

@@ -5,29 +5,63 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, Textarea, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-const returns = [
-  { id: "RET-0041", order: "ORD-00155", customer: "Meridian Corp", reason: "Defective item", items: 2, amount: 234.00, status: "processing", date: "2026-06-24", warehouse: "MIA" },
-  { id: "RET-0040", order: "ORD-00148", customer: "Tidal Wave Inc.", reason: "Wrong item shipped", items: 1, amount: 89.99, status: "returned", date: "2026-06-23", warehouse: "LAX" },
-  { id: "RET-0039", order: "ORD-00141", customer: "Granite Peak Co.", reason: "No longer needed", items: 5, amount: 1100.00, status: "refunded", date: "2026-06-22", warehouse: "ORD" },
-  { id: "RET-0038", order: "ORD-00137", customer: "Lunar Systems", reason: "Damaged in transit", items: 3, amount: 450.00, status: "pending", date: "2026-06-20", warehouse: "DAL" },
-  { id: "RET-0037", order: "ORD-00130", customer: "Ember Tech", reason: "Ordered by mistake", items: 1, amount: 29.99, status: "refunded", date: "2026-06-18", warehouse: "JFK" },
-];
+import { useEffect } from "react";
+import { returnsService } from "../../services/returns.service";
+
+type ReturnItem = { _id: string; id: string; order: string; customer: string; reason: string; items: number; amount: number; status: string; date: string; warehouse: string; returnId?: string };
 
 export function Returns() {
   const { t } = useLang();
-  const [returnList, setReturnList] = useState(returns);
+  const [returnList, setReturnList] = useState<ReturnItem[]>([]);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
 
-  function handleCreate() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await returnsService.getAll();
+      setReturnList(data.map((d: any) => ({ ...d, id: d.returnId || d._id, date: d.date?.slice(0, 10) || "—" })));
+    } catch (err) {
+      toast.error("Failed to load returns");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleCreate() {
     if (!form.order || !form.customer) { toast.error("Order and customer required."); return; }
     const id = `RET-${String(returnList.length + 42).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
-    setReturnList((prev) => [...prev, { id, order: form.order, customer: form.customer, reason: form.reason || "Not specified", items: form.items, amount: form.amount, status: "pending", date: today, warehouse: form.warehouse }]);
-    toast.success(`Return ${id} created.`);
-    setShowAdd(false);
-    setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
+    try {
+      await returnsService.create({ ...form, returnId: id, status: "pending", date: today });
+      toast.success(`Return ${id} created.`);
+      setShowAdd(false);
+      setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
+      loadData();
+    } catch (err) { toast.error("Failed to create return"); }
+  }
+
+  async function handleProcess(ret: ReturnItem) {
+    try {
+      await returnsService.update(ret._id, { status: "processing" });
+      toast.info(`Return ${ret.id} is now processing.`);
+      loadData();
+    } catch (err) { toast.error("Failed to update status"); }
+  }
+
+  async function handleRefund(ret: ReturnItem) {
+    try {
+      await returnsService.update(ret._id, { status: "refunded" });
+      toast.success(`Return ${ret.id} refunded successfully.`);
+      loadData();
+    } catch (err) { toast.error("Failed to process refund"); }
   }
 
   const filtered = returnList.filter((r) =>
@@ -84,6 +118,7 @@ export function Returns() {
               <th className="text-right px-4 py-3">{t.common.amount}</th>
               <th className="text-center px-4 py-3">{t.common.status}</th>
               <th className="text-right px-4 py-3 hidden sm:table-cell">{t.common.date}</th>
+              <th className="text-right px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -97,6 +132,14 @@ export function Returns() {
                 <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{r.amount.toFixed(2)}</td>
                 <td className="px-4 py-3 text-center"><StatusBadge status={r.status} /></td>
                 <td className="px-4 py-3 text-right hidden sm:table-cell text-muted-foreground text-xs">{r.date}</td>
+                <td className="px-4 py-3 text-right">
+                  {r.status === "pending" && (
+                    <button onClick={() => handleProcess(r)} className="px-3 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95">Process</button>
+                  )}
+                  {r.status === "processing" && (
+                    <button onClick={() => handleRefund(r)} className="px-3 py-1 bg-success text-white rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95">Refund</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

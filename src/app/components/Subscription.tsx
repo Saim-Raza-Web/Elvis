@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { Check, Zap, Shield, Star } from "lucide-react";
+import { settingsService } from "../../services/settings.service";
+import { toast } from "sonner";
 
 const plans = [
   {
@@ -64,18 +67,39 @@ const plans = [
 ];
 
 export function Subscription() {
+  const [currentPlan, setCurrentPlan] = useState("professional");
+
+  useEffect(() => {
+    settingsService.getCompanySettings().then(data => {
+      if (data && data.plan) {
+        setCurrentPlan(data.plan);
+      }
+    }).catch(console.error);
+  }, []);
+
+  async function handleUpgrade(planName: string) {
+    try {
+      await settingsService.updateCompanySettings({ plan: planName });
+      setCurrentPlan(planName);
+      toast.success(`Successfully upgraded to ${planName} plan!`);
+    } catch (err) {
+      toast.error("Failed to upgrade plan.");
+    }
+  }
+
+  const currentPlanObj = plans.find(p => p.name.toLowerCase() === currentPlan.toLowerCase()) || plans[0];
+
   return (
     <div className="space-y-8">
       {/* Current plan banner */}
       <div className="rounded-xl border border-primary/30 bg-primary/5 p-5 flex items-center justify-between flex-wrap gap-4">
         <div>
           <div className="text-xs font-bold uppercase tracking-wider text-primary mb-1">Current plan</div>
-          <h2 className="font-bold">Professional Plan</h2>
-          <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>Renews on July 1, 2026 · €299/month</p>
+          <h2 className="font-bold">{currentPlanObj.name} Plan</h2>
+          <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>Renews on July 1, 2026 · €{currentPlanObj.price}/month</p>
         </div>
         <div className="flex gap-2">
           <button className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">Manage billing</button>
-          <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all">Upgrade</button>
         </div>
       </div>
 
@@ -84,10 +108,10 @@ export function Subscription() {
         {plans.map((plan, i) => (
           <div
             key={plan.name}
-            className={`rounded-xl border bg-card p-6 relative animate-pop-in hover-lift ${plan.current ? "border-primary shadow-lg shadow-primary/10" : "border-border"}`}
+            className={`rounded-xl border bg-card p-6 relative animate-pop-in hover-lift ${currentPlan.toLowerCase() === plan.name.toLowerCase() ? "border-primary shadow-lg shadow-primary/10" : "border-border"}`}
             style={{ animationDelay: `${i * 80}ms` }}
           >
-            {plan.current && (
+            {currentPlan.toLowerCase() === plan.name.toLowerCase() && (
               <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                 <span className="bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-full">Current plan</span>
               </div>
@@ -106,13 +130,15 @@ export function Subscription() {
             </div>
 
             <button
+              onClick={() => handleUpgrade(plan.name.toLowerCase())}
+              disabled={currentPlan.toLowerCase() === plan.name.toLowerCase()}
               className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all mb-6 ${
-                plan.current
-                  ? "bg-primary text-primary-foreground hover:opacity-90"
+                currentPlan.toLowerCase() === plan.name.toLowerCase()
+                  ? "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
                   : "border border-border hover:bg-secondary"
               }`}
             >
-              {plan.current ? "Current plan" : `Upgrade to ${plan.name}`}
+              {currentPlan.toLowerCase() === plan.name.toLowerCase() ? "Current plan" : `Upgrade to ${plan.name}`}
             </button>
 
             <div className="space-y-2.5">

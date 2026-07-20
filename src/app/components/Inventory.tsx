@@ -35,6 +35,7 @@ export function Inventory() {
   const [stockTab, setStockTab] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Product | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [form, setForm] = useState(blankProduct());
 
   const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +73,18 @@ export function Inventory() {
       loadData();
     } catch (err) {
       toast.error("Failed to save product");
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await inventoryService.delete(deleteTarget._id);
+      toast.success(`Product deleted.`);
+      setDeleteTarget(null);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to delete product");
     }
   }
 
@@ -183,7 +196,12 @@ export function Inventory() {
                   {p.qty_blocked > 0 ? <span className="text-destructive">{p.qty_blocked}</span> : <span className="text-muted-foreground">—</span>}
                 </td>
                 <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
-                <td className="px-4 py-3 text-right"><button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button></td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={t.common.edit}><Edit3 className="size-3.5" /></button>
+                    <button onClick={() => setDeleteTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={t.common.delete}><AlertTriangle className="size-3.5" /></button>
+                  </div>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
@@ -218,6 +236,11 @@ export function Inventory() {
           </Row>
         </Modal>
       ))}
+
+      {/* Delete confirmation */}
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Product" width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
+        <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone.</p>
+      </Modal>
     </div>
   );
 }

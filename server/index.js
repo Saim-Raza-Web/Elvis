@@ -73,12 +73,16 @@ import settingsRoutes from './routes/settings.js';
 import activityRoutes from './routes/activity.js';
 import adminRoutes from './routes/admin.js';
 import dashboardRoutes from './routes/dashboard.js';
+import asnRoutes from './routes/asn.js';
+import leadsRoutes from './routes/leads.js';
+import carrierRulesRoutes from './routes/carrier_rules.js';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/warehouses', warehousesRoutes);
 app.use('/api/v1/locations', locationsRoutes);
 app.use('/api/v1/inventory', inventoryRoutes);
 app.use('/api/v1/receiving', receivingRoutes);
+app.use('/api/v1/asn', asnRoutes);
 app.use('/api/v1/transfers', transfersRoutes);
 app.use('/api/v1/picking', pickingRoutes);
 app.use('/api/v1/packing', packingRoutes);
@@ -95,6 +99,8 @@ app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/activity', activityRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/leads', leadsRoutes);
+app.use('/api/v1/carrier-rules', carrierRulesRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

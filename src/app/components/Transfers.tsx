@@ -5,15 +5,10 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-type Transfer = { id: string; sku: string; product: string; qty: number; from_wh: string; from_loc: string; to_wh: string; to_loc: string; status: string; type: string; requestedBy: string; date: string };
+import { useEffect } from "react";
+import { transfersService } from "../../services/transfers.service";
 
-const initialTransfers: Transfer[] = [
-  { id: "TRF-0089", sku: "SKU-1001", product: "Premium Widget Alpha", qty: 200, from_wh: "LAX", from_loc: "A-12-C", to_wh: "MIA", to_loc: "B-07-A", status: "in_progress", type: "replenishment", requestedBy: "System", date: "2026-06-26" },
-  { id: "TRF-0088", sku: "SKU-1005", product: "Nylon Cable Tie 500mm", qty: 1000, from_wh: "ORD", from_loc: "C-03-B", to_wh: "DAL", to_loc: "D-01-A", status: "completed", type: "transfer", requestedBy: "Alex M.", date: "2026-06-25" },
-  { id: "TRF-0087", sku: "SKU-1003", product: "Steel Bracket Type-C", qty: 500, from_wh: "MIA", from_loc: "B-02-D", to_wh: "JFK", to_loc: "A-04-B", status: "pending", type: "transfer", requestedBy: "Sarah K.", date: "2026-06-25" },
-  { id: "TRF-0086", sku: "SKU-1006", product: "Precision Sensor Module", qty: 50, from_wh: "LAX", from_loc: "D-08-A", to_wh: "ORD", to_loc: "C-11-C", status: "pending", type: "replenishment", requestedBy: "System", date: "2026-06-24" },
-  { id: "TRF-0085", sku: "SKU-1008", product: "Foam Packing Material", qty: 2000, from_wh: "JFK", from_loc: "E-01-A", to_wh: "MIA", to_loc: "F-02-B", status: "completed", type: "transfer", requestedBy: "Tom W.", date: "2026-06-23" },
-];
+type Transfer = { _id: string; id: string; sku: string; product: string; qty: number; from_wh: string; from_loc: string; to_wh: string; to_loc: string; status: string; type: string; requestedBy: string; date: string; transferId?: string };
 
 const typeColor: Record<string, string> = {
   replenishment: "bg-primary/15 text-primary",
@@ -24,30 +19,57 @@ const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "MIA", fro
 
 export function Transfers() {
   const { t } = useLang();
-  const [transfers, setTransfers] = useState(initialTransfers);
+  const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankTransfer());
 
-  function handleCreate() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      setIsLoading(true);
+      const data = await transfersService.getAll();
+      setTransfers(data.map((d: any) => ({ ...d, id: d.transferId || d._id })));
+    } catch (err) {
+      toast.error("Failed to load transfers");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleCreate() {
     if (!form.sku || !form.from_loc || !form.to_loc) { toast.error("SKU and locations are required."); return; }
     const id = `TRF-${String(transfers.length + 85).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
-    setTransfers((prev) => [...prev, { ...form, id, status: "pending", date: today }]);
-    toast.success(`${t.transfers.transferCreated}: ${id}.`);
-    setShowAdd(false);
-    setForm(blankTransfer());
+    try {
+      await transfersService.create({ ...form, transferId: id, status: "pending", date: today });
+      toast.success(`${t.transfers.transferCreated}: ${id}.`);
+      setShowAdd(false);
+      setForm(blankTransfer());
+      loadData();
+    } catch (err) { toast.error("Failed to create transfer"); }
   }
 
-  function handleStart(id: string) {
-    setTransfers((prev) => prev.map((tr) => tr.id === id ? { ...tr, status: "in_progress" } : tr));
-    toast.info(`${t.transfers.transferStarted}: ${id}.`);
+  async function handleStart(trf: Transfer) {
+    try {
+      await transfersService.update(trf._id, { status: "in_progress" });
+      toast.info(`${t.transfers.transferStarted}: ${trf.id}.`);
+      loadData();
+    } catch (err) { toast.error("Failed to start transfer"); }
   }
 
-  function handleComplete(id: string) {
-    setTransfers((prev) => prev.map((tr) => tr.id === id ? { ...tr, status: "completed" } : tr));
-    toast.success(`${t.transfers.transferCompleted}: ${id}.`);
+  async function handleComplete(trf: Transfer) {
+    try {
+      await transfersService.update(trf._id, { status: "completed" });
+      toast.success(`${t.transfers.transferCompleted}: ${trf.id}.`);
+      loadData();
+    } catch (err) { toast.error("Failed to complete transfer"); }
   }
 
   const filtered = transfers.filter((tr) => {
@@ -126,10 +148,10 @@ export function Transfers() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>{t.transfers.requestedBy}: {tr.requestedBy}</span>
                 {tr.status === "pending" && (
-                  <button onClick={(e) => { e.stopPropagation(); handleStart(tr.id); }} className="px-3 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95">{t.transfers.startTransfer}</button>
+                  <button onClick={(e) => { e.stopPropagation(); handleStart(tr); }} className="px-3 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95">{t.transfers.startTransfer}</button>
                 )}
                 {tr.status === "in_progress" && (
-                  <button onClick={(e) => { e.stopPropagation(); handleComplete(tr.id); }} className="px-3 py-1 bg-success text-white rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95">{t.transfers.completeTransfer}</button>
+                  <button onClick={(e) => { e.stopPropagation(); handleComplete(tr); }} className="px-3 py-1 bg-success text-white rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95">{t.transfers.completeTransfer}</button>
                 )}
               </div>
             </div>
