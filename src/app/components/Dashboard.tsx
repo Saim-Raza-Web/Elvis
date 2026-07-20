@@ -137,7 +137,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
             </h3>
             <div className="space-y-3">
               {warehouseStatus.map((w: any, i) => {
-                const pct = Math.round((w.used / w.capacity) * 100);
+                const pct = w.capacity > 0 ? Math.round(((w.used || 0) / w.capacity) * 100) : 0;
                 const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
                 return (
                   <div key={w.code}>
@@ -150,7 +150,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
                     </div>
                     <div className="flex justify-between mt-0.5">
                       <span className="text-[10px] text-muted-foreground">{w.code}</span>
-                      <span className="text-[10px] text-muted-foreground">{w.used.toLocaleString()} / {w.capacity.toLocaleString()}</span>
+                      <span className="text-[10px] text-muted-foreground">{(w.used || 0).toLocaleString()} / {w.capacity.toLocaleString()}</span>
                     </div>
                   </div>
                 );

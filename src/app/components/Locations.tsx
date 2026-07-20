@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse } from "lucide-react";
+import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -117,7 +117,7 @@ export function Locations() {
         setEditLocTarget(null);
       } else {
         await locationsService.create({ ...locForm, code, qty: 0, status: "ok" });
-        toast.success(`${t.locations.locationCreated}: ${code}`);
+        toast.success(`${t.locations.locCreated}: ${code}`);
         setShowLoc(false);
       }
       loadData();
