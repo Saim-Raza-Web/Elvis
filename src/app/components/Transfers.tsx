@@ -43,6 +43,13 @@ export function Transfers() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm(blankTransfer()); setShowAdd(true); };
+    window.addEventListener("open-new-transfer", handler);
+    return () => window.removeEventListener("open-new-transfer", handler);
+  }, []);
+
   async function handleCreate() {
     if (!form.sku || !form.from_loc || !form.to_loc) { toast.error("SKU and locations are required."); return; }
     const id = `TRF-${String(transfers.length + 85).padStart(4, "0")}`;

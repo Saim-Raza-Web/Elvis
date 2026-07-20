@@ -40,6 +40,13 @@ export function Shipping() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm(blankShipment()); setShowAdd(true); };
+    window.addEventListener("open-new-shipment", handler);
+    return () => window.removeEventListener("open-new-shipment", handler);
+  }, []);
+
   async function handleCreate() {
     if (!form.order || !form.destination) { toast.error("Order and destination are required."); return; }
     const id = `SHP-${String(shipmentList.length + 431).padStart(4, "0")}`;

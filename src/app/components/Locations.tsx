@@ -63,6 +63,13 @@ export function Locations() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setZoneForm({ code: "", name: "", type: "storage", warehouse: selectedWarehouse, locations: 10, capacity: 1000 }); setShowZone(true); };
+    window.addEventListener("open-add-location", handler);
+    return () => window.removeEventListener("open-add-location", handler);
+  }, [selectedWarehouse]);
+
   const filteredZones = zones.filter(
     (z) => z.warehouse === selectedWarehouse &&
       (z.code.toLowerCase().includes(search.toLowerCase()) || z.name.toLowerCase().includes(search.toLowerCase()))

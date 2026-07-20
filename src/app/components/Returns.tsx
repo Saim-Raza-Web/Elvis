@@ -35,6 +35,13 @@ export function Returns() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" }); setShowAdd(true); };
+    window.addEventListener("open-create-return", handler);
+    return () => window.removeEventListener("open-create-return", handler);
+  }, []);
+
   async function handleCreate() {
     if (!form.order || !form.customer) { toast.error("Order and customer required."); return; }
     const id = `RET-${String(returnList.length + 42).padStart(4, "0")}`;

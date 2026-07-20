@@ -48,6 +48,13 @@ export function Receiving() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm(blankASN()); setShowAdd(true); };
+    window.addEventListener("open-new-asn", handler);
+    return () => window.removeEventListener("open-new-asn", handler);
+  }, []);
+
   const filtered = asns.filter((a) =>
     a.id?.toLowerCase().includes(search.toLowerCase()) || a.supplier?.toLowerCase().includes(search.toLowerCase())
   );

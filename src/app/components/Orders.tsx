@@ -41,6 +41,13 @@ export function Orders() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm(blankOrder()); setShowAdd(true); };
+    window.addEventListener("open-new-order", handler);
+    return () => window.removeEventListener("open-new-order", handler);
+  }, []);
+
   function openEdit(o: Order) {
     setEditTarget(o);
     setForm({ customer: o.customer, email: o.email, channel: o.channel, warehouse: o.warehouse, items: o.items, total: o.total, notes: o.notes });
@@ -189,22 +196,22 @@ export function Orders() {
       {[{ open: showAdd, onClose: () => setShowAdd(false), title: t.orders.newOrder }, { open: !!editTarget, onClose: () => setEditTarget(null), title: "Edit Order" }].map((m) => (
         <Modal key={m.title} open={m.open} onClose={m.onClose} title={m.title} subtitle="Order Details" footer={<><ModalCancel onClose={m.onClose} /><ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit></>}>
           <Row>
-            <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Company or person" /></Field>
-            <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="orders@company.com" /></Field>
+            <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm((f) => ({ ...f, customer: e.target.value }))} placeholder="Company or person" /></Field>
+            <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="orders@company.com" /></Field>
           </Row>
           <Row>
-            <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })}>
+            <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}>
               <option value="web">Web</option><option value="api">API</option><option value="mobile">Mobile</option><option value="phone">Phone</option>
             </Select></Field>
-            <Field label={t.orders.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
+            <Field label={t.orders.warehouse}><Select value={form.warehouse} onChange={(e) => setForm((f) => ({ ...f, warehouse: e.target.value }))}>
               {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
             </Select></Field>
           </Row>
           <Row>
-            <Field label={t.orders.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm({ ...form, items: Number(e.target.value) })} /></Field>
-            <Field label={t.orders.orderTotal}><Input type="number" step="0.01" value={form.total} onChange={(e) => setForm({ ...form, total: Number(e.target.value) })} /></Field>
+            <Field label={t.orders.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm((f) => ({ ...f, items: Number(e.target.value) }))} /></Field>
+            <Field label={t.orders.orderTotal}><Input type="number" step="0.01" value={form.total} onChange={(e) => setForm((f) => ({ ...f, total: Number(e.target.value) }))} /></Field>
           </Row>
-          <Field label={t.common.notes}><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Special instructions…" /></Field>
+          <Field label={t.common.notes}><Input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Special instructions…" /></Field>
         </Modal>
       ))}
 

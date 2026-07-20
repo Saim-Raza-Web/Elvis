@@ -52,6 +52,13 @@ export function Warehouses() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm(blank()); setShowAdd(true); };
+    window.addEventListener("open-add-warehouse", handler);
+    return () => window.removeEventListener("open-add-warehouse", handler);
+  }, []);
+
   const filtered = warehouses.filter(
     (w) => w.name.toLowerCase().includes(search.toLowerCase()) || w.code.toLowerCase().includes(search.toLowerCase())
   );
@@ -89,31 +96,6 @@ export function Warehouses() {
     }
   }
 
-  const FormBody = () => (
-    <>
-      <Row>
-        <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Miami Hub" /></Field>
-        <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().slice(0, 4) })} placeholder="MIA" /></Field>
-      </Row>
-      <Row>
-        <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Miami, FL" /></Field>
-        <Field label={t.warehouses.country}><Select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
-          <option>US</option><option>DE</option><option>FR</option><option>ES</option><option>IT</option><option>GB</option>
-        </Select></Field>
-      </Row>
-      <Row>
-        <Field label={t.warehouses.capacity}><Input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })} /></Field>
-        <Field label={t.warehouses.temp}><Input value={form.temp} onChange={(e) => setForm({ ...form, temp: e.target.value })} placeholder="20°C" /></Field>
-      </Row>
-      <Row>
-        <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm({ ...form, manager: e.target.value })} placeholder="Full name" /></Field>
-        <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-          <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
-        </Select></Field>
-      </Row>
-    </>
-  );
-
   return (
     <div className="space-y-6">
       {/* Stats */}
@@ -122,7 +104,7 @@ export function Warehouses() {
           { label: t.warehouses.totalWarehouses, value: warehouses.length, icon: Warehouse, color: "text-primary" },
           { label: t.status.active, value: warehouses.filter((w) => w.status === "active").length, icon: TrendingUp, color: "text-success" },
           { label: t.warehouses.totalCapacity, value: `${(warehouses.reduce((a, w) => a + w.capacity, 0) / 1000).toFixed(0)}k units`, icon: Package, color: "text-blue-500" },
-          { label: t.warehouses.overallUtil, value: `${Math.round(warehouses.reduce((a, w) => a + w.used, 0) / warehouses.reduce((a, w) => a + w.capacity, 0) * 100)}%`, icon: TrendingUp, color: "text-amber-500" },
+          { label: t.warehouses.overallUtil, value: warehouses.length ? `${Math.round(warehouses.reduce((a, w) => a + (w.used || 0), 0) / warehouses.reduce((a, w) => a + w.capacity, 0) * 100)}%` : "0%", icon: TrendingUp, color: "text-amber-500" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -143,7 +125,7 @@ export function Warehouses() {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((w, i) => {
-          const pct = Math.round((w.used / w.capacity) * 100);
+          const pct = w.capacity > 0 ? Math.round(((w.used || 0) / w.capacity) * 100) : 0;
           const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
           return (
             <div key={w._id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 50}ms` }}>
@@ -173,7 +155,7 @@ export function Warehouses() {
                   <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${pct}%` }} />
                 </div>
                 <div className="flex justify-between mt-1">
-                  <span className="text-[10px] text-muted-foreground">{w.used.toLocaleString()} used</span>
+                  <span className="text-[10px] text-muted-foreground">{(w.used || 0).toLocaleString()} used</span>
                   <span className="text-[10px] text-muted-foreground">{w.capacity.toLocaleString()} total</span>
                 </div>
               </div>
@@ -181,7 +163,7 @@ export function Warehouses() {
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div className="text-center p-2 bg-secondary/50 rounded-lg">
                   <div className="text-muted-foreground">{t.warehouses.zones}</div>
-                  <div className="font-bold mt-0.5">{w.zones}</div>
+                  <div className="font-bold mt-0.5">{w.zones || 0}</div>
                 </div>
                 <div className="text-center p-2 bg-secondary/50 rounded-lg">
                   <div className="flex items-center justify-center gap-0.5 text-muted-foreground"><Thermometer className="size-3" />{t.warehouses.temp}</div>
@@ -189,22 +171,66 @@ export function Warehouses() {
                 </div>
                 <div className="text-center p-2 bg-secondary/50 rounded-lg">
                   <div className="flex items-center justify-center gap-0.5 text-muted-foreground"><User className="size-3" />{t.warehouses.manager.slice(0, 3)}</div>
-                  <div className="font-bold mt-0.5 truncate">{w.manager.split(" ")[0]}</div>
+                  <div className="font-bold mt-0.5 truncate">{(w.manager || "—").split(" ")[0]}</div>
                 </div>
               </div>
             </div>
           );
         })}
+        {filtered.length === 0 && !isLoading && (
+          <div className="col-span-full text-center py-16 text-muted-foreground">
+            <Warehouse className="size-12 mx-auto mb-3 opacity-30" />
+            <p>No warehouses found. Add your first warehouse!</p>
+          </div>
+        )}
       </div>
 
       {/* Add modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.warehouses.addWarehouse} subtitle={t.pages.warehouses.sub} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{t.common.create}</ModalSubmit></>}>
-        <FormBody />
+        <Row>
+          <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Miami Hub" /></Field>
+          <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase().slice(0, 4) }))} placeholder="MIA" /></Field>
+        </Row>
+        <Row>
+          <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="Miami, FL" /></Field>
+          <Field label={t.warehouses.country}><Select value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}>
+            <option>US</option><option>DE</option><option>FR</option><option>ES</option><option>IT</option><option>GB</option>
+          </Select></Field>
+        </Row>
+        <Row>
+          <Field label={t.warehouses.capacity}><Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: Number(e.target.value) }))} /></Field>
+          <Field label={t.warehouses.temp}><Input value={form.temp} onChange={(e) => setForm((f) => ({ ...f, temp: e.target.value }))} placeholder="20°C" /></Field>
+        </Row>
+        <Row>
+          <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} placeholder="Full name" /></Field>
+          <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+            <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
+          </Select></Field>
+        </Row>
       </Modal>
 
       {/* Edit modal */}
       <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title={t.warehouses.editWarehouse} subtitle={editTarget?.name} footer={<><ModalCancel onClose={() => setEditTarget(null)} /><ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit></>}>
-        <FormBody />
+        <Row>
+          <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Miami Hub" /></Field>
+          <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase().slice(0, 4) }))} placeholder="MIA" /></Field>
+        </Row>
+        <Row>
+          <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="Miami, FL" /></Field>
+          <Field label={t.warehouses.country}><Select value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}>
+            <option>US</option><option>DE</option><option>FR</option><option>ES</option><option>IT</option><option>GB</option>
+          </Select></Field>
+        </Row>
+        <Row>
+          <Field label={t.warehouses.capacity}><Input type="number" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: Number(e.target.value) }))} /></Field>
+          <Field label={t.warehouses.temp}><Input value={form.temp} onChange={(e) => setForm((f) => ({ ...f, temp: e.target.value }))} placeholder="20°C" /></Field>
+        </Row>
+        <Row>
+          <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} placeholder="Full name" /></Field>
+          <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+            <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
+          </Select></Field>
+        </Row>
       </Modal>
 
       {/* Delete confirmation */}

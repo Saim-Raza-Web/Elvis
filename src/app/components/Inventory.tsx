@@ -56,6 +56,13 @@ export function Inventory() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm(blankProduct()); setShowAdd(true); };
+    window.addEventListener("open-add-product", handler);
+    return () => window.removeEventListener("open-add-product", handler);
+  }, []);
+
   function openAdd() { setForm(blankProduct()); setShowAdd(true); }
   function openEdit(p: Product) { setEditTarget(p); setForm({ ...p }); }
   async function handleSave() {

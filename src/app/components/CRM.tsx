@@ -62,6 +62,13 @@ export function CRM() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" }); setEditMode("add"); setShowAdd(true); };
+    window.addEventListener("open-add-customer", handler);
+    return () => window.removeEventListener("open-add-customer", handler);
+  }, []);
+
   async function handleSave() {
     if (!form.name || !form.email) { toast.error("Company name and email required."); return; }
     try {

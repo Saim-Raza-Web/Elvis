@@ -44,6 +44,13 @@ export function Carriers() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" }); setEditMode("add"); setShowAdd(true); };
+    window.addEventListener("open-add-carrier", handler);
+    return () => window.removeEventListener("open-add-carrier", handler);
+  }, []);
+
   async function handleSaveCarrier() {
     if (!form.name || !form.account) { toast.error("Carrier name and account are required."); return; }
     try {

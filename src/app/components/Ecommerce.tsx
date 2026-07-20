@@ -53,6 +53,13 @@ export function Ecommerce() {
     loadData();
   }, []);
 
+  // Listen for header button CustomEvent
+  useEffect(() => {
+    const handler = () => { setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" }); setEditMode("connect"); setShowConnect(true); };
+    window.addEventListener("open-connect-channel", handler);
+    return () => window.removeEventListener("open-connect-channel", handler);
+  }, []);
+
   async function handleConnect() {
     if (!connectForm.name || !connectForm.url) { toast.error("Channel name and URL required."); return; }
     try {
