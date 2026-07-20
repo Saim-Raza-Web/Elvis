@@ -37,10 +37,10 @@ export function Accounting() {
   useEffect(() => {
     loadData();
   }, []);
-  const totalRevenue = 521400;
-  const totalExpenses = 284000;
+  const totalRevenue = transactionList.filter(t => t.type === "credit").reduce((a, t) => a + t.amount, 0);
+  const totalExpenses = transactionList.filter(t => t.type === "debit").reduce((a, t) => a + t.amount, 0);
   const netProfit = totalRevenue - totalExpenses;
-  const profitMargin = ((netProfit / totalRevenue) * 100).toFixed(1);
+  const profitMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : "0.0";
 
   function handleExport() {
     toast.success(t.accounting.exportSuccess);

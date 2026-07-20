@@ -38,6 +38,12 @@ export function Billing() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    const handler = () => { setForm(blankInvoice()); setShowAdd(true); };
+    window.addEventListener("open-new-invoice", handler);
+    return () => window.removeEventListener("open-new-invoice", handler);
+  }, []);
+
   async function handleCreate() {
     if (!form.customer || !form.amount) { toast.error("Customer and amount required."); return; }
     const id = `INV-${String(invoiceList.length + 88).padStart(4, "0")}`;

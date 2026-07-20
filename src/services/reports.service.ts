@@ -8,5 +8,9 @@ export const reportsService = {
   scheduleReport: async (data: any) => {
     const response = await api.post('/reports/schedule', data);
     return response.data;
+  },
+  getDashboardStats: async () => {
+    const response = await api.get('/reports/dashboard');
+    return response.data;
   }
 };

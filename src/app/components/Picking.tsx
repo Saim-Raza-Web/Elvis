@@ -46,6 +46,12 @@ export function Picking() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    const handler = () => { setManualForm({ order: "", zone: "", assignee: "", priority: "normal", items: 1 }); setShowManual(true); };
+    window.addEventListener("open-new-pick", handler);
+    return () => window.removeEventListener("open-new-pick", handler);
+  }, []);
+
   async function handleScanStart() {
     if (!scanValue.trim()) { toast.error("No barcode detected. Enter or scan a barcode."); return; }
     

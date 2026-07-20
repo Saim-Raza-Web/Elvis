@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BarChart3, TrendingUp, Package, Truck, Globe, Users, FileText, Warehouse, ShoppingCart, Download, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -10,54 +10,7 @@ import {
 } from "recharts";
 import { reportsService } from "../../services/reports.service";
 
-const revenueData = [
-  { month: "Jan", revenue: 38200, orders: 62, returns: 3 },
-  { month: "Feb", revenue: 42100, orders: 71, returns: 5 },
-  { month: "Mar", revenue: 39800, orders: 65, returns: 4 },
-  { month: "Apr", revenue: 51200, orders: 88, returns: 7 },
-  { month: "May", revenue: 48750, orders: 82, returns: 6 },
-  { month: "Jun", revenue: 58320, orders: 97, returns: 5 },
-];
-
-const orderStatusData = [
-  { name: "Delivered", value: 312, color: "#22c55e" },
-  { name: "Shipped", value: 87, color: "#4f46e5" },
-  { name: "Processing", value: 45, color: "#3b82f6" },
-  { name: "Pending", value: 23, color: "#f59e0b" },
-  { name: "Cancelled", value: 14, color: "#ef4444" },
-];
-
-const categoryData = [
-  { category: "Electronics", units: 4820, value: 421000 },
-  { category: "Hardware", units: 28400, value: 89000 },
-  { category: "Industrial", units: 1240, value: 312000 },
-  { category: "Packaging", units: 52000, value: 48000 },
-  { category: "Accessories", units: 9800, value: 67000 },
-  { category: "Widgets", units: 6100, value: 198000 },
-];
-
-const shippingData = [
-  { carrier: "FedEx", onTime: 94, late: 6 },
-  { carrier: "UPS", onTime: 91, late: 9 },
-  { carrier: "DHL", onTime: 97, late: 3 },
-  { carrier: "USPS", onTime: 88, late: 12 },
-];
-
-const warehousePerf = [
-  { wh: "MIA", picks: 842, errors: 3, utilization: 77 },
-  { wh: "LAX", picks: 1210, errors: 8, utilization: 95 },
-  { wh: "ORD", picks: 620, errors: 2, utilization: 32 },
-  { wh: "JFK", picks: 510, errors: 4, utilization: 78 },
-  { wh: "DAL", picks: 780, errors: 5, utilization: 64 },
-];
-
-const channelData = [
-  { channel: "Shopify", orders: 184, revenue: 28400 },
-  { channel: "Amazon", orders: 241, revenue: 41200 },
-  { channel: "WooCommerce", orders: 52, revenue: 8900 },
-  { channel: "Mirakl", orders: 84, revenue: 14200 },
-  { channel: "Direct", orders: 32, revenue: 6100 },
-];
+// Dynamic data will be loaded from backend
 
 const tooltipStyle = {
   backgroundColor: "var(--card)",
@@ -76,6 +29,33 @@ export function Reports() {
   const [activeTab, setActiveTab] = useState("overview");
   const [showSchedule, setShowSchedule] = useState(false);
   const [schedForm, setSchedForm] = useState({ report: "overview", freq: "weekly", email: "", format: "pdf" });
+
+  const [revenueData, setRevenueData] = useState<any[]>([]);
+  const [orderStatusData, setOrderStatusData] = useState<any[]>([]);
+  const [categoryData, setCategoryData] = useState<any[]>([]);
+  const [shippingData, setShippingData] = useState<any[]>([]);
+  const [warehousePerf, setWarehousePerf] = useState<any[]>([]);
+  const [channelData, setChannelData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await reportsService.getDashboardStats();
+        setRevenueData(data.revenueData || []);
+        setOrderStatusData(data.orderStatusData || []);
+        setCategoryData(data.categoryData || []);
+        setShippingData(data.shippingData || []);
+        setWarehousePerf(data.warehousePerf || []);
+        setChannelData(data.channelData || []);
+      } catch (err) {
+        toast.error("Failed to load live report data");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   async function handleExportPDF() {
     try {

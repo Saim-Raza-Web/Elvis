@@ -2,6 +2,7 @@ import { useState } from "react";
 import { PackageOpen, ScanLine, CheckCircle2, AlertCircle, Package, Box, Printer, Scale, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
@@ -32,6 +33,8 @@ export function Packing() {
   const [material, setMaterial] = useState("Bubble wrap");
   const [labelPrinted, setLabelPrinted] = useState(false);
   const [weighed, setWeighed] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [manualForm, setManualForm] = useState({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" });
 
   const activePack = queue.find((p) => p.id === activeTask);
   const allVerified = packItems.every((i) => i.verified);
@@ -52,6 +55,12 @@ export function Packing() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => { setManualForm({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" }); setShowAdd(true); };
+    window.addEventListener("open-new-pack", handler);
+    return () => window.removeEventListener("open-new-pack", handler);
   }, []);
 
   function handleVerify() {
@@ -101,6 +110,18 @@ export function Packing() {
       setWeighed(false);
       loadData();
     } catch (err) { toast.error("Failed to complete packing"); }
+  }
+
+  async function handleAddPack() {
+    if (!manualForm.order || !manualForm.customer) { toast.error("Order and customer are required."); return; }
+    const id = `PCK-${String(queue.length + 80).padStart(4, "0")}`;
+    try {
+      await packingService.create({ ...manualForm, packId: id, status: "ready", picked: manualForm.items });
+      toast.success(`Pack task created: ${id}`);
+      setShowAdd(false);
+      setManualForm({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" });
+      loadData();
+    } catch (err) { toast.error("Failed to create pack task"); }
   }
 
   return (
@@ -279,6 +300,20 @@ export function Packing() {
           )}
         </div>
       </div>
+
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="New Pack Task" subtitle="Manually add an order to the packing queue" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddPack}>Add Task</ModalSubmit></>}>
+        <Row>
+          <Field label="Order Number" required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder="ORD-XXXXX" /></Field>
+          <Field label="Customer" required><Input value={manualForm.customer} onChange={(e) => setManualForm({ ...manualForm, customer: e.target.value })} placeholder="Customer Name" /></Field>
+        </Row>
+        <Row>
+          <Field label="No. of items"><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
+          <Field label="Station"><Input value={manualForm.station} onChange={(e) => setManualForm({ ...manualForm, station: e.target.value })} placeholder="Pack-01" /></Field>
+        </Row>
+        <Field label="Priority"><Select value={manualForm.priority} onChange={(e) => setManualForm({ ...manualForm, priority: e.target.value })}>
+          <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
+        </Select></Field>
+      </Modal>
     </div>
   );
 }
