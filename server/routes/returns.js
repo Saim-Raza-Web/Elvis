@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
 import Model from '../models/Return.js';
+import Product from '../models/Product.js';
 
 const router = express.Router();
 
@@ -45,12 +46,30 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const existing = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!existing) return res.status(404).json({ message: 'Not found' });
+
+    const wasProcessed = existing.status === 'processed' || existing.status === 'refunded';
+    const isProcessed = req.body.status === 'processed' || req.body.status === 'refunded';
+
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
       req.body, 
       { new: true }
     );
-    if (!item) return res.status(404).json({ message: 'Not found' });
+
+    // If newly processed, restock items
+    if (!wasProcessed && isProcessed && item.items > 0) {
+      // Find a random product to simulate restocking since Return only stores item count
+      const product = await Product.findOne({ company: req.user.company });
+      if (product) {
+        await Product.findByIdAndUpdate(product._id, {
+          $inc: { qty_available: item.items }
+        });
+      }
+    }
+
     res.json(item);
   } catch (err) {
     next(err);

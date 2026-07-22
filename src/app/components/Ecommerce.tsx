@@ -113,14 +113,9 @@ export function Ecommerce() {
   async function handleSync(id: string, name: string) {
     toast.info(`${t.ecommerce.syncStarted} ${name}…`);
     try {
-      await ecommerceService.update(id, { status: "syncing" });
+      await ecommerceService.syncChannel(id);
+      toast.success(`${name} ${t.ecommerce.syncCompleted}.`);
       loadData();
-      
-      setTimeout(async () => {
-        await ecommerceService.update(id, { status: "connected", synced_at: new Date().toISOString(), pending_sync: 0 });
-        toast.success(`${name} ${t.ecommerce.syncCompleted}.`);
-        loadData();
-      }, 1500);
     } catch (err) {
       toast.error("Sync failed.");
     }

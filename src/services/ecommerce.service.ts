@@ -17,8 +17,12 @@ export const ecommerceService = {
     const response = await api.put('/ecommerce/' + id, data);
     return response.data;
   },
-  delete: async (id) => {
+  delete: async (id: string) => {
     const response = await api.delete('/ecommerce/' + id);
+    return response.data;
+  },
+  syncChannel: async (id: string) => {
+    const response = await api.post(`/ecommerce/${id}/sync`);
     return response.data;
   }
 };
