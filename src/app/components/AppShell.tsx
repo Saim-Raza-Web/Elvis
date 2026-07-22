@@ -127,8 +127,12 @@ export function AppShell({
       if (user && user.company) {
         const active = comps.find(c => c._id === user.company);
         if (active) setActiveCompany({ ...active, role: "OWNER" });
+        else if (comps.length > 0) setActiveCompany({ ...comps[0], role: "OWNER" });
+        else setActiveCompany({ name: "Your Workspace", role: "OWNER" });
       } else if (comps.length > 0) {
         setActiveCompany({ ...comps[0], role: "OWNER" });
+      } else {
+        setActiveCompany({ name: "Your Workspace", role: "OWNER" });
       }
     }).catch((err: any) => console.error("Failed to load companies", err));
 
