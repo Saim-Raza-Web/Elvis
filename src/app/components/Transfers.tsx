@@ -7,6 +7,7 @@ import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { transfersService } from "../../services/transfers.service";
+import { warehousesService } from "../../services/warehouses.service";
 
 type Transfer = { _id: string; id: string; sku: string; product: string; qty: number; from_wh: string; from_loc: string; to_wh: string; to_loc: string; status: string; type: string; requestedBy: string; date: string; transferId?: string };
 
@@ -20,6 +21,7 @@ const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "MIA", fro
 export function Transfers() {
   const { t } = useLang();
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
@@ -30,10 +32,14 @@ export function Transfers() {
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await transfersService.getAll();
+      const [data, whs] = await Promise.all([
+        transfersService.getAll(),
+        warehousesService.getAll()
+      ]);
       setTransfers(data.map((d: any) => ({ ...d, id: d.transferId || d._id })));
+      setWarehouses(whs);
     } catch (err) {
-      toast.error("Failed to load transfers");
+      toast.error("Failed to load data");
     } finally {
       setIsLoading(false);
     }
@@ -174,13 +180,15 @@ export function Transfers() {
         <Field label="Product description"><Input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
         <Row>
           <Field label={t.transfers.fromWarehouse}><Select value={form.from_wh} onChange={(e) => setForm({ ...form, from_wh: e.target.value })}>
-            {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+            {warehouses.length === 0 && <option value="MIA">MIA</option>}
           </Select></Field>
           <Field label={t.transfers.fromLocation} required><Input value={form.from_loc} onChange={(e) => setForm({ ...form, from_loc: e.target.value })} placeholder="A-01-B" /></Field>
         </Row>
         <Row>
           <Field label={t.transfers.toWarehouse}><Select value={form.to_wh} onChange={(e) => setForm({ ...form, to_wh: e.target.value })}>
-            {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+            {warehouses.length === 0 && <option value="LAX">LAX</option>}
           </Select></Field>
           <Field label={t.transfers.toLocation} required><Input value={form.to_loc} onChange={(e) => setForm({ ...form, to_loc: e.target.value })} placeholder="B-03-A" /></Field>
         </Row>

@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { Undo2, Search, AlertTriangle, CheckCircle2, Clock, DollarSign } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Undo2, Search, AlertTriangle, Clock, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
-import { Modal, Field, Input, Select, Row, Textarea, ModalCancel, ModalSubmit } from "./Modal";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
 import { returnsService } from "../../services/returns.service";
+import { warehousesService } from "../../services/warehouses.service";
 
 type ReturnItem = { _id: string; id: string; order: string; customer: string; reason: string; items: number; amount: number; status: string; date: string; warehouse: string; returnId?: string };
 
@@ -16,14 +15,19 @@ export function Returns() {
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
+  const [warehouses, setWarehouses] = useState<any[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await returnsService.getAll();
+      const [data, whs] = await Promise.all([
+        returnsService.getAll(),
+        warehousesService.getAll()
+      ]);
       setReturnList(data.map((d: any) => ({ ...d, id: d.returnId || d._id, date: d.date?.slice(0, 10) || "—" })));
+      setWarehouses(whs);
     } catch (err) {
       toast.error("Failed to load returns");
     } finally {
@@ -172,8 +176,9 @@ export function Returns() {
           <Field label={t.returns.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm({ ...form, items: Number(e.target.value) })} /></Field>
           <Field label={t.returns.refundAmount}><Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} /></Field>
         </Row>
-        <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
-          {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+        <Field label="Return to Warehouse"><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
+          {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+          {warehouses.length === 0 && <option value="MIA">MIA</option>}
         </Select></Field>
       </Modal>
     </div>

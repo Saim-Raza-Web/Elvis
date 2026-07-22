@@ -7,8 +7,7 @@ import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { locationsService } from "../../services/locations.service";
-
-const whList = ["MIA", "LAX", "ORD", "JFK", "DAL"];
+import { warehousesService } from "../../services/warehouses.service";
 
 type Zone = { _id: string; code: string; name: string; type: string; warehouse: string; locations: number; occupied: number; capacity: number; };
 type Loc = { _id: string; code: string; zone: string; aisle: string; shelf: string; bin: string; sku: string | null; product: string | null; qty: number; capacity: number; status: string; };
@@ -28,6 +27,7 @@ export function Locations() {
   const { t } = useLang();
   const [zones, setZones] = useState<Zone[]>([]);
   const [locs, setLocs] = useState<Loc[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState("MIA");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"zones" | "locations">("zones");
@@ -49,11 +49,16 @@ export function Locations() {
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await locationsService.getAll();
+      const [data, whs] = await Promise.all([
+        locationsService.getAll(),
+        warehousesService.getAll()
+      ]);
       setLocs(data.locations || []);
       setZones(data.zones || []);
+      setWarehouses(whs || []);
+      if (whs && whs.length > 0 && !selectedWarehouse) setSelectedWarehouse(whs[0].code);
     } catch (err) {
-      toast.error("Failed to load locations data");
+      toast.error("Failed to load data");
     } finally {
       setIsLoading(false);
     }
@@ -255,7 +260,8 @@ export function Locations() {
         <Row>
           <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
-            {whList.map((w) => <option key={w}>{w}</option>)}
+            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+            {warehouses.length === 0 && <option value="MIA">MIA</option>}
           </Select></Field>
         </Row>
         <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>
@@ -296,7 +302,8 @@ export function Locations() {
         <Row>
           <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
-            {whList.map((w) => <option key={w}>{w}</option>)}
+            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+            {warehouses.length === 0 && <option value="MIA">MIA</option>}
           </Select></Field>
         </Row>
         <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>

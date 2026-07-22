@@ -7,6 +7,7 @@ import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { inventoryService } from "../../services/inventory.service";
+import { warehousesService } from "../../services/warehouses.service";
 
 type Product = { _id: string; sku: string; name: string; category: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string };
 
@@ -39,12 +40,17 @@ export function Inventory() {
   const [form, setForm] = useState(blankProduct());
 
   const [isLoading, setIsLoading] = useState(true);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
 
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await inventoryService.getAll();
+      const [data, whs] = await Promise.all([
+        inventoryService.getAll(),
+        warehousesService.getAll()
+      ]);
       setProductList(data);
+      setWarehouses(whs);
     } catch (err) {
       toast.error("Failed to load inventory");
     } finally {
@@ -228,7 +234,8 @@ export function Inventory() {
           <Row>
             <Field label={t.inventory.price}><Input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></Field>
             <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
-              {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+              {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+              {warehouses.length === 0 && <option value="MIA">MIA</option>}
             </Select></Field>
           </Row>
           <Row>

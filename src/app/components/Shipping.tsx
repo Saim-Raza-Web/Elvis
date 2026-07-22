@@ -7,6 +7,7 @@ import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { shippingService } from "../../services/shipping.service";
+import { warehousesService } from "../../services/warehouses.service";
 
 type Shipment = { _id: string; id: string; order: string; customer: string; carrier: string; tracking: string; origin: string; destination: string; status: string; weight: string; date: string; eta: string; shipmentId?: string };
 
@@ -21,14 +22,19 @@ export function Shipping() {
   const [carrier, setCarrier] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankShipment());
+  const [warehouses, setWarehouses] = useState<any[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await shippingService.getAll();
+      const [data, whs] = await Promise.all([
+        shippingService.getAll(),
+        warehousesService.getAll()
+      ]);
       setShipmentList(data.map((d: any) => ({ ...d, id: d.shipmentId || d._id, date: d.date?.slice(0, 10) || "—", eta: d.eta?.slice(0, 10) || "—" })));
+      setWarehouses(whs);
     } catch (err) {
       toast.error("Failed to load shipments");
     } finally {
@@ -186,8 +192,9 @@ export function Shipping() {
           <Field label={t.orders.customer}><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Customer name" /></Field>
         </Row>
         <Row>
-          <Field label={t.shipping.origin}><Select value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })}>
-            {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+          <Field label={t.common.warehouse} required><Select value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })}>
+            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+            {warehouses.length === 0 && <option value="MIA">MIA</option>}
           </Select></Field>
           <Field label={t.common.type}><Select value={form.carrier} onChange={(e) => setForm({ ...form, carrier: e.target.value })}>
             {["FedEx","UPS","DHL","USPS","GLS"].map((c) => <option key={c}>{c}</option>)}

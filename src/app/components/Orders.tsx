@@ -7,6 +7,7 @@ import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { ordersService } from "../../services/orders.service";
+import { warehousesService } from "../../services/warehouses.service";
 
 type Order = { _id: string; orderId: string; customer: string; email: string; channel: string; warehouse: string; items: number; total: number; status: string; date: string; notes: string; };
 
@@ -24,12 +25,17 @@ export function Orders() {
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [form, setForm] = useState(blankOrder());
   const [isLoading, setIsLoading] = useState(true);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
 
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await ordersService.getAll();
+      const [data, whs] = await Promise.all([
+        ordersService.getAll(),
+        warehousesService.getAll()
+      ]);
       setOrders(data);
+      setWarehouses(whs);
     } catch (err) {
       toast.error("Failed to load orders");
     } finally {
@@ -203,8 +209,9 @@ export function Orders() {
             <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}>
               <option value="web">Web</option><option value="api">API</option><option value="mobile">Mobile</option><option value="phone">Phone</option>
             </Select></Field>
-            <Field label={t.orders.warehouse}><Select value={form.warehouse} onChange={(e) => setForm((f) => ({ ...f, warehouse: e.target.value }))}>
-              {["MIA","LAX","ORD","JFK","DAL"].map((w) => <option key={w}>{w}</option>)}
+            <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
+              {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+              {warehouses.length === 0 && <option value="MIA">MIA</option>}
             </Select></Field>
           </Row>
           <Row>
