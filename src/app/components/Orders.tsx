@@ -91,6 +91,18 @@ export function Orders() {
     }
   }
 
+  async function handleRelease() {
+    if (!editTarget) return;
+    try {
+      await ordersService.releaseOrder(editTarget._id);
+      toast.success(`Order ${editTarget.orderId} released to fulfillment!`);
+      setEditTarget(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to release order");
+    }
+  }
+
   const filtered = orders.filter((o) => {
     const matchSearch = o.orderId?.toLowerCase().includes(search.toLowerCase()) || o.customer?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "All" || o.status === statusFilter;
@@ -198,9 +210,37 @@ export function Orders() {
         </table>
       </div>
 
-      {/* Add / Edit Modal */}
-      {[{ open: showAdd, onClose: () => setShowAdd(false), title: t.orders.newOrder }, { open: !!editTarget, onClose: () => setEditTarget(null), title: "Edit Order" }].map((m) => (
-        <Modal key={m.title} open={m.open} onClose={m.onClose} title={m.title} subtitle="Order Details" footer={<><ModalCancel onClose={m.onClose} /><ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit></>}>
+      {/* Add Modal */}
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.orders.newOrder} subtitle="Order Details" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit></>}>
+        <Row>
+          <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm((f) => ({ ...f, customer: e.target.value }))} placeholder="Company or person" /></Field>
+          <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="orders@company.com" /></Field>
+        </Row>
+        <Row>
+          <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}>
+            <option value="web">Web</option><option value="api">API</option><option value="mobile">Mobile</option><option value="phone">Phone</option>
+          </Select></Field>
+          <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
+            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
+            {warehouses.length === 0 && <option value="MIA">MIA</option>}
+          </Select></Field>
+        </Row>
+        <Row>
+          <Field label={t.orders.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm((f) => ({ ...f, items: Number(e.target.value) }))} /></Field>
+          <Field label={t.orders.orderTotal}><Input type="number" step="0.01" value={form.total} onChange={(e) => setForm((f) => ({ ...f, total: Number(e.target.value) }))} /></Field>
+        </Row>
+        <Field label={t.common.notes}><Input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Special instructions…" /></Field>
+      </Modal>
+
+      {/* Edit Modal */}
+      {editTarget && (
+        <Modal open={true} onClose={() => setEditTarget(null)} title="Edit Order" subtitle={`Order Details - ${editTarget.orderId}`} footer={<>
+          {editTarget.status === 'pending' && <PrimaryButton onClick={handleRelease} className="mr-auto bg-purple-600 hover:bg-purple-700 text-white">Release to Fulfillment</PrimaryButton>}
+          <div className="flex gap-2 ml-auto">
+            <ModalCancel onClose={() => setEditTarget(null)} />
+            <ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit>
+          </div>
+        </>}>
           <Row>
             <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm((f) => ({ ...f, customer: e.target.value }))} placeholder="Company or person" /></Field>
             <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="orders@company.com" /></Field>
@@ -220,7 +260,7 @@ export function Orders() {
           </Row>
           <Field label={t.common.notes}><Input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Special instructions…" /></Field>
         </Modal>
-      ))}
+      )}
 
       {/* Delete Confirmation */}
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Order" width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>

@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
 import Model from '../models/Order.js';
+import PickTask from '../models/PickTask.js';
 
 const router = express.Router();
 
@@ -55,6 +56,37 @@ router.put('/:id', async (req, res, next) => {
     );
     if (!item) return res.status(404).json({ message: 'Not found' });
     res.json(item);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// RELEASE to Fulfillment
+router.post('/:id/release', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    
+    const order = await Model.findOneAndUpdate(
+      { _id: req.params.id, company: req.user.company }, 
+      { status: 'processing' }, 
+      { new: true }
+    );
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // Generate PickTask
+    const pickTaskId = 'PCK-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+    await PickTask.create({
+      taskId: pickTaskId,
+      order: order.orderId,
+      priority: 'normal',
+      status: 'ready',
+      items: order.items || 1,
+      picked: 0,
+      zone: 'Zone-A', // Default or logical mapping
+      company: req.user.company
+    });
+
+    res.json(order);
   } catch (err) {
     next(err);
   }

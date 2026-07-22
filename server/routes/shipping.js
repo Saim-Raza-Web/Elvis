@@ -1,6 +1,8 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
 import Model from '../models/Shipment.js';
+import Order from '../models/Order.js';
+import ActivityLog from '../models/ActivityLog.js';
 
 const router = express.Router();
 
@@ -45,12 +47,33 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const existing = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!existing) return res.status(404).json({ message: 'Not found' });
+
+    const wasShipped = existing.status === 'shipped' || existing.status === 'in_transit';
+    const isShipped = req.body.status === 'shipped' || req.body.status === 'in_transit';
+
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
       req.body, 
       { new: true }
     );
-    if (!item) return res.status(404).json({ message: 'Not found' });
+
+    if (!wasShipped && isShipped) {
+      await Order.findOneAndUpdate(
+        { orderId: item.order, company: req.user.company },
+        { status: 'shipped' }
+      );
+
+      await ActivityLog.create({
+        user: req.user.name,
+        action: 'Shipped order',
+        target: item.order,
+        company: req.user.company
+      });
+    }
+
     res.json(item);
   } catch (err) {
     next(err);
