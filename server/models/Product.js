@@ -4,7 +4,7 @@ const productSchema = new mongoose.Schema({
   sku: { type: String, required: true, unique: true },
   name: String,
   category: String,
-  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+  warehouse: { type: String },
   price: Number,
   qty_available: Number,
   qty_reserved: Number,

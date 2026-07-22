@@ -5,7 +5,7 @@ const orderSchema = new mongoose.Schema({
   customer: String,
   email: String,
   channel: String,
-  warehouse: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+  warehouse: { type: String },
   items: Number,
   total: Number,
   status: String,
