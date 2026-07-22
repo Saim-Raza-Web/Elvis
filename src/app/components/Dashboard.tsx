@@ -45,10 +45,10 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
   }, []);
 
   const quickActions = [
-    { label: "Create order", icon: ShoppingCart, page: "orders" },
-    { label: "Add product", icon: Boxes, page: "inventory" },
-    { label: "Add warehouse", icon: Warehouse, page: "warehouses" },
-    { label: "Add customer", icon: Package, page: "crm" },
+    { label: "Create order", icon: ShoppingCart, page: "orders", event: "open-new-order" },
+    { label: "Add product", icon: Boxes, page: "inventory", event: "open-add-product" },
+    { label: "Add warehouse", icon: Warehouse, page: "warehouses", event: "open-add-warehouse" },
+    { label: "Add customer", icon: Package, page: "crm", event: "open-add-customer" },
   ];
 
   const stats = [
@@ -119,8 +119,11 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
               {quickActions.map((a) => (
                 <button
                   key={a.label}
-                  onClick={() => onNavigate?.(a.page)}
-                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-secondary transition-colors w-full"
+                  onClick={() => {
+                    onNavigate?.(a.page);
+                    if (a.event) setTimeout(() => window.dispatchEvent(new CustomEvent(a.event)), 100);
+                  }}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-secondary transition-colors w-full text-left"
                 >
                   <a.icon className="size-4 text-primary" />
                   <span className="text-sm font-medium flex-1 text-left">{a.label}</span>

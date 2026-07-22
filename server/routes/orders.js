@@ -34,6 +34,9 @@ router.post('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
+    if (!data.orderId) {
+      data.orderId = 'ORD-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+    }
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {

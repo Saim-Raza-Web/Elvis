@@ -18,13 +18,7 @@ const platformIcon: Record<string, string> = {
   Mirakl: "🟣",
 };
 
-const recentChannelOrders = [
-  { id: "ORD-SH-4421", channel: "Shopify", customer: "Maria G.", total: 89.99, status: "processing", time: "10:41" },
-  { id: "ORD-AMZ-8812", channel: "Amazon", customer: "John D.", total: 124.50, status: "pending", time: "10:38" },
-  { id: "ORD-AMZ-8810", channel: "Amazon", customer: "Sara L.", total: 45.00, status: "shipped", time: "10:22" },
-  { id: "ORD-SH-4418", channel: "Shopify", customer: "Tom K.", total: 210.00, status: "processing", time: "10:10" },
-  { id: "ORD-MIR-0092", channel: "Mirakl", customer: "Priya M.", total: 67.80, status: "pending", time: "09:55" },
-];
+import { ordersService } from "../../services/orders.service";
 
 export function Ecommerce() {
   const { t } = useLang();
@@ -35,13 +29,31 @@ export function Ecommerce() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [connectForm, setConnectForm] = useState({ name: "", platform: "Shopify", url: "", apiKey: "" });
 
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await ecommerceService.getAll();
+      const [data, orders] = await Promise.all([
+        ecommerceService.getAll(),
+        ordersService.getAll()
+      ]);
       setChannelList(data.map((d: any) => ({ ...d, id: d._id, synced_at: d.synced_at?.slice(0, 10) || "Never" })));
+      
+      const channelOrders = orders
+        .filter((o: any) => o.channel && o.channel !== "Direct")
+        .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())
+        .slice(0, 5)
+        .map((o: any) => ({
+          id: o.orderId,
+          channel: o.channel,
+          customer: o.customer,
+          total: o.total || 0,
+          status: o.status,
+          time: new Date(o.createdAt || o.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }));
+      setRecentOrders(channelOrders);
     } catch (err) {
       toast.error("Failed to load ecommerce channels");
     } finally {
@@ -199,7 +211,8 @@ export function Ecommerce() {
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <div className="p-4 border-b border-border"><h3 className="font-bold">{t.ecommerce.recentOrders}</h3></div>
             <div className="divide-y divide-border">
-              {recentChannelOrders.map((o) => (
+              {recentOrders.length === 0 && <div className="p-4 text-center text-xs text-muted-foreground">No recent channel orders</div>}
+              {recentOrders.map((o) => (
                 <div key={o.id} className="p-3 hover:bg-secondary/30 transition-colors">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{o.id}</span>
