@@ -8,25 +8,20 @@ import { accountingService } from "../../services/accounting.service";
 
 type Transaction = { _id: string; id: string; date: string; description: string; type: string; amount: number; account: string; category: string; txnId?: string };
 
-const accounts = [
-  { name: "Cash & Cash Equivalents", balance: 142500, change: +8200 },
-  { name: "Accounts Receivable", balance: 24890, change: -1400 },
-  { name: "Inventory Assets", balance: 198000, change: +5600 },
-  { name: "Accounts Payable", balance: -31200, change: -2100 },
-  { name: "Operating Expenses YTD", balance: -284000, change: -22100 },
-  { name: "Revenue YTD", balance: 521400, change: +16750 },
-];
+
 
 export function Accounting() {
   const { t } = useLang();
   const [transactionList, setTransactionList] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
     try {
       setIsLoading(true);
       const data = await accountingService.getAll();
-      setTransactionList(data.map((d: any) => ({ ...d, id: d.txnId || d._id, date: d.date?.slice(0, 10) || "—" })));
+      setTransactionList((data.transactions || []).map((d: any) => ({ ...d, id: d.txnId || d._id, date: d.date?.slice(0, 10) || "—" })));
+      setAccounts(data.accounts || []);
     } catch (err) {
       toast.error("Failed to load transactions");
     } finally {

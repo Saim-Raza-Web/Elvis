@@ -11,7 +11,13 @@ const companySchema = new mongoose.Schema({
   emailNotifs: { type: Boolean, default: true },
   orderNotifs: { type: Boolean, default: true },
   lowStockNotifs: { type: Boolean, default: true },
-  shipmentNotifs: { type: Boolean, default: false }
+  shipmentNotifs: { type: Boolean, default: false },
+  apiKeys: [{
+    name: String,
+    key: String,
+    createdAt: { type: Date, default: Date.now },
+    lastUsed: { type: Date }
+  }]
 }, { timestamps: true });
 
 export default mongoose.model('Company', companySchema);

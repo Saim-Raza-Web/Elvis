@@ -79,13 +79,23 @@ router.get('/dashboard', async (req, res, next) => {
       { month: "Jun", revenue: totalRev * 0.2, orders: 18, returns: 1 },
     ];
 
+    // 7. Header Stats
+    const deliveredCount = orders.filter(o => o.status === 'delivered').length;
+    const headerStats = {
+      revenueMTD: totalRev,
+      ordersMTD: orders.length,
+      avgOrderValue: orders.length > 0 ? (totalRev / orders.length) : 0,
+      onTimeDelivery: shipments.length > 0 ? ((shipMap['Other']?.onTime || 0) / shipments.length * 100) : 100
+    };
+
     res.json({
       revenueData,
       orderStatusData,
       categoryData,
       shippingData,
       warehousePerf,
-      channelData
+      channelData,
+      headerStats
     });
 
   } catch (err) {

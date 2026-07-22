@@ -37,12 +37,6 @@ const permissionModules = ["dashboard", "warehouses", "inventory", "orders", "bi
 
 
 
-const apiKeys = [
-  { name: "Production API Key", key: "sk_live_...xyz8", created: "2026-01-01", lastUsed: "2026-06-26", status: "active" },
-  { name: "Staging Key", key: "sk_test_...abc3", created: "2026-03-15", lastUsed: "2026-06-20", status: "active" },
-  { name: "Legacy Integration", key: "sk_live_...mno1", created: "2025-07-01", lastUsed: "2025-12-31", status: "inactive" },
-];
-
 export function Settings() {
   const { t } = useLang();
   const settingsTabs = [
@@ -62,6 +56,7 @@ export function Settings() {
   const [lowStockNotifs, setLowStockNotifs] = useState(true);
   const [shipmentNotifs, setShipmentNotifs] = useState(false);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [keys, setKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   async function loadSettings() {
@@ -76,6 +71,7 @@ export function Settings() {
         setOrderNotifs(data.orderNotifs ?? true);
         setLowStockNotifs(data.lowStockNotifs ?? true);
         setShipmentNotifs(data.shipmentNotifs ?? false);
+        setKeys(data.apiKeys || []);
       }
     } catch (err) {
       toast.error("Failed to load settings");
@@ -115,6 +111,29 @@ export function Settings() {
       adminService.getUsers().then(data => setTeamMembers(data)).catch(() => toast.error("Failed to load users"));
     }
   }, [activeTab]);
+
+  async function handleCreateKey() {
+    const name = prompt("Enter a name for the new API Key:");
+    if (!name) return;
+    try {
+      const updatedKeys = await settingsService.createApiKey(name);
+      setKeys(updatedKeys);
+      toast.success("API key created.");
+    } catch (err) {
+      toast.error("Failed to create API key.");
+    }
+  }
+
+  async function handleDeleteKey(id: string) {
+    if (!confirm("Are you sure you want to delete this API key? This will break any integrations using it.")) return;
+    try {
+      const updatedKeys = await settingsService.deleteApiKey(id);
+      setKeys(updatedKeys);
+      toast.success("API key deleted.");
+    } catch (err) {
+      toast.error("Failed to delete API key.");
+    }
+  }
 
   const Toggle = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
     <button
@@ -364,22 +383,27 @@ export function Settings() {
             <div className="rounded-xl border border-border bg-card p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold">API Keys</h3>
-                <button className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
+                <button onClick={handleCreateKey} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
                   <Key className="size-3.5" /> Generate key
                 </button>
               </div>
               <div className="space-y-3">
-                {apiKeys.map((k, i) => (
-                  <div key={k.name} className="flex items-center justify-between p-4 bg-secondary/50 rounded-xl border border-border animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
+                {keys.length === 0 ? (
+                  <div className="text-sm text-muted-foreground p-4 text-center border border-dashed border-border rounded-xl">No API keys generated yet.</div>
+                ) : keys.map((k, i) => (
+                  <div key={k._id || k.key} className="flex items-center justify-between p-4 bg-secondary/50 rounded-xl border border-border animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
                     <div>
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-sm font-semibold">{k.name}</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${k.status === "active" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}>{k.status}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase bg-success/15 text-success`}>Active</span>
                       </div>
                       <div className="text-xs text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{k.key}</div>
-                      <div className="text-[10px] text-muted-foreground mt-1">Last used: {k.lastUsed}</div>
+                      <div className="text-[10px] text-muted-foreground mt-1">Created: {new Date(k.createdAt).toLocaleDateString()}</div>
                     </div>
-                    <button className="text-xs text-destructive hover:underline shrink-0 ml-4">Revoke</button>
+                    <div className="flex items-center gap-2">
+                      <button className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded text-xs font-medium hover:bg-secondary/80 transition-colors">Revoke</button>
+                      <button onClick={() => handleDeleteKey(k._id)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="size-4" /></button>
+                    </div>
                   </div>
                 ))}
               </div>

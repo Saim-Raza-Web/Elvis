@@ -36,6 +36,7 @@ export function Reports() {
   const [shippingData, setShippingData] = useState<any[]>([]);
   const [warehousePerf, setWarehousePerf] = useState<any[]>([]);
   const [channelData, setChannelData] = useState<any[]>([]);
+  const [headerStats, setHeaderStats] = useState({ revenueMTD: 0, ordersMTD: 0, avgOrderValue: 0, onTimeDelivery: 100 });
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -48,6 +49,7 @@ export function Reports() {
         setShippingData(data.shippingData || []);
         setWarehousePerf(data.warehousePerf || []);
         setChannelData(data.channelData || []);
+        if (data.headerStats) setHeaderStats(data.headerStats);
       } catch (err) {
         toast.error("Failed to load live report data");
       } finally {
@@ -83,10 +85,10 @@ export function Reports() {
       {/* Header stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.reports.revenueMTD, value: "€58.3k", icon: TrendingUp, color: "text-success", sub: "+19.7% vs last month" },
-          { label: t.reports.ordersMTD, value: "97", icon: ShoppingCart, color: "text-primary", sub: "+18.3% vs last month" },
-          { label: t.reports.avgOrderValue, value: "€601", icon: BarChart3, color: "text-amber-500", sub: "+1.2% vs last month" },
-          { label: t.reports.onTimeDelivery, value: "93%", icon: Truck, color: "text-info", sub: "+2pp vs last month" },
+          { label: t.reports.revenueMTD, value: `€${(headerStats.revenueMTD / 1000).toFixed(1)}k`, icon: TrendingUp, color: "text-success", sub: "+19.7% vs last month" },
+          { label: t.reports.ordersMTD, value: headerStats.ordersMTD.toString(), icon: ShoppingCart, color: "text-primary", sub: "+18.3% vs last month" },
+          { label: t.reports.avgOrderValue, value: `€${headerStats.avgOrderValue.toFixed(0)}`, icon: BarChart3, color: "text-amber-500", sub: "+1.2% vs last month" },
+          { label: t.reports.onTimeDelivery, value: `${headerStats.onTimeDelivery.toFixed(0)}%`, icon: Truck, color: "text-info", sub: "+2pp vs last month" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-1"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>

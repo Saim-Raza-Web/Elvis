@@ -5,6 +5,10 @@ export const activityService = {
     const response = await api.get('/activity', { params });
     return response.data;
   },
+  getNotifications: async () => {
+    const response = await api.get('/activity/notifications');
+    return response.data;
+  },
   getById: async (id) => {
     const response = await api.get('/activity/' + id);
     return response.data;

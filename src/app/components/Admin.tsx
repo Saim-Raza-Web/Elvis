@@ -6,16 +6,13 @@ import { adminService } from "../../services/admin.service";
 import { toast } from "sonner";
 import { Modal, Field, Input, Row, ModalCancel, ModalSubmit, Select } from "./Modal";
 
-const recentSignups = [
-  { company: "Logistica Norte SA", plan: "Professional", country: "ES", date: "2026-06-24" },
-  { company: "Nordic Freight AB", plan: "Enterprise", country: "SE", date: "2026-06-22" },
-  { company: "Quick Ship LLC", plan: "Starter", country: "US", date: "2026-06-20" },
-];
+
 
 export function Admin() {
   const { t } = useLang();
   const [activeTab, setActiveTab] = useState("companies");
   const [companies, setCompanies] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [systemMetrics, setSystemMetrics] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", plan: "starter", status: "active" });
@@ -23,9 +20,10 @@ export function Admin() {
   useEffect(() => {
     async function load() {
       try {
-        const [comps, mets] = await Promise.all([adminService.getCompanies(), adminService.getMetrics()]);
+        const [comps, mets, usrs] = await Promise.all([adminService.getCompanies(), adminService.getMetrics(), adminService.getUsers()]);
         setCompanies(comps);
         setSystemMetrics(mets);
+        setUsers(usrs);
       } catch(e) {
         toast.error("Failed to load admin data");
       }
@@ -163,16 +161,16 @@ export function Admin() {
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="font-bold mb-4">Recent signups</h3>
             <div className="space-y-2">
-              {recentSignups.map((s, i) => (
-                <div key={s.company} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
+              {users.slice(0, 5).map((u, i) => (
+                <div key={u._id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
                   <div className="flex items-center gap-3">
-                    <div className="size-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground">{s.company.slice(0, 2)}</div>
+                    <div className="size-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground">{(u.name || "U").slice(0, 2).toUpperCase()}</div>
                     <div>
-                      <div className="font-medium text-sm">{s.company}</div>
-                      <div className="text-xs text-muted-foreground">{s.country} · {s.date}</div>
+                      <div className="font-medium text-sm">{u.name}</div>
+                      <div className="text-xs text-muted-foreground">{u.email} · {u.createdAt?.slice(0, 10)}</div>
                     </div>
                   </div>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${s.plan === "Enterprise" ? "bg-amber-500/15 text-amber-500" : s.plan === "Professional" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"}`}>{s.plan}</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${u.role === "admin" ? "bg-amber-500/15 text-amber-500" : "bg-primary/15 text-primary"}`}>{u.role}</span>
                 </div>
               ))}
             </div>

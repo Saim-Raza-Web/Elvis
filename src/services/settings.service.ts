@@ -8,5 +8,13 @@ export const settingsService = {
   updateCompanySettings: async (data: any) => {
     const response = await api.put('/settings', data);
     return response.data;
+  },
+  createApiKey: async (name: string) => {
+    const response = await api.post('/settings/apikeys', { name });
+    return response.data;
+  },
+  deleteApiKey: async (id: string) => {
+    const response = await api.delete('/settings/apikeys/' + id);
+    return response.data;
   }
 };

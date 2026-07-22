@@ -11,6 +11,7 @@ import type { Lang } from "../i18n";
 import { useT } from "../i18n";
 import { useLang } from "../LangContext";
 import { authService } from "../../services/auth.service";
+import { activityService } from "../../services/activity.service";
 
 export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "transfers" | "picking" | "packing"
@@ -74,13 +75,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
 
 // Removed hardcoded companies
 
-const notifications = [
-  { id: "1", kind: "success", title: "Shipment #SHP-0422 delivered", body: "Package arrived at Miami warehouse.", created_at: new Date(Date.now() - 60000 * 12).toISOString(), read_at: null },
-  { id: "2", kind: "warning", title: "Low stock alert: SKU-8821", body: "Quantity fell below reorder point (15 units).", created_at: new Date(Date.now() - 60000 * 45).toISOString(), read_at: null },
-  { id: "3", kind: "info", title: "New order received", body: "Order #ORD-00183 from Apex Industries.", created_at: new Date(Date.now() - 3600000 * 2).toISOString(), read_at: "yes" },
-  { id: "4", kind: "error", title: "Invoice overdue", body: "INV-0067 is 7 days past due.", created_at: new Date(Date.now() - 3600000 * 5).toISOString(), read_at: null },
-  { id: "5", kind: "info", title: "ASN pending receipt", body: "3 shipments awaiting receiving confirmation.", created_at: new Date(Date.now() - 60000 * 90).toISOString(), read_at: null },
-];
+
 
 function timeAgo(iso: string) {
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -117,7 +112,7 @@ export function AppShell({
   const [userOpen, setUserOpen] = useState(false);
   const [companyList, setCompanyList] = useState<any[]>([]);
   const [activeCompany, setActiveCompany] = useState<any>({ name: "Loading...", role: "OWNER" });
-  const [notifs, setNotifs] = useState(notifications);
+  const [notifs, setNotifs] = useState<any[]>([]);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [searchVal, setSearchVal] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -135,7 +130,13 @@ export function AppShell({
       } else if (comps.length > 0) {
         setActiveCompany({ ...comps[0], role: "OWNER" });
       }
+      }
     }).catch(err => console.error("Failed to load companies", err));
+
+    // Fetch dynamic notifications
+    activityService.getNotifications()
+      .then(data => setNotifs(data))
+      .catch(err => console.error("Failed to load notifications", err));
   }, []);
 
   const unread = notifs.filter((n) => !n.read_at).length;

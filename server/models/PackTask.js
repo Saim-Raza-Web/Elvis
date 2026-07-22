@@ -14,6 +14,13 @@ const packTaskSchema = new mongoose.Schema({
   material: String,
   labelPrinted: Boolean,
   weighed: Boolean,
+  packItems: [{
+    sku: String,
+    product: String,
+    qty: Number,
+    scanned: { type: Number, default: 0 },
+    verified: { type: Boolean, default: false }
+  }],
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });
 

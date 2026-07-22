@@ -8,13 +8,9 @@ import { useLang } from "../LangContext";
 import { useEffect } from "react";
 import { packingService } from "../../services/packing.service";
 
-type PackTask = { _id: string; id: string; order: string; customer: string; items: number; picked: number; station: string; priority: string; status: string; packId?: string };
+type PackTask = { _id: string; id: string; order: string; customer: string; items: number; picked: number; station: string; priority: string; status: string; packId?: string; packItems?: any[] };
 
-const initialPackItems = [
-  { sku: "SKU-1001", product: "Premium Widget Alpha", qty: 2, scanned: 2, verified: true },
-  { sku: "SKU-1006", product: "Precision Sensor Module", qty: 1, scanned: 1, verified: true },
-  { sku: "SKU-1004", product: "Lithium Battery Pack 12V", qty: 2, scanned: 1, verified: false },
-];
+
 
 const priorityColor: Record<string, string> = {
   high: "text-destructive bg-destructive/10",
@@ -25,7 +21,7 @@ const priorityColor: Record<string, string> = {
 export function Packing() {
   const { t } = useLang();
   const [queue, setQueue] = useState<PackTask[]>([]);
-  const [packItems, setPackItems] = useState(initialPackItems);
+  const [packItems, setPackItems] = useState<any[]>([]);
   const [activeTask, setActiveTask] = useState<string | null>("PCK-0057");
   const [scanned, setScanned] = useState("");
   const [weight, setWeight] = useState("2.4");
@@ -56,6 +52,14 @@ export function Packing() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (activePack && activePack.packItems) {
+      setPackItems(activePack.packItems);
+    } else {
+      setPackItems([]);
+    }
+  }, [activePack]);
 
   useEffect(() => {
     const handler = () => { setManualForm({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" }); setShowAdd(true); };
