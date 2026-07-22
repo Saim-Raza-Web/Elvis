@@ -109,7 +109,7 @@ export function Packing() {
       await packingService.update(activePack._id, { status: "completed" });
       toast.success(`${activePack.order} packed and queued for shipping!`);
       setActiveTask(null);
-      setPackItems(initialPackItems.map((i) => ({ ...i, scanned: 0, verified: false })));
+      setPackItems([]);
       setLabelPrinted(false);
       setWeighed(false);
       loadData();

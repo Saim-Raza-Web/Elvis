@@ -223,7 +223,7 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
                 <div className="rounded-xl border border-border bg-card p-3">
                   <div className="text-xs font-semibold mb-2">Warehouse Util</div>
                   <div className="space-y-2">
-                    {[["MIA", 78], ["LAX", 91], ["ORD", 65]].map(([name, pct]) => (
+                    {([["MIA", 78], ["LAX", 91], ["ORD", 65]] as [string, number][]).map(([name, pct]) => (
                       <div key={name}>
                         <div className="flex justify-between text-[10px] mb-0.5"><span>{name}</span><span className="font-bold">{pct}%</span></div>
                         <div className="h-1.5 rounded-full bg-secondary overflow-hidden">

@@ -13,15 +13,15 @@ export const activityService = {
     const response = await api.get('/activity/' + id);
     return response.data;
   },
-  create: async (data) => {
+  create: async (data: any) => {
     const response = await api.post('/activity', data);
     return response.data;
   },
-  update: async (id, data) => {
+  update: async (id: string, data: any) => {
     const response = await api.put('/activity/' + id, data);
     return response.data;
   },
-  delete: async (id) => {
+  delete: async (id: string) => {
     const response = await api.delete('/activity/' + id);
     return response.data;
   }

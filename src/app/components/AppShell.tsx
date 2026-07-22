@@ -130,8 +130,7 @@ export function AppShell({
       } else if (comps.length > 0) {
         setActiveCompany({ ...comps[0], role: "OWNER" });
       }
-      }
-    }).catch(err => console.error("Failed to load companies", err));
+    }).catch((err: any) => console.error("Failed to load companies", err));
 
     // Fetch dynamic notifications
     activityService.getNotifications()

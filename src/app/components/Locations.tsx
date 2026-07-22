@@ -163,8 +163,8 @@ export function Locations() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`${t.common.search}…`} className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
         </div>
         <div className="flex gap-1.5">
-          {whList.map((wh) => (
-            <button key={wh} onClick={() => setSelectedWarehouse(wh)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedWarehouse === wh ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{wh}</button>
+          {warehouses.map((wh: any) => (
+            <button key={wh.code} onClick={() => setSelectedWarehouse(wh.code)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedWarehouse === wh.code ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{wh.code}</button>
           ))}
         </div>
         <div className="flex rounded-lg border border-border overflow-hidden">
