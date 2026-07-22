@@ -71,8 +71,70 @@ router.post('/login', async (req, res, next) => {
 });
 
 // Protected route
-router.get('/me', protect, (req, res) => {
-  res.json(req.user);
+router.get('/me', protect, async (req, res) => {
+  const user = await User.findById(req.user._id).select('-password');
+  res.json(user);
+});
+
+// Get all companies the user belongs to
+router.get('/companies', protect, async (req, res, next) => {
+  try {
+    const companies = await Company.find({ users: req.user._id });
+    res.json(companies);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Switch active company
+router.put('/company/:id', protect, async (req, res, next) => {
+  try {
+    const companyId = req.params.id;
+    // Verify the user belongs to this company
+    const company = await Company.findOne({ _id: companyId, users: req.user._id });
+    if (!company) {
+      return res.status(403).json({ message: 'Access denied or company not found' });
+    }
+    
+    // Update active company on user
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { company: companyId },
+      { new: true }
+    ).select('-password');
+    
+    res.json(updatedUser);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Create a new company
+router.post('/companies', protect, async (req, res, next) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: 'Company name is required' });
+    
+    const newCompany = await Company.create({
+      name,
+      plan: 'starter'
+    });
+    
+    // Add user to company users array
+    newCompany.users.push(req.user._id);
+    await newCompany.save();
+    
+    // Automatically switch active context
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { company: newCompany._id },
+      { new: true }
+    ).select('-password');
+    
+    res.status(201).json({ company: newCompany, user: updatedUser });
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;

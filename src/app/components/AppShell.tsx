@@ -72,11 +72,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
   ];
 }
 
-const companies = [
-  { id: "1", name: "demologistics HQ", role: "OWNER" },
-  { id: "2", name: "West Coast Hub", role: "ADMIN" },
-  { id: "3", name: "EU Operations", role: "MEMBER" },
-];
+// Removed hardcoded companies
 
 const notifications = [
   { id: "1", kind: "success", title: "Shipment #SHP-0422 delivered", body: "Package arrived at Miami warehouse.", created_at: new Date(Date.now() - 60000 * 12).toISOString(), read_at: null },
@@ -119,14 +115,27 @@ export function AppShell({
   const [companyOpen, setCompanyOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
-  const [activeCompany, setActiveCompany] = useState(companies[0]);
+  const [companyList, setCompanyList] = useState<any[]>([]);
+  const [activeCompany, setActiveCompany] = useState<any>({ name: "Loading...", role: "OWNER" });
   const [notifs, setNotifs] = useState(notifications);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [searchVal, setSearchVal] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
 
   useEffect(() => {
-    setCurrentUser(authService.getCurrentUser());
+    const user = authService.getCurrentUser();
+    setCurrentUser(user);
+    
+    // Fetch dynamic companies
+    authService.getCompanies().then((comps: any[]) => {
+      setCompanyList(comps);
+      if (user && user.company) {
+        const active = comps.find(c => c._id === user.company);
+        if (active) setActiveCompany({ ...active, role: "OWNER" });
+      } else if (comps.length > 0) {
+        setActiveCompany({ ...comps[0], role: "OWNER" });
+      }
+    }).catch(err => console.error("Failed to load companies", err));
   }, []);
 
   const unread = notifs.filter((n) => !n.read_at).length;
@@ -188,16 +197,35 @@ export function AppShell({
             {companyOpen && (
               <div className="absolute top-full mt-2 left-0 w-64 bg-card border border-border rounded-xl shadow-xl p-1 z-50 animate-fade-in-down">
                 <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t.common.yourCompanies}</div>
-                {companies.map((c) => (
-                  <button key={c.id} onClick={() => { setActiveCompany(c); setCompanyOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-secondary text-left">
+                {companyList.map((c) => (
+                  <button key={c._id} onClick={async () => { 
+                    setCompanyOpen(false); 
+                    try {
+                      await authService.switchCompany(c._id);
+                      window.location.reload();
+                    } catch(err) {
+                      alert("Failed to switch company");
+                    }
+                  }} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-secondary text-left">
                     <Building2 className="size-4 text-muted-foreground" />
                     <span className="flex-1 truncate">{c.name}</span>
-                    <span className="text-[10px] text-muted-foreground uppercase">{c.role}</span>
-                    {activeCompany.id === c.id && <Check className="size-3 text-success" />}
+                    <span className="text-[10px] text-muted-foreground uppercase">{c.role || "OWNER"}</span>
+                    {activeCompany._id === c._id && <Check className="size-3 text-success" />}
                   </button>
                 ))}
                 <div className="h-px bg-border my-1" />
-                <button onClick={() => setCompanyOpen(false)} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-secondary">
+                <button onClick={async () => {
+                  setCompanyOpen(false);
+                  const name = prompt("Enter new workspace/company name:");
+                  if (name) {
+                    try {
+                      await authService.createCompany(name);
+                      window.location.reload();
+                    } catch(err) {
+                      alert("Failed to create company");
+                    }
+                  }
+                }} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-secondary">
                   <Plus className="size-4" /> {t.common.createCompany}
                 </button>
               </div>
