@@ -1,7 +1,7 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
-import Model from '../models/Order.js';
-import PickTask from '../models/PickTask.js';
+import Model from '../models/Incident.js';
+import ActivityLog from '../models/ActivityLog.js';
 
 const router = express.Router();
 
@@ -11,16 +11,8 @@ router.use(protect); // Secure all routes by default
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company }).populate('store_id', 'name');
-    const mapped = items.map(item => {
-      const doc = item.toJSON();
-      if (doc.store_id) {
-        doc.store_name = doc.store_id.name;
-        doc.store_id = doc.store_id._id;
-      }
-      return doc;
-    });
-    res.json(mapped);
+    const items = await Model.find({ company: req.user.company }).sort({ createdAt: -1 });
+    res.json(items);
   } catch (err) {
     next(err);
   }
@@ -43,10 +35,16 @@ router.post('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
-    if (!data.orderId) {
-      data.orderId = 'ORD-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    }
     const item = await Model.create(data);
+    
+    // Log Activity
+    await ActivityLog.create({
+      company: req.user.company,
+      type: 'Incident',
+      user: req.user.name,
+      description: `Reported incident ${item.incidentId}: ${item.type}`
+    });
+
     res.status(201).json(item);
   } catch (err) {
     next(err);
@@ -57,44 +55,29 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    
+    const existing = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!existing) return res.status(404).json({ message: 'Not found' });
+    
+    const wasResolved = existing.status === 'resolved';
+    const isResolved = req.body.status === 'resolved';
+
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
       req.body, 
       { new: true }
     );
-    if (!item) return res.status(404).json({ message: 'Not found' });
-    res.json(item);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// RELEASE to Fulfillment
-router.post('/:id/release', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     
-    const order = await Model.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      { status: 'processing' }, 
-      { new: true }
-    );
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!wasResolved && isResolved) {
+      await ActivityLog.create({
+        company: req.user.company,
+        type: 'Incident',
+        user: req.user.name,
+        description: `Resolved incident ${item.incidentId}: ${item.type}`
+      });
+    }
 
-    // Generate PickTask
-    const pickTaskId = 'PCK-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    await PickTask.create({
-      taskId: pickTaskId,
-      order: order.orderId,
-      priority: 'normal',
-      status: 'ready',
-      items: order.items || 1,
-      picked: 0,
-      zone: 'Zone-A', // Default or logical mapping
-      company: req.user.company
-    });
-
-    res.json(order);
+    res.json(item);
   } catch (err) {
     next(err);
   }
@@ -106,7 +89,7 @@ router.delete('/:id', async (req, res, next) => {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });
     if (!item) return res.status(404).json({ message: 'Not found' });
-    res.json({ message: 'Deleted successfully' });
+    res.json({ message: 'Deleted' });
   } catch (err) {
     next(err);
   }

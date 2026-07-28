@@ -9,11 +9,11 @@ import { useEffect } from "react";
 import { shippingService } from "../../services/shipping.service";
 import { warehousesService } from "../../services/warehouses.service";
 
-type Shipment = { _id: string; id: string; order: string; customer: string; carrier: string; tracking: string; origin: string; destination: string; status: string; weight: string; date: string; eta: string; shipmentId?: string };
+type Shipment = { _id: string; id: string; order: string; customer: string; carrier: string; tracking: string; origin: string; destination: string; status: string; weight: string; date: string; eta: string; shipmentId?: string; shipment_type?: string; pallets_count?: number };
 
-const carriers = ["All", "FedEx", "UPS", "DHL", "USPS"];
+const carriers = ["All", "FedEx", "UPS", "DHL", "USPS", "LTL Freight"];
 
-const blankShipment = () => ({ order: "", customer: "", carrier: "FedEx", origin: "MIA", destination: "", weight: "", eta: "" });
+const blankShipment = () => ({ order: "", customer: "", carrier: "FedEx", origin: "MIA", destination: "", weight: "", eta: "", shipment_type: "Parcel", pallets_count: 0 });
 
 export function Shipping() {
   const { t } = useLang();
@@ -58,7 +58,7 @@ export function Shipping() {
     const id = `SHP-${String(shipmentList.length + 431).padStart(4, "0")}`;
     const tracking = Math.random().toString().slice(2, 20);
     try {
-      await shippingService.create({ ...form, shipmentId: id, tracking, status: "processing", weight: form.weight || "—", date: new Date().toISOString().slice(0, 10), eta: form.eta || "TBD" });
+      await shippingService.create({ ...form, shipmentId: id, tracking, status: "processing", weight: form.weight || "—", date: new Date().toISOString().slice(0, 10), eta: form.eta || "TBD", shipment_type: form.shipment_type, pallets_count: Number(form.pallets_count) });
       toast.success(`${t.shipping.shipmentCreated}: ${id}`);
       setShowAdd(false);
       setForm(blankShipment());
@@ -141,6 +141,7 @@ export function Shipping() {
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="font-bold text-sm" style={{ fontFamily: "JetBrains Mono, monospace" }}>{s.id}</span>
                   <StatusBadge status={s.status} />
+                  {s.shipment_type === 'Pallet' && <span className="text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded font-bold uppercase">LTL Pallet</span>}
                 </div>
                 <div className="text-xs text-muted-foreground">{s.order} · {s.customer}</div>
               </div>
@@ -197,10 +198,19 @@ export function Shipping() {
             {warehouses.length === 0 && <option value="MIA">MIA</option>}
           </Select></Field>
           <Field label={t.common.type}><Select value={form.carrier} onChange={(e) => setForm({ ...form, carrier: e.target.value })}>
-            {["FedEx","UPS","DHL","USPS","GLS"].map((c) => <option key={c}>{c}</option>)}
+            {["FedEx","UPS","DHL","USPS","LTL Freight"].map((c) => <option key={c}>{c}</option>)}
           </Select></Field>
         </Row>
         <Field label={t.shipping.destination} required><Input value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="City, State / Country" /></Field>
+        <Row>
+          <Field label="Shipment Mode"><Select value={form.shipment_type} onChange={(e) => setForm({ ...form, shipment_type: e.target.value })}>
+            <option value="Parcel">Parcel (B2C)</option>
+            <option value="Pallet">LTL Pallet (B2B)</option>
+          </Select></Field>
+          {form.shipment_type === 'Pallet' && (
+            <Field label="Pallets Count"><Input type="number" value={form.pallets_count} onChange={(e) => setForm({ ...form, pallets_count: Number(e.target.value) })} /></Field>
+          )}
+        </Row>
         <Row>
           <Field label={t.shipping.weight}><Input value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="5.0 kg" /></Field>
           <Field label={t.shipping.estimatedDelivery}><Input type="date" value={form.eta} onChange={(e) => setForm({ ...form, eta: e.target.value })} /></Field>

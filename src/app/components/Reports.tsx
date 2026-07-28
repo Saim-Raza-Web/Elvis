@@ -37,12 +37,16 @@ export function Reports() {
   const [warehousePerf, setWarehousePerf] = useState<any[]>([]);
   const [channelData, setChannelData] = useState<any[]>([]);
   const [headerStats, setHeaderStats] = useState({ revenueMTD: 0, ordersMTD: 0, avgOrderValue: 0, onTimeDelivery: 100 });
+  const [warehouseKPIs, setWarehouseKPIs] = useState({ avgPickingTime: 0, avgPackingTime: 0, errorRate: 0, throughput: 0 });
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const data = await reportsService.getDashboardStats();
+        const [data, kpis] = await Promise.all([
+          reportsService.getDashboardStats(),
+          reportsService.getWarehouseKPIs()
+        ]);
         setRevenueData(data.revenueData || []);
         setOrderStatusData(data.orderStatusData || []);
         setCategoryData(data.categoryData || []);
@@ -50,6 +54,7 @@ export function Reports() {
         setWarehousePerf(data.warehousePerf || []);
         setChannelData(data.channelData || []);
         if (data.headerStats) setHeaderStats(data.headerStats);
+        if (kpis) setWarehouseKPIs(kpis);
       } catch (err) {
         toast.error("Failed to load live report data");
       } finally {
@@ -206,6 +211,24 @@ export function Reports() {
 
       {activeTab === "warehouse" && (
         <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="text-xs text-muted-foreground mb-1">Avg Picking Time</div>
+              <div className="font-bold text-lg text-primary">{warehouseKPIs.avgPickingTime.toFixed(1)} s</div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="text-xs text-muted-foreground mb-1">Avg Packing Time</div>
+              <div className="font-bold text-lg text-info">{warehouseKPIs.avgPackingTime.toFixed(1)} s</div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="text-xs text-muted-foreground mb-1">Picking Error Rate</div>
+              <div className="font-bold text-lg text-destructive">{warehouseKPIs.errorRate.toFixed(1)}%</div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="text-xs text-muted-foreground mb-1">Orders / Hour</div>
+              <div className="font-bold text-lg text-success">{warehouseKPIs.throughput} / hr</div>
+            </div>
+          </div>
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="font-bold mb-4">Warehouse Performance</h3>
             <ResponsiveContainer width="100%" height={220}>

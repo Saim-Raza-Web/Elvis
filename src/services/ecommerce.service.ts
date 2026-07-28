@@ -5,15 +5,15 @@ export const ecommerceService = {
     const response = await api.get('/ecommerce', { params });
     return response.data;
   },
-  getById: async (id) => {
+  getById: async (id: string) => {
     const response = await api.get('/ecommerce/' + id);
     return response.data;
   },
-  create: async (data) => {
+  create: async (data: any) => {
     const response = await api.post('/ecommerce', data);
     return response.data;
   },
-  update: async (id, data) => {
+  update: async (id: string, data: any) => {
     const response = await api.put('/ecommerce/' + id, data);
     return response.data;
   },

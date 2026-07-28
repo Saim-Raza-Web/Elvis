@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShoppingCart, Plus, Search, Eye, Package } from "lucide-react";
+import { ShoppingCart, Plus, Search, Eye, Package, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -9,11 +9,13 @@ import { useEffect } from "react";
 import { ordersService } from "../../services/orders.service";
 import { warehousesService } from "../../services/warehouses.service";
 
-type Order = { _id: string; orderId: string; customer: string; email: string; channel: string; warehouse: string; items: number; total: number; status: string; date: string; notes: string; };
+import { ecommerceService } from "../../services/ecommerce.service";
+
+type Order = { _id: string; orderId: string; customer: string; email: string; channel: string; warehouse: string; items: number; total: number; status: string; date: string; notes: string; order_type?: string; store_id?: string; store_name?: string };
 
 const statusFilters = ["All", "pending", "processing", "shipped", "delivered", "cancelled"];
 
-const blankOrder = () => ({ customer: "", email: "", channel: "web", warehouse: "MIA", items: 1, total: 0, notes: "" });
+const blankOrder = () => ({ customer: "", email: "", channel: "web", warehouse: "MIA", items: 1, total: 0, notes: "", order_type: "B2C", store_id: "" });
 
 export function Orders() {
   const { t } = useLang();
@@ -26,16 +28,19 @@ export function Orders() {
   const [form, setForm] = useState(blankOrder());
   const [isLoading, setIsLoading] = useState(true);
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
 
   async function loadData() {
     try {
       setIsLoading(true);
-      const [data, whs] = await Promise.all([
+      const [data, whs, ecom] = await Promise.all([
         ordersService.getAll(),
-        warehousesService.getAll()
+        warehousesService.getAll(),
+        ecommerceService.getAll()
       ]);
       setOrders(data);
       setWarehouses(whs);
+      setStores(ecom);
     } catch (err) {
       toast.error("Failed to load orders");
     } finally {
@@ -56,7 +61,7 @@ export function Orders() {
 
   function openEdit(o: Order) {
     setEditTarget(o);
-    setForm({ customer: o.customer, email: o.email, channel: o.channel, warehouse: o.warehouse, items: o.items, total: o.total, notes: o.notes });
+    setForm({ customer: o.customer, email: o.email, channel: o.channel, warehouse: o.warehouse, items: o.items, total: o.total, notes: o.notes, order_type: o.order_type || "B2C", store_id: o.store_id || "" });
   }
 
   async function handleSave() {
@@ -69,7 +74,7 @@ export function Orders() {
       } else {
         const num = `ORD-${String(orders.length + 184).padStart(5, "0")}`;
         const today = new Date().toISOString().slice(0, 10);
-        await ordersService.create({ orderId: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse });
+        await ordersService.create({ orderId: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse, order_type: form.order_type, store_id: form.store_id || undefined });
         toast.success(`${t.orders.orderCreated}: ${num} for ${form.customer}.`);
         setShowAdd(false);
       }
@@ -100,6 +105,25 @@ export function Orders() {
       loadData();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to release order");
+    }
+  }
+
+  async function downloadDeliveryNote(o: Order) {
+    try {
+      const token = localStorage.getItem("token");
+      const url = `${import.meta.env.VITE_API_URL}/documents/delivery-note/${o._id}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error("Failed to download");
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `DeliveryNote-${o.orderId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success("Delivery note downloaded");
+    } catch (err) {
+      toast.error("Failed to generate delivery note");
     }
   }
 
@@ -185,6 +209,8 @@ export function Orders() {
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell">
                   <span className="text-xs bg-secondary px-2 py-0.5 rounded uppercase">{o.channel}</span>
+                  {o.order_type === 'B2B' && <span className="ml-2 text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-1.5 py-0.5 rounded font-bold uppercase">B2B Pallet</span>}
+                  {o.store_name && <span className="ml-2 text-[10px] bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 px-1.5 py-0.5 rounded font-bold uppercase">{o.store_name}</span>}
                 </td>
                 <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground text-xs">{o.warehouse}</td>
                 <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground text-xs">{o.date}</td>
@@ -195,6 +221,9 @@ export function Orders() {
                   <div className="flex justify-end gap-1">
                     <button onClick={() => openEdit(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
                       <Eye className="size-3.5" />
+                    </button>
+                    <button onClick={() => downloadDeliveryNote(o)} title="Download Delivery Note" className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary">
+                      <FileText className="size-3.5" />
                     </button>
                     <button onClick={() => setDeleteTarget(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-red-500">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
@@ -215,6 +244,16 @@ export function Orders() {
         <Row>
           <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm((f) => ({ ...f, customer: e.target.value }))} placeholder="Company or person" /></Field>
           <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="orders@company.com" /></Field>
+        </Row>
+        <Row>
+          <Field label="Order Type"><Select value={form.order_type} onChange={(e) => setForm((f) => ({ ...f, order_type: e.target.value }))}>
+            <option value="B2C">B2C (E-commerce)</option>
+            <option value="B2B">B2B (Pallets / Wholesale)</option>
+          </Select></Field>
+          <Field label="eCommerce Store (Optional)"><Select value={form.store_id} onChange={(e) => setForm((f) => ({ ...f, store_id: e.target.value }))}>
+            <option value="">— None —</option>
+            {stores.map((s) => <option key={s._id} value={s._id}>{s.name} ({s.platform})</option>)}
+          </Select></Field>
         </Row>
         <Row>
           <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}>
@@ -244,6 +283,16 @@ export function Orders() {
           <Row>
             <Field label={t.orders.customer} required><Input value={form.customer} onChange={(e) => setForm((f) => ({ ...f, customer: e.target.value }))} placeholder="Company or person" /></Field>
             <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="orders@company.com" /></Field>
+          </Row>
+          <Row>
+            <Field label="Order Type"><Select value={form.order_type} onChange={(e) => setForm((f) => ({ ...f, order_type: e.target.value }))}>
+              <option value="B2C">B2C (E-commerce)</option>
+              <option value="B2B">B2B (Pallets / Wholesale)</option>
+            </Select></Field>
+            <Field label="eCommerce Store (Optional)"><Select value={form.store_id} onChange={(e) => setForm((f) => ({ ...f, store_id: e.target.value }))}>
+              <option value="">— None —</option>
+              {stores.map((s) => <option key={s._id} value={s._id}>{s.name} ({s.platform})</option>)}
+            </Select></Field>
           </Row>
           <Row>
             <Field label={t.orders.channel}><Select value={form.channel} onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}>

@@ -12,6 +12,8 @@ const carrierSchema = new mongoose.Schema({
   label: Boolean,
   tracking: Boolean,
   features: [String],
+  zones: [String], // Configurable list of zones for this carrier
+  weight_brackets: [{ min: Number, max: Number, rate: Number }], // Pricing engine
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });
 

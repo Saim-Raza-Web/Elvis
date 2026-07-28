@@ -30,7 +30,14 @@ export function Locations() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState("MIA");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"zones" | "locations">("zones");
+  const [view, setView] = useState<"zones" | "locations" | "rules">("zones");
+
+  // Storage Rules State
+  const [rules, setRules] = useState<any[]>([]);
+  const [showRule, setShowRule] = useState(false);
+  const [ruleForm, setRuleForm] = useState({ name: "", conditionType: "category", conditionValue: "", targetZone: "", targetLocationType: "", priority: 1 });
+  const [editRuleTarget, setEditRuleTarget] = useState<any | null>(null);
+  const [deleteRuleTarget, setDeleteRuleTarget] = useState<any | null>(null);
 
   // Add Zone modal
   const [showZone, setShowZone] = useState(false);
@@ -40,7 +47,7 @@ export function Locations() {
 
   // Add Location modal
   const [showLoc, setShowLoc] = useState(false);
-  const [locForm, setLocForm] = useState({ zone: "PICK-A", aisle: "", shelf: "", bin: "", sku: "", product: "", capacity: 100 });
+  const [locForm, setLocForm] = useState({ zone: "PICK-A", aisle: "", shelf: "", bin: "", sku: "", product: "", capacity: 100, allowed_manufacturers: "", allowed_families: "" });
   const [editLocTarget, setEditLocTarget] = useState<Loc | null>(null);
   const [deleteLocTarget, setDeleteLocTarget] = useState<Loc | null>(null);
 
@@ -49,13 +56,17 @@ export function Locations() {
   async function loadData() {
     try {
       setIsLoading(true);
-      const [data, whs] = await Promise.all([
+      const [data, whs, rulesData] = await Promise.all([
         locationsService.getAll(),
-        warehousesService.getAll()
+        warehousesService.getAll(),
+        fetch(`${import.meta.env.VITE_API_URL}/storage-rules`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        }).then(res => res.json())
       ]);
       setLocs(data.locations || []);
       setZones(data.zones || []);
       setWarehouses(whs || []);
+      setRules(rulesData || []);
       if (whs && whs.length > 0 && !selectedWarehouse) setSelectedWarehouse(whs[0].code);
     } catch (err) {
       toast.error("Failed to load data");
@@ -115,13 +126,17 @@ export function Locations() {
   async function handleAddLoc() {
     if (!locForm.aisle || !locForm.shelf || !locForm.bin) return;
     const code = `${selectedWarehouse}-${locForm.zone}-${locForm.aisle}-${locForm.shelf}`;
+    const parsedRules = {
+      allowed_manufacturers: locForm.allowed_manufacturers.split(',').map(s=>s.trim()).filter(Boolean),
+      allowed_families: locForm.allowed_families.split(',').map(s=>s.trim()).filter(Boolean)
+    };
     try {
       if (editLocTarget) {
-        await locationsService.update(editLocTarget._id, { ...locForm, code });
+        await locationsService.update(editLocTarget._id, { ...locForm, ...parsedRules, code });
         toast.success(`Location updated.`);
         setEditLocTarget(null);
       } else {
-        await locationsService.create({ ...locForm, code, qty: 0, status: "ok" });
+        await locationsService.create({ ...locForm, ...parsedRules, code, qty: 0, status: "ok" });
         toast.success(`${t.locations.locCreated}: ${code}`);
         setShowLoc(false);
       }
@@ -137,6 +152,42 @@ export function Locations() {
       setDeleteLocTarget(null);
       loadData();
     } catch (e) { toast.error("Failed to delete location"); }
+  }
+
+  async function handleAddRule() {
+    if (!ruleForm.name || !ruleForm.conditionValue) return;
+    try {
+      const url = `${import.meta.env.VITE_API_URL}/storage-rules`;
+      const token = localStorage.getItem("token");
+      if (editRuleTarget) {
+        await fetch(`${url}/${editRuleTarget._id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(ruleForm)
+        });
+        toast.success(`Rule updated.`);
+        setEditRuleTarget(null);
+      } else {
+        await fetch(url, {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(ruleForm)
+        });
+        toast.success(`Storage Rule created.`);
+        setShowRule(false);
+      }
+      loadData();
+    } catch (e) { toast.error("Failed to save rule"); }
+  }
+
+  async function handleDeleteRule() {
+    if (!deleteRuleTarget) return;
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/storage-rules/${deleteRuleTarget._id}`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+      });
+      toast.success(`Rule deleted.`);
+      setDeleteRuleTarget(null);
+      loadData();
+    } catch (e) { toast.error("Failed to delete rule"); }
   }
 
   return (
@@ -170,13 +221,14 @@ export function Locations() {
         <div className="flex rounded-lg border border-border overflow-hidden">
           <button onClick={() => setView("zones")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "zones" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.zone}s</button>
           <button onClick={() => setView("locations")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "locations" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.location}s</button>
+          <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Rules</button>
         </div>
-        <PrimaryButton icon={Plus} onClick={() => view === "zones" ? setShowZone(true) : setShowLoc(true)}>
-          {view === "zones" ? t.locations.addZone : t.locations.addLocation}
+        <PrimaryButton icon={Plus} onClick={() => view === "zones" ? setShowZone(true) : view === "locations" ? setShowLoc(true) : setShowRule(true)}>
+          {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : "Add Rule"}
         </PrimaryButton>
       </div>
 
-      {view === "zones" ? (
+      {view === "zones" && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredZones.map((zone, i) => {
             const pct = Math.round((zone.occupied / zone.locations) * 100);
@@ -219,7 +271,9 @@ export function Locations() {
             <div className="col-span-full text-center py-12 text-muted-foreground text-sm border-2 border-dashed border-border rounded-xl">{t.common.noResults}</div>
           )}
         </div>
-      ) : (
+      )}
+
+      {view === "locations" && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
@@ -243,7 +297,7 @@ export function Locations() {
                   <td className="px-4 py-3 text-center"><StatusBadge status={loc.status} /></td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-1">
-                      <button onClick={() => { setEditLocTarget(loc); setLocForm({ zone: loc.zone, aisle: loc.aisle, shelf: loc.shelf, bin: loc.bin, sku: loc.sku || "", product: loc.product || "", capacity: loc.capacity }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
+                      <button onClick={() => { setEditLocTarget(loc); setLocForm({ zone: loc.zone, aisle: loc.aisle, shelf: loc.shelf, bin: loc.bin, sku: loc.sku || "", product: loc.product || "", capacity: loc.capacity, allowed_manufacturers: (loc as any).allowed_manufacturers?.join(', ') || "", allowed_families: (loc as any).allowed_families?.join(', ') || "" }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
                       <button onClick={() => setDeleteLocTarget(loc)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
                     </div>
                   </td>
@@ -252,6 +306,34 @@ export function Locations() {
               {filteredLocs.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
             </tbody>
           </table>
+        </div>
+      )}
+      
+      {view === "rules" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {rules.map((rule, i) => (
+            <div key={rule._id || i} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold" style={{ fontSize: "0.875rem" }}>{rule.name}</span>
+                    {rule.isActive ? <StatusBadge status="active" /> : <StatusBadge status="blocked" />}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-2">
+                    IF <strong className="text-foreground">{rule.conditionType}</strong> = <strong className="text-foreground">{rule.conditionValue}</strong>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    THEN PUT IN <strong className="text-primary">{rule.targetZone}</strong>
+                  </div>
+                </div>
+                <div className="flex gap-1 items-center">
+                  <span className="text-xs font-bold bg-secondary px-2 py-1 rounded">Priority: {rule.priority}</span>
+                  <button onClick={() => { setEditRuleTarget(rule); setRuleForm({ name: rule.name, conditionType: rule.conditionType, conditionValue: rule.conditionValue, targetZone: rule.targetZone, targetLocationType: rule.targetLocationType, priority: rule.priority }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
+                  <button onClick={() => setDeleteRuleTarget(rule)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -295,6 +377,13 @@ export function Locations() {
           <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder="SKU-XXXX" /></Field>
           <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
         </Row>
+        <div className="pt-2 border-t border-border mt-2 mb-2">
+          <p className="text-sm font-bold text-muted-foreground mb-3">Storage Rules (Optional)</p>
+          <Row>
+            <Field label="Allowed Manufacturers"><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder="Samsung, Apple (comma separated)" /></Field>
+            <Field label="Allowed Families"><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder="Electronics, Clothing" /></Field>
+          </Row>
+        </div>
       </Modal>
 
       {/* Edit Zone Modal */}
@@ -342,12 +431,65 @@ export function Locations() {
           <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder="SKU-XXXX" /></Field>
           <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
         </Row>
+        <div className="pt-2 border-t border-border mt-2 mb-2">
+          <p className="text-sm font-bold text-muted-foreground mb-3">Storage Rules (Optional)</p>
+          <Row>
+            <Field label="Allowed Manufacturers"><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder="Samsung, Apple (comma separated)" /></Field>
+            <Field label="Allowed Families"><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder="Electronics, Clothing" /></Field>
+          </Row>
+        </div>
       </Modal>
 
       {/* Delete Location Modal */}
       <Modal open={!!deleteLocTarget} onClose={() => setDeleteLocTarget(null)} title="Delete Location" width="sm" footer={<><ModalCancel onClose={() => setDeleteLocTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteLoc}>{t.common.delete}</ModalSubmit></>}>
         <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteLocTarget?.code}</strong>? This cannot be undone.</p>
       </Modal>
+
+      {/* Delete Rule Confirm Modal */}
+      <Modal open={!!deleteRuleTarget} onClose={() => setDeleteRuleTarget(null)} title="Delete Storage Rule">
+        <div className="p-4 text-sm text-muted-foreground">
+          Are you sure you want to delete the rule <strong>{deleteRuleTarget?.name}</strong>? This action cannot be undone.
+        </div>
+        <div className="flex gap-3 p-4 pt-0">
+          <ModalCancel onClick={() => setDeleteRuleTarget(null)}>{t.common.cancel}</ModalCancel>
+          <button onClick={handleDeleteRule} className="flex-1 rounded-xl bg-destructive text-destructive-foreground font-bold hover:bg-destructive/90 transition-colors">Delete</button>
+        </div>
+      </Modal>
+
+      {/* Rule Form Modal */}
+      <Modal open={showRule || !!editRuleTarget} onClose={() => { setShowRule(false); setEditRuleTarget(null); }} title={editRuleTarget ? "Edit Storage Rule" : "New Storage Rule"}>
+        <div className="space-y-4 p-4">
+          <Field label="Rule Name">
+            <Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="e.g. Hazardous Materials" />
+          </Field>
+          <Row>
+            <Field label="Condition Type">
+              <Select value={ruleForm.conditionType} onChange={(e) => setRuleForm({ ...ruleForm, conditionType: e.target.value })}>
+                <option value="category">Category</option>
+                <option value="manufacturer">Manufacturer</option>
+                <option value="owner">Owner</option>
+                <option value="brand">Brand</option>
+              </Select>
+            </Field>
+            <Field label="Condition Value">
+              <Input value={ruleForm.conditionValue} onChange={(e) => setRuleForm({ ...ruleForm, conditionValue: e.target.value })} placeholder="e.g. Electronics" />
+            </Field>
+          </Row>
+          <Row>
+            <Field label="Target Zone">
+              <Input value={ruleForm.targetZone} onChange={(e) => setRuleForm({ ...ruleForm, targetZone: e.target.value })} placeholder="e.g. Aisle A" />
+            </Field>
+            <Field label="Priority (1-100)">
+              <Input type="number" value={ruleForm.priority} onChange={(e) => setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) })} />
+            </Field>
+          </Row>
+        </div>
+        <div className="flex gap-3 p-4 pt-0">
+          <ModalCancel onClick={() => { setShowRule(false); setEditRuleTarget(null); }}>{t.common.cancel}</ModalCancel>
+          <ModalSubmit onClick={handleAddRule}>{t.common.save}</ModalSubmit>
+        </div>
+      </Modal>
+
     </div>
   );
 }

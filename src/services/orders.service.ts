@@ -5,11 +5,11 @@ export const ordersService = {
     const response = await api.get('/orders', { params });
     return response.data;
   },
-  getById: async (id) => {
+  getById: async (id: string) => {
     const response = await api.get('/orders/' + id);
     return response.data;
   },
-  create: async (data) => {
+  create: async (data: any) => {
     const response = await api.post('/orders', data);
     return response.data;
   },
@@ -21,7 +21,7 @@ export const ordersService = {
     const response = await api.post('/orders/' + id + '/release');
     return response.data;
   },
-  delete: async (id) => {
+  delete: async (id: string) => {
     const response = await api.delete('/orders/' + id);
     return response.data;
   }

@@ -9,7 +9,7 @@ export const activityService = {
     const response = await api.get('/activity/notifications');
     return response.data;
   },
-  getById: async (id) => {
+  getById: async (id: string) => {
     const response = await api.get('/activity/' + id);
     return response.data;
   },

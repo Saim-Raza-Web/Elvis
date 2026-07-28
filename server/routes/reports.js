@@ -9,6 +9,60 @@ import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Warehouse from '../models/Warehouse.js';
 import Shipment from '../models/Shipment.js';
+import PickTask from '../models/PickTask.js';
+import PackTask from '../models/PackTask.js';
+
+router.get('/warehouse-kpis', async (req, res, next) => {
+  try {
+    const comp = req.user.company;
+    const [picks, packs] = await Promise.all([
+      PickTask.find({ company: comp, status: 'completed' }),
+      PackTask.find({ company: comp, status: 'completed' })
+    ]);
+
+    let totalPickTime = 0;
+    let validPicks = 0;
+    let pickErrors = 0;
+
+    picks.forEach(p => {
+      if (p.errors > 0) pickErrors++;
+      if (p.started && p.completedAt) {
+        totalPickTime += (p.completedAt - p.started) / 1000; // in seconds
+        validPicks++;
+      }
+    });
+
+    let totalPackTime = 0;
+    let validPacks = 0;
+
+    packs.forEach(p => {
+      if (p.startedAt && p.completedAt) {
+        totalPackTime += (p.completedAt - p.startedAt) / 1000; // in seconds
+        validPacks++;
+      }
+    });
+
+    const avgPickingTime = validPicks > 0 ? totalPickTime / validPicks : 0;
+    const avgPackingTime = validPacks > 0 ? totalPackTime / validPacks : 0;
+    const errorRate = picks.length > 0 ? (pickErrors / picks.length) * 100 : 0;
+    
+    // orders per hour (assume 1 day window for simplified velocity, or calculate exact throughput)
+    // For demo/prototype, simple average of picks completed per hour if there's any time range.
+    let throughput = validPicks > 0 ? Math.round((validPicks / (Math.max(1, totalPickTime / 3600)))) : 0;
+    
+    // Ensure we don't display Infinity or NaN
+    throughput = isNaN(throughput) || !isFinite(throughput) ? 0 : throughput;
+
+    res.json({
+      avgPickingTime: avgPickingTime, // in seconds
+      avgPackingTime: avgPackingTime, // in seconds
+      errorRate: errorRate,
+      throughput: throughput
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/dashboard', async (req, res, next) => {
   try {

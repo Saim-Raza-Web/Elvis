@@ -10,6 +10,8 @@ const pickTaskSchema = new mongoose.Schema({
   picked: Number,
   zone: String,
   started: Date,
+  completedAt: Date,
+  errors: { type: Number, default: 0 },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });
 

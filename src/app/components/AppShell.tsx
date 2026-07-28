@@ -5,7 +5,7 @@ import {
   Building2, Undo2, Users, ReceiptText, BookOpen, BarChart3,
   CreditCard, Settings2, Menu, X, Bell, Search, Sun, Moon,
   Check, Plus, ChevronDown, LogOut, Sparkles, CheckCheck,
-  MapPin, History, ShieldCheck, Globe2,
+  MapPin, History, ShieldCheck, Globe2, ClipboardList
 } from "lucide-react";
 import type { Lang } from "../i18n";
 import { useT } from "../i18n";
@@ -15,9 +15,9 @@ import { activityService } from "../../services/activity.service";
 
 export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "transfers" | "picking" | "packing"
-  | "orders" | "ecommerce" | "shipping" | "carriers" | "returns"
+  | "orders" | "ecommerce" | "shipping" | "carriers" | "returns" | "incidents"
   | "crm" | "billing" | "accounting" | "reports" | "subscription" | "settings"
-  | "activity" | "admin";
+  | "activity" | "admin" | "stock-counts";
 
 interface NavItem {
   id: Page;
@@ -38,6 +38,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "inventory", label: nav.inventory, icon: Boxes },
         { id: "receiving", label: nav.receiving, icon: PackageCheck, badge: "3" },
         { id: "transfers", label: nav.transfers, icon: ArrowRightLeft },
+        { id: "stock-counts", label: "Stock Counts", icon: ClipboardList },
         { id: "picking", label: nav.picking, icon: ScanLine },
         { id: "packing", label: nav.packing, icon: PackageOpen },
       ],
@@ -50,6 +51,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "shipping", label: nav.shipping, icon: Truck },
         { id: "carriers", label: nav.carriers, icon: Building2 },
         { id: "returns", label: nav.returns, icon: Undo2 },
+        { id: "incidents", label: "Incidents", icon: ShieldCheck },
       ],
     },
     {

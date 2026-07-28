@@ -1,26 +1,48 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
-import Model from '../models/Order.js';
-import PickTask from '../models/PickTask.js';
+import Model from '../models/StorageRule.js';
+import Product from '../models/Product.js';
 
 const router = express.Router();
 
 router.use(protect); // Secure all routes by default
 
+// GET suggest location for a product
+router.get('/suggest/:sku', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    
+    const product = await Product.findOne({ sku: req.params.sku, company: req.user.company });
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const rules = await Model.find({ company: req.user.company, isActive: true }).sort({ priority: 1 });
+    
+    let suggestedZone = "Default Zone";
+    for (const rule of rules) {
+      let matched = false;
+      if (rule.conditionType === 'category' && product.category === rule.conditionValue) matched = true;
+      if (rule.conditionType === 'manufacturer' && product.manufacturer === rule.conditionValue) matched = true;
+      if (rule.conditionType === 'owner' && product.owner === rule.conditionValue) matched = true;
+      if (rule.conditionType === 'brand' && product.brand === rule.conditionValue) matched = true;
+      
+      if (matched) {
+        suggestedZone = rule.targetZone;
+        break; // first matching rule determines location based on priority
+      }
+    }
+    
+    res.json({ sku: product.sku, suggestedZone });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET all
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company }).populate('store_id', 'name');
-    const mapped = items.map(item => {
-      const doc = item.toJSON();
-      if (doc.store_id) {
-        doc.store_name = doc.store_id.name;
-        doc.store_id = doc.store_id._id;
-      }
-      return doc;
-    });
-    res.json(mapped);
+    const items = await Model.find({ company: req.user.company }).sort({ priority: 1 });
+    res.json(items);
   } catch (err) {
     next(err);
   }
@@ -43,9 +65,6 @@ router.post('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
-    if (!data.orderId) {
-      data.orderId = 'ORD-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    }
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {
@@ -64,37 +83,6 @@ router.put('/:id', async (req, res, next) => {
     );
     if (!item) return res.status(404).json({ message: 'Not found' });
     res.json(item);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// RELEASE to Fulfillment
-router.post('/:id/release', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    
-    const order = await Model.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      { status: 'processing' }, 
-      { new: true }
-    );
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
-    // Generate PickTask
-    const pickTaskId = 'PCK-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    await PickTask.create({
-      taskId: pickTaskId,
-      order: order.orderId,
-      priority: 'normal',
-      status: 'ready',
-      items: order.items || 1,
-      picked: 0,
-      zone: 'Zone-A', // Default or logical mapping
-      company: req.user.company
-    });
-
-    res.json(order);
   } catch (err) {
     next(err);
   }

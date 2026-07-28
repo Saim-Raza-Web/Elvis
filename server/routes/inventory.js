@@ -17,6 +17,36 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// GET low-stock / replenishment alerts
+router.get('/alerts/low-stock', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    // Products where available qty is at or below their reorder_point (or min_stock fallback)
+    const products = await Model.find({ company: req.user.company });
+    const alerts = products
+      .filter(p => {
+        const threshold = p.reorder_point ?? p.min_stock ?? null;
+        return threshold !== null && (p.qty_available ?? 0) <= threshold;
+      })
+      .map(p => ({
+        _id: p._id,
+        sku: p.sku,
+        name: p.name,
+        qty_available: p.qty_available ?? 0,
+        reorder_point: p.reorder_point ?? p.min_stock,
+        max_stock: p.max_stock,
+        supplier_lead_time_days: p.supplier_lead_time_days,
+        recommended_order_qty: Math.max(0, (p.max_stock ?? 100) - (p.qty_available ?? 0)),
+        owner: p.owner,
+        warehouse: p.warehouse,
+      }));
+    res.json(alerts);
+  } catch (err) {
+    next(err);
+  }
+});
+
+
 // GET by ID
 router.get('/:id', async (req, res, next) => {
   try {

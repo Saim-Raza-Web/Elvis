@@ -1,22 +1,23 @@
-import { useState } from "react";
-import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { useLang } from "../LangContext";
 
-import { useEffect } from "react";
 import { inventoryService } from "../../services/inventory.service";
 import { warehousesService } from "../../services/warehouses.service";
 
-type Product = { _id: string; sku: string; name: string; category: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string };
+type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; };
 
 const categories = ["All", "Widgets", "Hardware", "Electronics", "Industrial", "Accessories", "Packaging"];
 
 
 const blankProduct = (): Omit<Product, "_id"> => ({
-  sku: "", name: "", category: "Widgets", qty_available: 0, qty_reserved: 0, qty_blocked: 0,
+  sku: "", name: "", category: "Widgets", manufacturer: "", brand: "",
+  qty_available: 0, qty_reserved: 0, qty_blocked: 0,
   qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 0, warehouse: "MIA", status: "ok",
+  reorder_point: 0, min_stock: 0, max_stock: 0, safety_stock: 0, supplier_lead_time_days: 7,
 });
 
 export function Inventory() {
@@ -28,7 +29,9 @@ export function Inventory() {
     { id: "blocked", label: t.inventory.blocked, icon: AlertTriangle },
     { id: "ecommerce", label: t.inventory.ecommerce, icon: Globe },
     { id: "customer", label: t.inventory.customerOwned, icon: Users },
+    { id: "replenishment", label: "Replenishment", icon: BellRing },
   ];
+  const [replenishment, setReplenishment] = useState<any[]>([]);
   const [productList, setProductList] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
@@ -45,12 +48,16 @@ export function Inventory() {
   async function loadData() {
     try {
       setIsLoading(true);
-      const [data, whs] = await Promise.all([
+      const [data, whs, alerts] = await Promise.all([
         inventoryService.getAll(),
-        warehousesService.getAll()
+        warehousesService.getAll(),
+        fetch(`${import.meta.env.VITE_API_URL}/inventory/alerts/low-stock`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        }).then(r => r.json())
       ]);
       setProductList(data);
       setWarehouses(whs);
+      setReplenishment(alerts || []);
     } catch (err) {
       toast.error("Failed to load inventory");
     } finally {
@@ -174,7 +181,44 @@ export function Inventory() {
         <PrimaryButton icon={Plus} onClick={openAdd}>{t.inventory.addProduct}</PrimaryButton>
       </div>
 
-      {/* Table */}
+      {/* Replenishment Alert View */}
+      {stockTab === "replenishment" ? (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center gap-2 p-4 border-b border-border bg-destructive/5">
+            <BellRing className="size-4 text-destructive" />
+            <span className="font-semibold text-sm">{replenishment.length} products need replenishment</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
+              <tr>
+                <th className="text-left px-4 py-3">SKU</th>
+                <th className="text-left px-4 py-3">Product</th>
+                <th className="text-right px-4 py-3">In Stock</th>
+                <th className="text-right px-4 py-3">Reorder Point</th>
+                <th className="text-right px-4 py-3">Order Qty</th>
+                <th className="text-left px-4 py-3">Lead Time</th>
+                <th className="text-left px-4 py-3">Owner</th>
+              </tr>
+            </thead>
+            <tbody>
+              {replenishment.map((p, i) => (
+                <tr key={p._id} className="border-t border-border hover:bg-secondary/30 animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
+                  <td className="px-4 py-3 text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{p.sku}</td>
+                  <td className="px-4 py-3 font-medium">{p.name}</td>
+                  <td className="px-4 py-3 text-right text-destructive font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{p.qty_available}</td>
+                  <td className="px-4 py-3 text-right" style={{ fontFamily: "JetBrains Mono, monospace" }}>{p.reorder_point}</td>
+                  <td className="px-4 py-3 text-right font-bold text-primary" style={{ fontFamily: "JetBrains Mono, monospace" }}>{p.recommended_order_qty}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{p.supplier_lead_time_days ?? '—'} days</td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs bg-secondary px-2 py-0.5 rounded">{p.owner || '—'}</span>
+                  </td>
+                </tr>
+              ))}
+              {replenishment.length === 0 && <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">All products are adequately stocked! ✅</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
@@ -195,7 +239,10 @@ export function Inventory() {
             {filtered.map((p, i) => (
               <tr key={p._id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                 <td className="px-4 py-3 text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{p.sku}</td>
-                <td className="px-4 py-3 font-medium">{p.name}</td>
+                <td className="px-4 py-3 font-medium">
+                  <div>{p.name}</div>
+                  {(p.manufacturer || p.brand) && <div className="text-xs text-muted-foreground">{[p.manufacturer, p.brand].filter(Boolean).join(' · ')}</div>}
+                </td>
                 <td className="px-4 py-3 hidden md:table-cell"><span className="text-xs bg-secondary px-2 py-0.5 rounded">{p.category}</span></td>
                 <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground text-xs">{p.warehouse}</td>
                 <td className="px-4 py-3 hidden xl:table-cell">
@@ -221,6 +268,7 @@ export function Inventory() {
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Add/Edit Modal */}
       {[{ open: showAdd, onClose: () => setShowAdd(false), title: t.inventory.addProduct, cta: t.inventory.addProduct }, { open: !!editTarget, onClose: () => setEditTarget(null), title: t.inventory.editProduct, cta: t.common.save }].map((m) => (
@@ -232,21 +280,33 @@ export function Inventory() {
           </Row>
           <Field label={t.inventory.productName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full product name" /></Field>
           <Row>
+            <Field label="Manufacturer"><Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="e.g. Sony" /></Field>
+            <Field label="Brand"><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="e.g. PlayStation" /></Field>
+          </Row>
+          <Row>
             <Field label={t.inventory.price}><Input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></Field>
             <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
               {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
               {warehouses.length === 0 && <option value="MIA">MIA</option>}
             </Select></Field>
           </Row>
+          <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Stock & Replenishment</div>
           <Row>
             <Field label="Qty available"><Input type="number" value={form.qty_available} onChange={(e) => setForm({ ...form, qty_available: Number(e.target.value) })} /></Field>
+            <Field label="Reorder Point"><Input type="number" value={form.reorder_point} onChange={(e) => setForm({ ...form, reorder_point: Number(e.target.value) })} /></Field>
+          </Row>
+          <Row>
+            <Field label="Max Stock (Ideal)"><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} /></Field>
+            <Field label="Lead Time (Days)"><Input type="number" value={form.supplier_lead_time_days} onChange={(e) => setForm({ ...form, supplier_lead_time_days: Number(e.target.value) })} /></Field>
+          </Row>
+          <Row>
             <Field label="Qty reserved"><Input type="number" value={form.qty_reserved} onChange={(e) => setForm({ ...form, qty_reserved: Number(e.target.value) })} /></Field>
+            <Field label={t.inventory.blocked}><Input type="number" value={form.qty_blocked} onChange={(e) => setForm({ ...form, qty_blocked: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
             <Field label={t.inventory.owner}><Select value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })}>
               <option value="internal">Internal</option><option value="customer">{t.inventory.customerOwned}</option><option value="mixed">Mixed</option>
             </Select></Field>
-            <Field label={t.inventory.blocked}><Input type="number" value={form.qty_blocked} onChange={(e) => setForm({ ...form, qty_blocked: Number(e.target.value) })} /></Field>
           </Row>
         </Modal>
       ))}

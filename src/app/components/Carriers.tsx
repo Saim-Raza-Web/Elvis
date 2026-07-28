@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { carriersService } from "../../services/carriers.service";
 import { carrierRulesService } from "../../services/carrier_rules.service";
 
-type Carrier = { _id: string; id: string; name: string; type: string; status: string; account: string; on_time: number; cost_avg: number; shipments_mtd: number; regions: string[]; label: boolean; tracking: boolean; features: string[] };
+type Carrier = { _id: string; id: string; name: string; type: string; status: string; account: string; on_time: number; cost_avg: number; shipments_mtd: number; regions: string[]; label: boolean; tracking: boolean; features: string[]; zones?: string[]; weight_brackets?: {min: number; max: number; rate: number}[] };
 type CarrierRule = { _id: string; id: string; name: string; condition: string; carrier: string; active: boolean };
 
 export function Carriers() {
@@ -22,7 +22,7 @@ export function Carriers() {
   const [editMode, setEditMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [form, setForm] = useState({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" });
+  const [form, setForm] = useState({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU", zones: "", weight_brackets_str: "[{\"min\":0, \"max\":10, \"rate\":5.0}]" });
   const [ruleForm, setRuleForm] = useState({ name: "", condition: "", carrier: "", active: true });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -44,9 +44,8 @@ export function Carriers() {
     loadData();
   }, []);
 
-  // Listen for header button CustomEvent
   useEffect(() => {
-    const handler = () => { setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" }); setEditMode("add"); setShowAdd(true); };
+    const handler = () => { setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU", zones: "", weight_brackets_str: "[{\"min\":0, \"max\":10, \"rate\":5.0}]" }); setEditMode("add"); setShowAdd(true); };
     window.addEventListener("open-add-carrier", handler);
     return () => window.removeEventListener("open-add-carrier", handler);
   }, []);
@@ -54,11 +53,23 @@ export function Carriers() {
   async function handleSaveCarrier() {
     if (!form.name || !form.account) { toast.error("Carrier name and account are required."); return; }
     try {
+      let parsedBrackets = [];
+      try { parsedBrackets = JSON.parse(form.weight_brackets_str); } catch (e) { toast.error("Invalid JSON for weight brackets"); return; }
+      
+      const payload = { 
+        name: form.name, type: form.type, status: form.status, account: form.account, 
+        on_time: form.on_time, cost_avg: form.cost_avg, shipments_mtd: 0, 
+        regions: form.regions.split(",").map((r) => r.trim()),
+        zones: form.zones ? form.zones.split(",").map((z) => z.trim()) : [],
+        weight_brackets: parsedBrackets,
+        label: true, tracking: true, features: ["Standard"] 
+      };
+
       if (editMode === "add") {
-        await carriersService.create({ name: form.name, type: form.type, status: form.status, account: form.account, on_time: form.on_time, cost_avg: form.cost_avg, shipments_mtd: 0, regions: form.regions.split(",").map((r) => r.trim()), label: true, tracking: true, features: ["Standard"] });
+        await carriersService.create(payload);
         toast.success(`Carrier "${form.name}" added.`);
       } else {
-        await carriersService.update(editingId!, { name: form.name, type: form.type, status: form.status, account: form.account, on_time: form.on_time, cost_avg: form.cost_avg, regions: form.regions.split(",").map((r) => r.trim()) });
+        await carriersService.update(editingId!, payload);
         toast.success(`Carrier updated.`);
       }
       setShowAdd(false);
@@ -69,7 +80,12 @@ export function Carriers() {
   function openEditCarrier(c: Carrier) {
     setEditMode("edit");
     setEditingId(c._id);
-    setForm({ name: c.name, type: c.type, account: c.account, status: c.status, on_time: c.on_time, cost_avg: c.cost_avg, regions: c.regions.join(", ") });
+    setForm({ 
+      name: c.name, type: c.type, account: c.account, status: c.status, 
+      on_time: c.on_time, cost_avg: c.cost_avg, regions: c.regions.join(", "),
+      zones: c.zones ? c.zones.join(", ") : "",
+      weight_brackets_str: c.weight_brackets ? JSON.stringify(c.weight_brackets, null, 2) : "[]"
+    });
     setShowAdd(true);
   }
 
@@ -136,7 +152,7 @@ export function Carriers() {
         <PrimaryButton icon={Plus} onClick={() => {
           if (view === "carriers") {
             setEditMode("add");
-            setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU" });
+            setForm({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU", zones: "", weight_brackets_str: "[{\"min\":0, \"max\":10, \"rate\":5.0}]" });
             setShowAdd(true);
           } else {
             openAddRule();
@@ -246,7 +262,18 @@ export function Carriers() {
           <Field label={t.carriers.avgCost}><Input type="number" step="0.1" value={form.cost_avg} onChange={(e) => setForm({ ...form, cost_avg: Number(e.target.value) })} /></Field>
           <Field label={t.carriers.onTimeRate}><Input type="number" value={form.on_time} onChange={(e) => setForm({ ...form, on_time: Number(e.target.value) })} /></Field>
         </Row>
-        <Field label={t.carriers.regions} hint={t.carriers.regionsHint}><Input value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder="US, EU" /></Field>
+        <Row>
+          <Field label={t.carriers.regions} hint={t.carriers.regionsHint}><Input value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder="US, EU" /></Field>
+          <Field label="Shipping Zones"><Input value={form.zones} onChange={(e) => setForm({ ...form, zones: e.target.value })} placeholder="Zone 1, Zone 2..." /></Field>
+        </Row>
+        <Field label="Weight Brackets (JSON)">
+          <textarea 
+            value={form.weight_brackets_str} 
+            onChange={(e) => setForm({ ...form, weight_brackets_str: e.target.value })}
+            className="w-full bg-card border border-border p-2 rounded-lg text-sm min-h-24"
+            placeholder={`[{"min": 0, "max": 10, "rate": 5}]`}
+          />
+        </Field>
       </Modal>
 
       {/* Rule Modal */}

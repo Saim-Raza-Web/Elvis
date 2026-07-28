@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PackageCheck, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock, ScanLine, Package } from "lucide-react";
+import { PackageCheck, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock, ScanLine, Package, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { asnService } from "../../services/asn.service";
 import { receivingService } from "../../services/receiving.service";
 
-type ASN = { _id: string; id: string; supplier: string; origin: string; carrier: string; sku_count: number; expected_units: number; status: string; expected_date: string; po: string };
+type ASN = { _id: string; id: string; supplier: string; origin: string; carrier: string; sku_count: number; expected_units: number; status: string; expected_date: string; po: string; items?: any[] };
 
 const blankASN = (): Omit<ASN, "id" | "status" | "_id"> => ({
   supplier: "", origin: "", carrier: "DHL", sku_count: 1, expected_units: 0, expected_date: "", po: "",
@@ -92,6 +92,60 @@ export function Receiving() {
       loadData();
     } catch (err) {
       toast.error("Failed to update status");
+    }
+  }
+
+  async function handleQCItem(asn: ASN) {
+    const skuInput = document.getElementById(`qc-sku-${asn.id}`) as HTMLInputElement;
+    const qtyInput = document.getElementById(`qc-qty-${asn.id}`) as HTMLInputElement;
+    const statusInput = document.getElementById(`qc-status-${asn.id}`) as HTMLSelectElement;
+    if (!skuInput?.value || !qtyInput?.value) return toast.error("SKU and Qty required");
+    
+    const newItem = {
+      sku: skuInput.value,
+      expected_qty: Number(qtyInput.value),
+      received_qty: Number(qtyInput.value),
+      qc_status: statusInput.value,
+      notes: "QC Check via Dashboard"
+    };
+    
+    try {
+      const items = asn.items ? [...asn.items, newItem] : [newItem];
+      await asnService.update(asn._id, { items });
+      toast.success(`QC recorded for ${skuInput.value}`);
+      skuInput.value = ""; qtyInput.value = "";
+      loadData();
+    } catch (err) {
+      toast.error("Failed to record QC item");
+    }
+  }
+
+  async function handleCompleteASN(asn: ASN) {
+    try {
+      await asnService.update(asn._id, { status: "received" });
+      toast.success(`ASN ${asn.id} received and stock updated.`);
+      loadData();
+    } catch (err) {
+      toast.error("Failed to complete ASN");
+    }
+  }
+
+  async function downloadGoodsReceived(asn: ASN) {
+    try {
+      const token = localStorage.getItem("token");
+      const url = `${import.meta.env.VITE_API_URL}/documents/goods-received/${asn._id}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error("Failed to download");
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `GoodsReceived-${asn.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success("Goods Received note downloaded");
+    } catch (err) {
+      toast.error("Failed to generate document");
     }
   }
 
@@ -212,7 +266,7 @@ export function Receiving() {
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    {asn.status !== "completed" && (
+                    {asn.status !== "completed" && asn.status !== "received" && asn.status !== "in_progress" && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleStartReceiving(asn); }}
                         className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all active:scale-95"
@@ -226,7 +280,46 @@ export function Receiving() {
                     >
                       {t.receiving.viewDetails}
                     </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); downloadGoodsReceived(asn); }}
+                      className="px-4 py-2 border border-border rounded-lg text-sm text-primary font-semibold hover:bg-primary/5 transition-colors flex items-center gap-2"
+                    >
+                      <FileText className="size-4" /> Download PDF
+                    </button>
                   </div>
+                  
+                  {asn.status === "in_progress" && (
+                    <div className="mt-4 p-4 border border-primary/20 bg-primary/5 rounded-lg animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                      <h4 className="font-bold text-sm mb-3 text-primary">Item QC & Receiving</h4>
+                      <div className="flex gap-2 mb-3">
+                        <Input placeholder="Scan SKU..." id={`qc-sku-${asn.id}`} className="flex-1" />
+                        <Input type="number" placeholder="Qty" id={`qc-qty-${asn.id}`} className="w-24" />
+                        <Select id={`qc-status-${asn.id}`} className="w-32">
+                          <option value="approved">Approved</option>
+                          <option value="partial">Partial</option>
+                          <option value="rejected">Rejected</option>
+                        </Select>
+                        <PrimaryButton onClick={() => handleQCItem(asn)}>Save</PrimaryButton>
+                      </div>
+                      
+                      {asn.items && asn.items.length > 0 && (
+                        <div className="mb-4 space-y-1">
+                          {asn.items.map((it: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-xs bg-card p-2 rounded border border-border">
+                              <span><strong style={{ fontFamily: "JetBrains Mono" }}>{it.sku}</strong> ({it.received_qty} units)</span>
+                              <StatusBadge status={it.qc_status} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-end pt-2 border-t border-primary/20">
+                        <button onClick={() => handleCompleteASN(asn)} className="px-4 py-2 bg-success text-success-foreground rounded-lg text-sm font-bold hover:opacity-90">
+                          Confirm Full Receipt
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

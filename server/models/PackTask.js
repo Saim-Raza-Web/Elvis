@@ -9,6 +9,8 @@ const packTaskSchema = new mongoose.Schema({
   station: String,
   priority: String,
   status: String,
+  startedAt: Date,
+  completedAt: Date,
   boxType: String,
   weight: String,
   material: String,

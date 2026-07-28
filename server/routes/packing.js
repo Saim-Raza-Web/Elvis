@@ -54,6 +54,13 @@ router.put('/:id', async (req, res, next) => {
     const wasCompleted = existing.status === 'completed';
     const isCompleted = req.body.status === 'completed';
 
+    if (existing.status !== 'in_progress' && req.body.status === 'in_progress') {
+      req.body.startedAt = new Date();
+    }
+    if (!wasCompleted && isCompleted) {
+      req.body.completedAt = new Date();
+    }
+
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
       req.body, 

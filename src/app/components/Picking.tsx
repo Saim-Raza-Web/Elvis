@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { pickingService } from "../../services/picking.service";
 
 type PickTask = { _id: string; id: string; order: string; priority: string; status: string; assignee: string; items: number; picked: number; zone: string; started: string; taskId?: string };
+type PickBatch = { _id: string; id: string; batchId: string; orders: string[]; priority: string; status: string; assignee: string; total_items: number; picked_items: number; };
 
 const priorityColor: Record<string, string> = {
   high: "text-destructive bg-destructive/10",
@@ -19,7 +20,8 @@ const priorityColor: Record<string, string> = {
 export function Picking() {
   const { t } = useLang();
   const [tasks, setTasks] = useState<PickTask[]>([]);
-  const [view, setView] = useState<"board" | "list">("board");
+  const [batches, setBatches] = useState<PickBatch[]>([]);
+  const [view, setView] = useState<"tasks" | "batches">("tasks");
   const [scanValue, setScanValue] = useState("");
   const [showManual, setShowManual] = useState(false);
   const [manualForm, setManualForm] = useState({ order: "", zone: "", assignee: "", priority: "normal", items: 1 });
@@ -33,8 +35,12 @@ export function Picking() {
   async function loadData() {
     try {
       setIsLoading(true);
-      const data = await pickingService.getAll();
-      setTasks(data.map((d: any) => ({ ...d, id: d.taskId || d._id })));
+      const [tasksData, batchesData] = await Promise.all([
+        pickingService.getAll(),
+        pickingService.getBatches()
+      ]);
+      setTasks(tasksData.map((d: any) => ({ ...d, id: d.taskId || d._id })));
+      setBatches(batchesData.map((d: any) => ({ ...d, id: d.batchId || d._id })));
     } catch (err) {
       toast.error("Failed to load pick tasks");
     } finally {
@@ -162,6 +168,13 @@ export function Picking() {
         ))}
       </div>
 
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          <button onClick={() => setView("tasks")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "tasks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Pick Tasks</button>
+          <button onClick={() => setView("batches")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "batches" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Pick Batches</button>
+        </div>
+      </div>
+
       {/* Scan prompt */}
       <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -191,8 +204,8 @@ export function Picking() {
         </button>
       </div>
 
-      {/* Board */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {view === "tasks" ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { label: t.picking.pending, tasks: pending, icon: AlertCircle, color: "text-warning", badge: "bg-warning/15 text-warning" },
           { label: t.picking.inProgress, tasks: inProgress, icon: Package, color: "text-primary", badge: "bg-primary/15 text-primary" },
@@ -210,7 +223,38 @@ export function Picking() {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {batches.map((batch, i) => (
+            <div key={batch.id} className="bg-card border border-border rounded-xl p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-sm" style={{ fontFamily: "JetBrains Mono, monospace" }}>{batch.id}</span>
+                    <StatusBadge status={batch.status} />
+                  </div>
+                  <div className="text-xs text-muted-foreground">{batch.orders?.length || 0} Orders included</div>
+                </div>
+                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${priorityColor[batch.priority || "normal"]}`}>{batch.priority}</span>
+              </div>
+              <div className="mb-4">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">Items Picked</span>
+                  <span className="font-bold">{batch.picked_items}/{batch.total_items}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${batch.total_items > 0 ? (batch.picked_items / batch.total_items) * 100 : 0}%` }} />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button className="px-4 py-1.5 bg-secondary text-foreground rounded-lg text-xs font-semibold hover:bg-primary hover:text-primary-foreground transition-colors">Start Batch Pick</button>
+              </div>
+            </div>
+          ))}
+          {batches.length === 0 && <div className="col-span-full border-2 border-dashed border-border rounded-xl p-8 text-center text-sm text-muted-foreground">No pick batches created yet.</div>}
+        </div>
+      )}
 
       {/* Manual Pick Modal */}
       <Modal open={showManual} onClose={() => setShowManual(false)} title={t.picking.startManualPick} subtitle="Create a pick task without scanning" footer={<><ModalCancel onClose={() => setShowManual(false)} /><ModalSubmit onClick={handleManualPick}>{t.picking.taskCreated}</ModalSubmit></>}>

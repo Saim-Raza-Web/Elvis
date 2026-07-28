@@ -12,5 +12,9 @@ export const reportsService = {
   getDashboardStats: async () => {
     const response = await api.get('/reports/dashboard');
     return response.data;
+  },
+  getWarehouseKPIs: async () => {
+    const response = await api.get('/reports/warehouse-kpis');
+    return response.data;
   }
 };

@@ -2,6 +2,7 @@ import express from 'express';
 import { protect } from '../middleware/auth.js';
 import Model from '../models/Return.js';
 import Product from '../models/Product.js';
+import Incident from '../models/Incident.js';
 
 const router = express.Router();
 
@@ -59,9 +60,36 @@ router.put('/:id', async (req, res, next) => {
       { new: true }
     );
 
-    // If newly processed, restock items
-    if (!wasProcessed && isProcessed && item.items > 0) {
-      // Find a random product to simulate restocking since Return only stores item count
+    // If newly processed, process items_details for restock vs block
+    if (!wasProcessed && isProcessed && item.items_details && item.items_details.length > 0) {
+      for (const row of item.items_details) {
+        if (row.qc_status === 'restock') {
+          await Product.findOneAndUpdate(
+            { sku: row.sku, company: req.user.company },
+            { $inc: { qty_available: row.qty } }
+          );
+        } else if (row.qc_status === 'disposed' || row.qc_status === 'rejected') {
+          // Add to blocked stock
+          await Product.findOneAndUpdate(
+            { sku: row.sku, company: req.user.company },
+            { $inc: { qty_blocked: row.qty } }
+          );
+          
+          // Create incident
+          await Incident.create({
+            incidentId: `INC-RET-${Date.now().toString().slice(-6)}`,
+            type: 'Damage',
+            sku: row.sku,
+            location: 'Returns Zone',
+            owner: 'N/A', // or item.customer
+            reported_by: req.user.name,
+            description: `Return ${item.returnId} items rejected/damaged: ${row.reason}`,
+            company: req.user.company
+          });
+        }
+      }
+    } else if (!wasProcessed && isProcessed && (!item.items_details || item.items_details.length === 0) && item.items > 0) {
+      // Fallback for legacy returns without items_details
       const product = await Product.findOne({ company: req.user.company });
       if (product) {
         await Product.findByIdAndUpdate(product._id, {

@@ -28,6 +28,8 @@ import { Subscription } from "./components/Subscription";
 import { Settings } from "./components/Settings";
 import { ActivityLog } from "./components/ActivityLog";
 import { Admin } from "./components/Admin";
+import { Incidents } from "./components/Incidents";
+import { StockCount } from "./components/StockCount";
 import { authService } from "../services/auth.service";
 
 // Screen states
@@ -139,6 +141,7 @@ function AppInner({
     picking: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pick'))} icon={Plus}>Start Pick</PrimaryButton>,
     packing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pack'))} icon={Plus}>Start Pack</PrimaryButton>,
     billing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-invoice'))} icon={Plus}>New Invoice</PrimaryButton>,
+    "stock-counts": <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-count'))} icon={Plus}>New Session</PrimaryButton>,
   };
 
   function renderPage() {
@@ -164,6 +167,8 @@ function AppInner({
       case "settings": return <Settings />;
       case "activity": return <ActivityLog />;
       case "admin": return <Admin />;
+      case "incidents": return <Incidents />;
+      case "stock-counts": return <StockCount />;
       default: return <Dashboard onNavigate={(p) => setCurrentPage(p as Page)} />;
     }
   }
