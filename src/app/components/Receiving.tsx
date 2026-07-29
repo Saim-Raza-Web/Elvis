@@ -35,7 +35,7 @@ export function Receiving() {
         asnService.getAll(),
         receivingService.getAll()
       ]);
-      setAsns(asnData);
+      setAsns(asnData.map((d: any) => ({ ...d, id: d.asnId || d._id })));
       setRecentReceipts(receiptData.slice(0, 5));
     } catch (err) {
       toast.error("Failed to load ASNs and Receipts");
@@ -56,7 +56,7 @@ export function Receiving() {
   }, []);
 
   const filtered = asns.filter((a) =>
-    a.id?.toLowerCase().includes(search.toLowerCase()) || a.supplier?.toLowerCase().includes(search.toLowerCase())
+    (a.id || "").toLowerCase().includes(search.toLowerCase()) || (a.supplier || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const pending = asns.filter((a) => a.status === "pending" || a.status === "in_transit").length;
@@ -153,7 +153,7 @@ export function Receiving() {
     if (!form.supplier || !form.po) { toast.error("Supplier and PO number are required."); return; }
     const newId = `ASN-${String(asns.length + 42).padStart(4, "0")}`;
     try {
-      await asnService.create({ ...form, id: newId, status: "pending", expected_units: Number(form.expected_units), sku_count: Number(form.sku_count) });
+      await asnService.create({ ...form, asnId: newId, status: "pending", expected_units: Number(form.expected_units), sku_count: Number(form.sku_count) });
       toast.success(`${t.receiving.asnCreated}: ${newId} — ${form.supplier}.`);
       setShowAdd(false);
       setForm(blankASN());

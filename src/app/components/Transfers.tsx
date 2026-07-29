@@ -86,7 +86,7 @@ export function Transfers() {
   }
 
   const filtered = transfers.filter((tr) => {
-    const matchSearch = tr.id.toLowerCase().includes(search.toLowerCase()) || tr.product.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (tr.id || "").toLowerCase().includes(search.toLowerCase()) || (tr.product || "").toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === "All" || tr.status === filter || tr.type === filter.toLowerCase();
     return matchSearch && matchFilter;
   });
