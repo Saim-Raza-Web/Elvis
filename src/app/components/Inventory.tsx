@@ -109,7 +109,7 @@ export function Inventory() {
   }
 
   const filtered = productList.filter((p) => {
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (p.name || "").toLowerCase().includes(search.toLowerCase()) || (p.sku || "").toLowerCase().includes(search.toLowerCase());
     const matchCat = category === "All" || p.category === category;
     const matchLow = !filterLow || p.status === "low";
     const matchTab = stockTab === "all"

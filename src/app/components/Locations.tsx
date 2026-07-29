@@ -88,7 +88,7 @@ export function Locations() {
 
   const filteredZones = zones.filter(
     (z) => z.warehouse === selectedWarehouse &&
-      (z.code.toLowerCase().includes(search.toLowerCase()) || z.name.toLowerCase().includes(search.toLowerCase()))
+      ((z.code || "").toLowerCase().includes(search.toLowerCase()) || (z.name || "").toLowerCase().includes(search.toLowerCase()))
   );
 
   const filteredLocs = locs.filter(

@@ -128,7 +128,7 @@ export function Orders() {
   }
 
   const filtered = orders.filter((o) => {
-    const matchSearch = o.orderId?.toLowerCase().includes(search.toLowerCase()) || o.customer?.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (o.orderId || "").toLowerCase().includes(search.toLowerCase()) || (o.customer || "").toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "All" || o.status === statusFilter;
     return matchSearch && matchStatus;
   });

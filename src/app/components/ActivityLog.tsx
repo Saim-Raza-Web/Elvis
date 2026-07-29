@@ -59,7 +59,7 @@ export function ActivityLog() {
   const users = ["All", ...Array.from(new Set(actions.map((a) => a.user)))];
 
   const filtered = actions.filter((a) => {
-    const matchSearch = a.action.toLowerCase().includes(search.toLowerCase()) || a.detail.toLowerCase().includes(search.toLowerCase()) || a.user.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (a.action || "").toLowerCase().includes(search.toLowerCase()) || (a.detail || "").toLowerCase().includes(search.toLowerCase()) || (a.user || "").toLowerCase().includes(search.toLowerCase());
     const matchModule = moduleFilter === "All" || a.module === moduleFilter;
     const matchUser = userFilter === "All" || a.user === userFilter;
     return matchSearch && matchModule && matchUser;

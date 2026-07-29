@@ -144,11 +144,11 @@ export function CRM() {
   }
 
   const filteredCustomers = customerList.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase()) || c.contact.toLowerCase().includes(search.toLowerCase())
+    (c.name || "").toLowerCase().includes(search.toLowerCase()) || (c.contact || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const filteredLeads = leadList.filter((l) =>
-    l.name.toLowerCase().includes(search.toLowerCase()) || l.contact.toLowerCase().includes(search.toLowerCase())
+    (l.name || "").toLowerCase().includes(search.toLowerCase()) || (l.contact || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const pipelineValue = leadList.reduce((a, l) => a + l.value * (l.probability / 100), 0);

@@ -133,7 +133,7 @@ export function Billing() {
           </thead>
           <tbody>
             {invoiceList.filter((inv) => {
-        const matchSearch = inv.id.toLowerCase().includes(search.toLowerCase()) || inv.customer.toLowerCase().includes(search.toLowerCase());
+        const matchSearch = (inv.id || "").toLowerCase().includes(search.toLowerCase()) || (inv.customer || "").toLowerCase().includes(search.toLowerCase());
         const matchFilter = filter === "All" || inv.status === filter;
         return matchSearch && matchFilter;
       }).map((inv, i) => (

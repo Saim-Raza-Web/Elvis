@@ -78,7 +78,7 @@ export function Shipping() {
   }
 
   const filtered = shipmentList.filter((s) => {
-    const matchSearch = s.id.toLowerCase().includes(search.toLowerCase()) || s.customer.toLowerCase().includes(search.toLowerCase()) || s.tracking.includes(search);
+    const matchSearch = (s.id || "").toLowerCase().includes(search.toLowerCase()) || (s.customer || "").toLowerCase().includes(search.toLowerCase()) || (s.tracking || "").includes(search);
     const matchCarrier = carrier === "All" || s.carrier === carrier;
     return matchSearch && matchCarrier;
   });

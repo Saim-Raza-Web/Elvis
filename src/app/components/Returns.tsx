@@ -120,7 +120,7 @@ export function Returns() {
   }
 
   const filtered = returnList.filter((r) =>
-    r.id.toLowerCase().includes(search.toLowerCase()) || r.customer.toLowerCase().includes(search.toLowerCase())
+    (r.id || "").toLowerCase().includes(search.toLowerCase()) || (r.customer || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const totalRefunded = returnList.filter((r) => r.status === "refunded").reduce((a, r) => a + r.amount, 0);
