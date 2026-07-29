@@ -51,7 +51,7 @@ export function Inventory() {
       const [data, whs, alerts] = await Promise.all([
         inventoryService.getAll(),
         warehousesService.getAll(),
-        fetch(`${import.meta.env.VITE_API_URL}/inventory/alerts/low-stock`, {
+        fetch(`/api/v1/inventory/alerts/low-stock`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
         }).then(r => r.json())
       ]);

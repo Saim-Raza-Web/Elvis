@@ -59,7 +59,7 @@ export function Locations() {
       const [data, whs, rulesData] = await Promise.all([
         locationsService.getAll(),
         warehousesService.getAll(),
-        fetch(`${import.meta.env.VITE_API_URL}/storage-rules`, {
+        fetch(`/api/v1/storage-rules`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
         }).then(res => res.json())
       ]);
@@ -157,7 +157,7 @@ export function Locations() {
   async function handleAddRule() {
     if (!ruleForm.name || !ruleForm.conditionValue) return;
     try {
-      const url = `${import.meta.env.VITE_API_URL}/storage-rules`;
+      const url = `/api/v1/storage-rules`;
       const token = localStorage.getItem("token");
       if (editRuleTarget) {
         await fetch(`${url}/${editRuleTarget._id}`, {
@@ -181,7 +181,7 @@ export function Locations() {
   async function handleDeleteRule() {
     if (!deleteRuleTarget) return;
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/storage-rules/${deleteRuleTarget._id}`, {
+      await fetch(`/api/v1/storage-rules/${deleteRuleTarget._id}`, {
         method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
       });
       toast.success(`Rule deleted.`);
@@ -451,7 +451,7 @@ export function Locations() {
           Are you sure you want to delete the rule <strong>{deleteRuleTarget?.name}</strong>? This action cannot be undone.
         </div>
         <div className="flex gap-3 p-4 pt-0">
-          <ModalCancel onClick={() => setDeleteRuleTarget(null)}>{t.common.cancel}</ModalCancel>
+          <ModalCancel onClose={() => setDeleteRuleTarget(null)} />
           <button onClick={handleDeleteRule} className="flex-1 rounded-xl bg-destructive text-destructive-foreground font-bold hover:bg-destructive/90 transition-colors">Delete</button>
         </div>
       </Modal>
@@ -485,7 +485,7 @@ export function Locations() {
           </Row>
         </div>
         <div className="flex gap-3 p-4 pt-0">
-          <ModalCancel onClick={() => { setShowRule(false); setEditRuleTarget(null); }}>{t.common.cancel}</ModalCancel>
+          <ModalCancel onClose={() => { setShowRule(false); setEditRuleTarget(null); }} />
           <ModalSubmit onClick={handleAddRule}>{t.common.save}</ModalSubmit>
         </div>
       </Modal>

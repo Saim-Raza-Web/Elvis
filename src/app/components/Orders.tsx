@@ -111,7 +111,7 @@ export function Orders() {
   async function downloadDeliveryNote(o: Order) {
     try {
       const token = localStorage.getItem("token");
-      const url = `${import.meta.env.VITE_API_URL}/documents/delivery-note/${o._id}`;
+      const url = `/api/v1/documents/delivery-note/${o._id}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed to download");
       const blob = await res.blob();

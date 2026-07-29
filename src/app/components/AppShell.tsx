@@ -398,17 +398,17 @@ export function AppShell({
   );
 }
 
-export function PrimaryButton({ children, icon: Icon, onClick }: { children: React.ReactNode; icon?: React.ElementType; onClick?: () => void }) {
+export function PrimaryButton({ children, icon: Icon, onClick, className = "" }: { children: React.ReactNode; icon?: React.ElementType; onClick?: () => void; className?: string; }) {
   return (
-    <button onClick={onClick} className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 active:scale-95 transition-all hover-glow">
+    <button onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 active:scale-95 transition-all hover-glow ${className}`}>
       {Icon && <Icon className="size-4" />}{children}
     </button>
   );
 }
 
-export function SecondaryButton({ children, icon: Icon, onClick }: { children: React.ReactNode; icon?: React.ElementType; onClick?: () => void }) {
+export function SecondaryButton({ children, icon: Icon, onClick, className = "" }: { children: React.ReactNode; icon?: React.ElementType; onClick?: () => void; className?: string; }) {
   return (
-    <button onClick={onClick} className="inline-flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-semibold hover:bg-secondary active:scale-95 transition-all">
+    <button onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-semibold hover:bg-secondary active:scale-95 transition-all ${className}`}>
       {Icon && <Icon className="size-4" />}{children}
     </button>
   );

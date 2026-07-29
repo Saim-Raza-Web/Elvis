@@ -133,7 +133,7 @@ export function Receiving() {
   async function downloadGoodsReceived(asn: ASN) {
     try {
       const token = localStorage.getItem("token");
-      const url = `${import.meta.env.VITE_API_URL}/documents/goods-received/${asn._id}`;
+      const url = `/api/v1/documents/goods-received/${asn._id}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed to download");
       const blob = await res.blob();

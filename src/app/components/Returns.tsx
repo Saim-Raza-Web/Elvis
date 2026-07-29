@@ -103,7 +103,7 @@ export function Returns() {
   async function downloadReturnNote(ret: ReturnItem) {
     try {
       const token = localStorage.getItem("token");
-      const url = `${import.meta.env.VITE_API_URL}/documents/return-note/${ret._id}`;
+      const url = `/api/v1/documents/return-note/${ret._id}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed to download");
       const blob = await res.blob();
