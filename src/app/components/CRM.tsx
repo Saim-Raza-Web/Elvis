@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { Users, Search, Plus, Mail, Phone, ShoppingCart, Star, MessageCircle, Calendar, ArrowRight, TrendingUp, Edit3, Trash2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Users, Search, Plus, Mail, Phone, ShoppingCart, Star, Calendar, TrendingUp, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { crmService } from "../../services/crm.service";
 import { leadsService } from "../../services/leads.service";
 
@@ -30,10 +30,16 @@ const tierColors: Record<string, string> = {
   platinum: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
 };
 
+function mapCustomer(d: any): Customer {
+  return { ...d, id: d._id, orders: d.orders || 0, total_spend: d.total_spend || 0, last_activity: d.last_activity?.slice(0, 10) || "—" };
+}
+
+function mapLead(d: any): Lead {
+  return { ...d, id: d.leadId || d._id, value: d.value || 0, probability: d.probability || 0, last_contact: d.last_contact?.slice(0, 10) || "—" };
+}
+
 export function CRM() {
   const { t } = useLang();
-  const [customerList, setCustomerList] = useState<Customer[]>([]);
-  const [leadList, setLeadList] = useState<Lead[]>([]);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"customers" | "leads" | "pipeline">("customers");
   
@@ -43,24 +49,34 @@ export function CRM() {
   const [form, setForm] = useState({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" });
 
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const [custData, leadData] = await Promise.all([crmService.getAll(), leadsService.getAll()]);
-      setCustomerList(custData.map((d: any) => ({ ...d, id: d._id, orders: d.orders || 0, total_spend: d.total_spend || 0, last_activity: d.last_activity?.slice(0, 10) || "—" })));
-      setLeadList(leadData.map((d: any) => ({ ...d, id: d.leadId || d._id, value: d.value || 0, probability: d.probability || 0, last_contact: d.last_contact?.slice(0, 10) || "—" })));
-    } catch (err) {
-      toast.error("Failed to load CRM data");
-    } finally {
-      setIsLoading(false);
+  const searchLower = search.toLowerCase();
+
+  const { items: customerItems, allItems: customerAllItems, pagination: customerPagination, page: customerPage, setPage: setCustomerPage, isLoading: customersLoading, reload: reloadCustomers } = usePaginatedList<any>(
+    crmService,
+    {
+      apiParams: { search: searchLower || undefined },
+      deps: [search],
     }
-  }
+  );
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const { items: leadItems, allItems: leadAllItems, pagination: leadPagination, page: leadPage, setPage: setLeadPage, isLoading: leadsLoading, reload: reloadLeads } = usePaginatedList<any>(
+    leadsService,
+    {
+      apiParams: { search: searchLower || undefined },
+      deps: [search],
+    }
+  );
+
+  const customers = useMemo(() => customerItems.map(mapCustomer), [customerItems]);
+  const allCustomers = useMemo(() => customerAllItems.map(mapCustomer), [customerAllItems]);
+  const leads = useMemo(() => leadItems.map(mapLead), [leadItems]);
+  const allLeads = useMemo(() => leadAllItems.map(mapLead), [leadAllItems]);
+
+  function reloadAll() {
+    reloadCustomers();
+    reloadLeads();
+  }
 
   // Listen for header button CustomEvent
   useEffect(() => {
@@ -90,7 +106,7 @@ export function CRM() {
         }
       }
       setShowAdd(false);
-      loadData();
+      reloadAll();
     } catch (err) { toast.error("Failed to save record"); }
   }
 
@@ -99,7 +115,7 @@ export function CRM() {
     try {
       await crmService.delete(id);
       toast.success("Customer deleted.");
-      loadData();
+      reloadAll();
     } catch (err) { toast.error("Failed to delete customer"); }
   }
 
@@ -108,7 +124,7 @@ export function CRM() {
     try {
       await leadsService.delete(id);
       toast.success("Lead deleted.");
-      loadData();
+      reloadAll();
     } catch (err) { toast.error("Failed to delete lead"); }
   }
 
@@ -138,29 +154,21 @@ export function CRM() {
     try {
       await leadsService.update(draggedLead._id, { stage });
       toast.success(`Lead moved to ${stage}`);
-      loadData();
+      reloadAll();
     } catch (err) { toast.error("Failed to move lead"); }
     setDraggedLead(null);
   }
 
-  const filteredCustomers = customerList.filter((c) =>
-    (c.name || "").toLowerCase().includes(search.toLowerCase()) || (c.contact || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  const filteredLeads = leadList.filter((l) =>
-    (l.name || "").toLowerCase().includes(search.toLowerCase()) || (l.contact || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  const pipelineValue = leadList.reduce((a, l) => a + l.value * (l.probability / 100), 0);
+  const pipelineValue = allLeads.reduce((a, l) => a + l.value * (l.probability / 100), 0);
 
   return (
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.crm.totalCustomers, value: customerList.length, icon: Users, color: "text-primary" },
-          { label: t.crm.activeLeads, value: leadList.length, icon: TrendingUp, color: "text-success" },
-          { label: t.crm.totalOrders, value: customerList.reduce((a, c) => a + c.orders, 0), icon: ShoppingCart, color: "text-blue-500" },
+          { label: t.crm.totalCustomers, value: allCustomers.length, icon: Users, color: "text-primary" },
+          { label: t.crm.activeLeads, value: allLeads.length, icon: TrendingUp, color: "text-success" },
+          { label: t.crm.totalOrders, value: allCustomers.reduce((a, c) => a + c.orders, 0), icon: ShoppingCart, color: "text-blue-500" },
           { label: t.crm.pipelineValue, value: `€${(pipelineValue / 1000).toFixed(0)}k`, icon: Star, color: "text-amber-500" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
@@ -191,8 +199,9 @@ export function CRM() {
       </div>
 
       {view === "customers" && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredCustomers.map((c, i) => (
+          {customers.map((c, i) => (
             <div key={c.id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
@@ -220,7 +229,12 @@ export function CRM() {
               </div>
             </div>
           ))}
+          {customers.length === 0 && !customersLoading && (
+            <div className="col-span-full text-center py-16 text-muted-foreground">{t.common.noResults}</div>
+          )}
         </div>
+        <TablePagination pagination={customerPagination} page={customerPage} onPageChange={setCustomerPage} />
+        </>
       )}
 
       {view === "leads" && (
@@ -238,7 +252,7 @@ export function CRM() {
               </tr>
             </thead>
             <tbody>
-              {filteredLeads.map((l, i) => (
+              {leads.map((l, i) => (
                 <tr key={l.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                   <td className="px-4 py-3 font-semibold">{l.name}</td>
                   <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{l.contact}</td>
@@ -259,8 +273,12 @@ export function CRM() {
                   </td>
                 </tr>
               ))}
+              {leads.length === 0 && !leadsLoading && (
+                <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>
+              )}
             </tbody>
           </table>
+          <TablePagination pagination={leadPagination} page={leadPage} onPageChange={setLeadPage} />
         </div>
       )}
 
@@ -268,7 +286,7 @@ export function CRM() {
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-3 min-w-max">
             {pipeline.map((stage) => {
-              const stageLeads = leadList.filter((l) => l.stage === stage);
+              const stageLeads = allLeads.filter((l) => l.stage === stage);
               const stageValue = stageLeads.reduce((a, l) => a + l.value, 0);
               return (
                 <div 

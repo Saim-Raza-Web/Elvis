@@ -1,17 +1,20 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
 import StockCount from '../models/StockCount.js';
 import Product from '../models/Product.js';
 
 const router = express.Router();
 router.use(protect);
 
+const requireOpsRole = requireRole('admin', 'manager');
+
 // GET all stock counts
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await StockCount.find({ company: req.user.company }).sort({ createdAt: -1 });
-    res.json(items);
+    const result = await paginateQuery(StockCount, { company: req.user.company }, req, { sort: '-createdAt' });
+    res.json(result);
   } catch (err) { next(err); }
 });
 
@@ -26,7 +29,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE a new stock count session (auto-populate lines from inventory)
-router.post('/', async (req, res, next) => {
+router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const { name, scope, scopeValue, warehouse } = req.body;
@@ -67,7 +70,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // UPDATE a line (operator scans a count)
-router.put('/:id/line/:lineId', async (req, res, next) => {
+router.put('/:id/line/:lineId', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const { counted_qty } = req.body;
@@ -88,7 +91,7 @@ router.put('/:id/line/:lineId', async (req, res, next) => {
 });
 
 // CLOSE count & apply adjustments (Manager action)
-router.put('/:id/close', async (req, res, next) => {
+router.put('/:id/close', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const count = await StockCount.findOne({ _id: req.params.id, company: req.user.company });
@@ -115,7 +118,7 @@ router.put('/:id/close', async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const item = await StockCount.findOneAndDelete({ _id: req.params.id, company: req.user.company });

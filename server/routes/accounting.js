@@ -1,16 +1,19 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/Transaction.js';
 
 const router = express.Router();
 
-router.use(protect); // Secure all routes by default
+router.use(protect);
+router.use(requireRole('admin', 'manager'));
 
 // GET all
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company });
+    const result = await paginateQuery(Model, { company: req.user.company }, req);
+    const items = result.data ?? await result;
     
     // Compute Chart of Accounts dynamically based on transaction types and categories
     const accountMap = {};
@@ -43,7 +46,7 @@ router.get('/', async (req, res, next) => {
       );
     }
     
-    res.json({ transactions: items, accounts });
+    res.json({ transactions: result, accounts });
   } catch (err) {
     next(err);
   }

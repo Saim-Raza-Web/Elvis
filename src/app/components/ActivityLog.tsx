@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { History, Search, Filter, ShoppingCart, Package, Truck, Users, ReceiptText, Settings2, Warehouse, ArrowRightLeft, User } from "lucide-react";
 import { useLang } from "../LangContext";
+import { TablePagination } from "./TablePagination";
 import { activityService } from "../../services/activity.service";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
+import type { ListService } from "../../hooks/usePaginatedList";
 import { toast } from "sonner";
 
 type Activity = { _id: string; id: string; user: string; role: string; action: string; module: string; detail: string; ip: string; time: string; timestamp?: string; logId?: string };
@@ -32,38 +35,51 @@ const moduleColor: Record<string, string> = {
 
 const modules = ["All", "orders", "inventory", "picking", "receiving", "shipping", "billing", "returns", "settings"];
 
+function mapActivity(d: Record<string, unknown>): Activity {
+  return {
+    ...(d as Activity),
+    id: (d.logId as string) || (d._id as string),
+    time: (d.timestamp as string)?.slice(0, 19).replace("T", " ") || "—",
+  };
+}
+
+const activityListService: ListService<Activity> = {
+  getAll: async (params) => {
+    const data = await activityService.getAll(params);
+    return data.map((d: any) => mapActivity(d));
+  },
+  getPage: async (params) => {
+    const result = await activityService.getPage(params);
+    return { data: result.data.map((d: any) => mapActivity(d)), pagination: result.pagination };
+  },
+};
+
 export function ActivityLog() {
   const { t } = useLang();
   const [search, setSearch] = useState("");
   const [moduleFilter, setModuleFilter] = useState("All");
   const [userFilter, setUserFilter] = useState("All");
-  const [actions, setActions] = useState<Activity[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const data = await activityService.getAll();
-      setActions(data.map((d: any) => ({ ...d, id: d.logId || d._id, time: d.timestamp?.slice(0, 19).replace("T", " ") || "—" })));
-    } catch (err) {
-      toast.error("Failed to load activity logs");
-    } finally {
-      setIsLoading(false);
+  const searchLower = search.toLowerCase();
+  const hasFilter = search.length > 0 || moduleFilter !== "All" || userFilter !== "All";
+
+  const { items: pagedActions, allItems: actions, pagination, page, setPage, isLoading } = usePaginatedList<Activity>(
+    activityListService,
+    {
+      apiParams: {
+        search: searchLower || undefined,
+        module: moduleFilter !== "All" ? moduleFilter : undefined,
+        user: userFilter !== "All" ? userFilter : undefined,
+      },
+      deps: [search, moduleFilter, userFilter],
     }
-  }
+  );
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isLoading) return;
+  }, [isLoading]);
 
   const users = ["All", ...Array.from(new Set(actions.map((a) => a.user)))];
-
-  const filtered = actions.filter((a) => {
-    const matchSearch = (a.action || "").toLowerCase().includes(search.toLowerCase()) || (a.detail || "").toLowerCase().includes(search.toLowerCase()) || (a.user || "").toLowerCase().includes(search.toLowerCase());
-    const matchModule = moduleFilter === "All" || a.module === moduleFilter;
-    const matchUser = userFilter === "All" || a.user === userFilter;
-    return matchSearch && matchModule && matchUser;
-  });
 
   return (
     <div className="space-y-6">
@@ -73,7 +89,7 @@ export function ActivityLog() {
           { label: t.activity.eventsToday, value: actions.length, icon: History, color: "text-primary" },
           { label: t.activity.userActions, value: actions.filter((a) => a.role !== "Automation").length, icon: User, color: "text-blue-500" },
           { label: t.activity.automations, value: actions.filter((a) => a.role === "Automation").length, icon: Settings2, color: "text-amber-500" },
-          { label: t.activity.activeUsers, value: 5, icon: Users, color: "text-success" },
+          { label: t.activity.activeUsers, value: new Set(actions.map(a => a.user).filter(Boolean)).size, icon: Users, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -103,7 +119,7 @@ export function ActivityLog() {
       {/* Timeline */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="divide-y divide-border">
-          {filtered.map((log, i) => {
+          {pagedActions.map((log, i) => {
             const Icon = moduleIcon[log.module] ?? History;
             const colorClass = moduleColor[log.module] ?? "text-muted-foreground bg-secondary";
             return (
@@ -131,6 +147,7 @@ export function ActivityLog() {
             );
           })}
         </div>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
     </div>
   );

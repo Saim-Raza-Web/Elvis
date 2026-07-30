@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Warehouse, Plus, MapPin, Package, TrendingUp, Edit3, Trash2, Search, Thermometer, User } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { warehousesService } from "../../services/warehouses.service";
 
 type WH = {
@@ -28,29 +28,21 @@ const blank = (): Omit<WH, "_id" | "used" | "zones"> & { capacity: number } => (
 
 export function Warehouses() {
   const { t } = useLang();
-  const [warehouses, setWarehouses] = useState<WH[]>([]);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<WH | null>(null);
   const [form, setForm] = useState(blank());
   const [deleteTarget, setDeleteTarget] = useState<WH | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const data = await warehousesService.getAll();
-      setWarehouses(data);
-    } catch (err) {
-      toast.error("Failed to load warehouses");
-    } finally {
-      setIsLoading(false);
+  const searchLower = search.toLowerCase();
+
+  const { items: warehouses, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<WH>(
+    warehousesService,
+    {
+      apiParams: { search: searchLower || undefined },
+      deps: [search],
     }
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
+  );
 
   // Listen for header button CustomEvent
   useEffect(() => {
@@ -58,10 +50,6 @@ export function Warehouses() {
     window.addEventListener("open-add-warehouse", handler);
     return () => window.removeEventListener("open-add-warehouse", handler);
   }, []);
-
-  const filtered = warehouses.filter(
-    (w) => w.name.toLowerCase().includes(search.toLowerCase()) || w.code.toLowerCase().includes(search.toLowerCase())
-  );
 
   function openAdd() { setForm(blank()); setShowAdd(true); }
   function openEdit(w: WH) { setEditTarget(w); setForm({ name: w.name, code: w.code, location: w.location, country: w.country, capacity: w.capacity, status: w.status, manager: w.manager, temp: w.temp }); }
@@ -78,7 +66,7 @@ export function Warehouses() {
         toast.success(`${t.warehouses.updateSuccess}: "${form.name}"`);
         setEditTarget(null);
       }
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to save warehouse");
     }
@@ -90,7 +78,7 @@ export function Warehouses() {
       await warehousesService.delete(deleteTarget._id);
       toast.success(`${t.warehouses.deleteSuccess}: "${deleteTarget.name}"`);
       setDeleteTarget(null);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to delete warehouse");
     }
@@ -101,10 +89,10 @@ export function Warehouses() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.warehouses.totalWarehouses, value: warehouses.length, icon: Warehouse, color: "text-primary" },
-          { label: t.status.active, value: warehouses.filter((w) => w.status === "active").length, icon: TrendingUp, color: "text-success" },
-          { label: t.warehouses.totalCapacity, value: `${(warehouses.reduce((a, w) => a + w.capacity, 0) / 1000).toFixed(0)}k units`, icon: Package, color: "text-blue-500" },
-          { label: t.warehouses.overallUtil, value: warehouses.length ? `${Math.round(warehouses.reduce((a, w) => a + (w.used || 0), 0) / warehouses.reduce((a, w) => a + w.capacity, 0) * 100)}%` : "0%", icon: TrendingUp, color: "text-amber-500" },
+          { label: t.warehouses.totalWarehouses, value: allItems.length, icon: Warehouse, color: "text-primary" },
+          { label: t.status.active, value: allItems.filter((w) => w.status === "active").length, icon: TrendingUp, color: "text-success" },
+          { label: t.warehouses.totalCapacity, value: `${(allItems.reduce((a, w) => a + w.capacity, 0) / 1000).toFixed(0)}k units`, icon: Package, color: "text-blue-500" },
+          { label: t.warehouses.overallUtil, value: allItems.length ? `${Math.round(allItems.reduce((a, w) => a + (w.used || 0), 0) / allItems.reduce((a, w) => a + w.capacity, 0) * 100)}%` : "0%", icon: TrendingUp, color: "text-amber-500" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -124,7 +112,7 @@ export function Warehouses() {
 
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map((w, i) => {
+        {warehouses.map((w, i) => {
           const pct = w.capacity > 0 ? Math.round(((w.used || 0) / w.capacity) * 100) : 0;
           const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
           return (
@@ -177,13 +165,14 @@ export function Warehouses() {
             </div>
           );
         })}
-        {filtered.length === 0 && !isLoading && (
+        {warehouses.length === 0 && !isLoading && (
           <div className="col-span-full text-center py-16 text-muted-foreground">
             <Warehouse className="size-12 mx-auto mb-3 opacity-30" />
             <p>No warehouses found. Add your first warehouse!</p>
           </div>
         )}
       </div>
+      <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
 
       {/* Add modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.warehouses.addWarehouse} subtitle={t.pages.warehouses.sub} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{t.common.create}</ModalSubmit></>}>

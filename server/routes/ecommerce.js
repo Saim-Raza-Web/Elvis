@@ -1,5 +1,6 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/EcommerceChannel.js';
 import Order from '../models/Order.js';
 
@@ -7,12 +8,14 @@ const router = express.Router();
 
 router.use(protect); // Secure all routes by default
 
+const requireOpsRole = requireRole('admin', 'manager');
+
 // GET all
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company });
-    res.json(items);
+    const result = await paginateQuery(Model, { company: req.user.company }, req);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -31,7 +34,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE
-router.post('/', async (req, res, next) => {
+router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -43,7 +46,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // UPDATE
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndUpdate(
@@ -59,7 +62,7 @@ router.put('/:id', async (req, res, next) => {
 });
 
 // SYNC
-router.post('/:id/sync', async (req, res, next) => {
+router.post('/:id/sync', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     
@@ -107,7 +110,7 @@ router.post('/:id/sync', async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });

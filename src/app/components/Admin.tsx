@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ShieldCheck, Building2, Users, CreditCard, BarChart3, Server, AlertTriangle, CheckCircle2, Activity, Globe, Plus, Edit3, Trash2 } from "lucide-react";
+import { ShieldCheck, Building2, Users, CreditCard, BarChart3, Server, AlertTriangle, CheckCircle2, Activity, Globe, Plus, Edit3, Trash2, UserPlus } from "lucide-react";
 import { StatusBadge } from "./AppShell";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
@@ -15,7 +15,11 @@ export function Admin() {
   const [users, setUsers] = useState<any[]>([]);
   const [systemMetrics, setSystemMetrics] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [form, setForm] = useState({ name: "", plan: "starter", status: "active" });
+  const [inviteForm, setInviteForm] = useState({ email: "", name: "", password: "", role: "warehouse_staff" });
+  const [editUser, setEditUser] = useState<any | null>(null);
+  const [editUserForm, setEditUserForm] = useState({ name: "", role: "warehouse_staff" });
 
   useEffect(() => {
     async function load() {
@@ -56,8 +60,51 @@ export function Admin() {
     }
   }
 
+  async function reloadUsers() {
+    const usrs = await adminService.getUsers();
+    setUsers(usrs);
+  }
+
+  async function handleInviteUser() {
+    if (!inviteForm.email || !inviteForm.password) {
+      return toast.error("Email and password are required");
+    }
+    try {
+      await adminService.inviteUser(inviteForm);
+      toast.success(`User ${inviteForm.email} invited`);
+      setShowInvite(false);
+      setInviteForm({ email: "", name: "", password: "", role: "warehouse_staff" });
+      await reloadUsers();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Failed to invite user");
+    }
+  }
+
+  async function handleUpdateUser() {
+    if (!editUser) return;
+    try {
+      await adminService.updateUser(editUser._id, editUserForm);
+      toast.success("User updated");
+      setEditUser(null);
+      await reloadUsers();
+    } catch (e) {
+      toast.error("Failed to update user");
+    }
+  }
+
+  async function handleDeleteUser(id: string) {
+    try {
+      await adminService.deleteUser(id);
+      toast.success("User removed");
+      await reloadUsers();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Failed to remove user");
+    }
+  }
+
   const tabs = [
     { id: "companies", label: "Companies", icon: Building2 },
+    { id: "users", label: "Team", icon: Users },
     { id: "platform", label: "Platform health", icon: Activity },
     { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
   ];
@@ -175,6 +222,76 @@ export function Admin() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "users" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold">Team members</h3>
+            <button onClick={() => setShowInvite(true)} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
+              <UserPlus className="size-3.5" /> Invite member
+            </button>
+          </div>
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="text-left px-4 py-3">User</th>
+                  <th className="text-left px-4 py-3 hidden md:table-cell">Email</th>
+                  <th className="text-center px-4 py-3">Role</th>
+                  <th className="text-right px-4 py-3 hidden sm:table-cell">Joined</th>
+                  <th className="text-right px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u, i) => (
+                  <tr key={u._id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="size-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground">{(u.name || "U").slice(0, 2).toUpperCase()}</div>
+                        <span className="font-semibold">{u.name || u.email}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">{u.email}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${u.role === "admin" ? "bg-amber-500/15 text-amber-500" : u.role === "manager" ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"}`}>{u.role?.replace("_", " ")}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden sm:table-cell text-xs text-muted-foreground">{u.createdAt?.slice(0, 10)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => { setEditUser(u); setEditUserForm({ name: u.name || "", role: u.role || "warehouse_staff" }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
+                        <button onClick={() => handleDeleteUser(u._id)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                  <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">No team members yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Modal open={showInvite} onClose={() => setShowInvite(false)} title="Invite team member" subtitle="Create a new user account" footer={<><ModalCancel onClose={() => setShowInvite(false)} /><ModalSubmit onClick={handleInviteUser}>Send invite</ModalSubmit></>}>
+            <Field label="Email" required><Input type="email" value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} placeholder="user@company.com" /></Field>
+            <Field label="Name"><Input value={inviteForm.name} onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })} placeholder="Full name" /></Field>
+            <Field label="Temporary password" required><Input type="password" value={inviteForm.password} onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })} placeholder="Min 6 characters" /></Field>
+            <Field label="Role"><Select value={inviteForm.role} onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}>
+              <option value="warehouse_staff">Warehouse staff</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </Select></Field>
+          </Modal>
+
+          <Modal open={!!editUser} onClose={() => setEditUser(null)} title="Edit user" subtitle={editUser?.email} footer={<><ModalCancel onClose={() => setEditUser(null)} /><ModalSubmit onClick={handleUpdateUser}>Save</ModalSubmit></>}>
+            <Field label="Name"><Input value={editUserForm.name} onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })} /></Field>
+            <Field label="Role"><Select value={editUserForm.role} onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}>
+              <option value="warehouse_staff">Warehouse staff</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </Select></Field>
+          </Modal>
         </div>
       )}
 

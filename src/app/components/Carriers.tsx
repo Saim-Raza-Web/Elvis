@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Building2, Plus, Truck, CheckCircle2, Zap, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 
 import { useEffect } from "react";
 import { carriersService } from "../../services/carriers.service";
@@ -12,9 +14,16 @@ import { carrierRulesService } from "../../services/carrier_rules.service";
 type Carrier = { _id: string; id: string; name: string; type: string; status: string; account: string; on_time: number; cost_avg: number; shipments_mtd: number; regions: string[]; label: boolean; tracking: boolean; features: string[]; zones?: string[]; weight_brackets?: {min: number; max: number; rate: number}[] };
 type CarrierRule = { _id: string; id: string; name: string; condition: string; carrier: string; active: boolean };
 
+const carriersListService: ListService<Carrier> = {
+  getAll: async (params) => (await carriersService.getAll(params)).map((d: any) => ({ ...d, id: d._id, shipments_mtd: d.shipments_mtd || 0, on_time: d.on_time || 90, cost_avg: d.cost_avg || 8 })),
+  getPage: async (params) => {
+    const result = await carriersService.getPage(params);
+    return { data: result.data.map((d: any) => ({ ...d, id: d._id, shipments_mtd: d.shipments_mtd || 0, on_time: d.on_time || 90, cost_avg: d.cost_avg || 8 })), pagination: result.pagination };
+  },
+};
+
 export function Carriers() {
   const { t } = useLang();
-  const [carrierList, setCarrierList] = useState<Carrier[]>([]);
   const [carrierRules, setCarrierRules] = useState<CarrierRule[]>([]);
   const [view, setView] = useState<"carriers" | "rules">("carriers");
   const [showAdd, setShowAdd] = useState(false);
@@ -25,18 +34,17 @@ export function Carriers() {
   const [form, setForm] = useState({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU", zones: "", weight_brackets_str: "[{\"min\":0, \"max\":10, \"rate\":5.0}]" });
   const [ruleForm, setRuleForm] = useState({ name: "", condition: "", carrier: "", active: true });
 
-  const [isLoading, setIsLoading] = useState(true);
+  const { items: pagedCarriers, allItems: carrierList, pagination, page, setPage, isLoading, reload } = usePaginatedList<Carrier>(
+    carriersListService,
+    { limit: 10 }
+  );
 
   async function loadData() {
     try {
-      setIsLoading(true);
-      const [carrierData, ruleData] = await Promise.all([carriersService.getAll(), carrierRulesService.getAll()]);
-      setCarrierList(carrierData.map((d: any) => ({ ...d, id: d._id, shipments_mtd: d.shipments_mtd || 0, on_time: d.on_time || 90, cost_avg: d.cost_avg || 8 })));
+      const ruleData = await carrierRulesService.getAll();
       setCarrierRules(ruleData.map((d: any) => ({ ...d, id: d._id })));
     } catch (err) {
-      toast.error("Failed to load carriers");
-    } finally {
-      setIsLoading(false);
+      toast.error("Failed to load rules");
     }
   }
 
@@ -67,13 +75,13 @@ export function Carriers() {
 
       if (editMode === "add") {
         await carriersService.create(payload);
-        toast.success(`Carrier "${form.name}" added.`);
+        toast.success(`${t.carriers.carrierAdded}: ${form.name}`);
       } else {
         await carriersService.update(editingId!, payload);
         toast.success(`Carrier updated.`);
       }
       setShowAdd(false);
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to save carrier"); }
   }
 
@@ -163,8 +171,9 @@ export function Carriers() {
       </div>
 
       {view === "carriers" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {carrierList.map((carrier, i) => (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {pagedCarriers.map((carrier, i) => (
             <div key={carrier.id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 50}ms` }}>
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -207,7 +216,9 @@ export function Carriers() {
                 {carrier.tracking && <span className="text-[10px] bg-primary/15 text-primary rounded px-1.5 py-0.5 font-bold">Tracking</span>}
               </div>
             </div>
-          ))}
+            ))}
+          </div>
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
       ) : (
         <div className="space-y-3">

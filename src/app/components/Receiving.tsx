@@ -1,13 +1,29 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PackageCheck, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock, ScanLine, Package, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { asnService } from "../../services/asn.service";
 import { receivingService } from "../../services/receiving.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const asnListService: ListService<ASN> = {
+  getAll: async (params) => {
+    const data = await asnService.getAll(params);
+    return data.map((d: any) => ({ ...d, id: d.asnId || d._id }));
+  },
+  getPage: async (params) => {
+    const data = await asnService.getPage(params);
+    return {
+      data: data.data.map((d: any) => ({ ...d, id: d.asnId || d._id })),
+      pagination: data.pagination
+    };
+  }
+};
 
 type ASN = { _id: string; id: string; supplier: string; origin: string; carrier: string; sku_count: number; expected_units: number; status: string; expected_date: string; po: string; items?: any[] };
 
@@ -17,7 +33,6 @@ const blankASN = (): Omit<ASN, "id" | "status" | "_id"> => ({
 
 export function Receiving() {
   const { t } = useLang();
-  const [asns, setAsns] = useState<ASN[]>([]);
   const [recentReceipts, setRecentReceipts] = useState<any[]>([]);
   const [activeAsn, setActiveAsn] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState(false);
@@ -28,19 +43,20 @@ export function Receiving() {
 
   const [isLoading, setIsLoading] = useState(true);
 
+  const { items: pagedAsns, allItems: asns, pagination, page, setPage, reload } = usePaginatedList<ASN>(
+    asnListService,
+    {
+      apiParams: { search: search.toLowerCase() },
+      deps: [search],
+    }
+  );
+
   async function loadData() {
     try {
-      setIsLoading(true);
-      const [asnData, receiptData] = await Promise.all([
-        asnService.getAll(),
-        receivingService.getAll()
-      ]);
-      setAsns(asnData.map((d: any) => ({ ...d, id: d.asnId || d._id })));
+      const receiptData = await receivingService.getAll();
       setRecentReceipts(receiptData.slice(0, 5));
     } catch (err) {
-      toast.error("Failed to load ASNs and Receipts");
-    } finally {
-      setIsLoading(false);
+      toast.error("Failed to load Receipts");
     }
   }
 
@@ -55,9 +71,7 @@ export function Receiving() {
     return () => window.removeEventListener("open-new-asn", handler);
   }, []);
 
-  const filtered = asns.filter((a) =>
-    (a.id || "").toLowerCase().includes(search.toLowerCase()) || (a.supplier || "").toLowerCase().includes(search.toLowerCase())
-  );
+  // pagination removed
 
   const pending = asns.filter((a) => a.status === "pending" || a.status === "in_transit").length;
 
@@ -79,7 +93,7 @@ export function Receiving() {
       toast.success(`${t.receiving.scanConfirmed}: "${scanned.trim()}".`);
       setScanned("");
       setScanMode(false);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to process scan");
     }
@@ -157,10 +171,8 @@ export function Receiving() {
       toast.success(`${t.receiving.asnCreated}: ${newId} — ${form.supplier}.`);
       setShowAdd(false);
       setForm(blankASN());
-      loadData();
-    } catch (err) {
-      toast.error("Failed to create ASN");
-    }
+      reload();
+    } catch (err) { toast.error("Failed to create ASN"); }
   }
 
   return (
@@ -224,7 +236,7 @@ export function Receiving() {
             <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.receiving.newASN}</PrimaryButton>
           </div>
 
-          {filtered.map((asn, i) => (
+          {pagedAsns.map((asn, i) => (
             <div
               key={asn.id}
               onClick={() => setActiveAsn(activeAsn === asn.id ? null : asn.id)}
@@ -324,6 +336,7 @@ export function Receiving() {
               )}
             </div>
           ))}
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
 
         {/* Recent receipts */}

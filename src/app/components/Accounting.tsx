@@ -1,10 +1,26 @@
 import { BookOpen, TrendingUp, TrendingDown, DollarSign, BarChart3, Download } from "lucide-react";
 import { toast } from "sonner";
 import { SecondaryButton } from "./AppShell";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 import { useEffect, useState } from "react";
 import { accountingService } from "../../services/accounting.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const accountingListService: ListService<Transaction> = {
+  getAll: async (params) => {
+    const data = await accountingService.getAll(params);
+    return data.transactions.data.map((d: any) => ({ ...d, id: d.txnId || d._id, date: d.date?.slice(0, 10) || "—" }));
+  },
+  getPage: async (params) => {
+    const data = await accountingService.getPage(params);
+    return {
+      data: data.transactions.data.map((d: any) => ({ ...d, id: d.txnId || d._id, date: d.date?.slice(0, 10) || "—" })),
+      pagination: data.transactions.pagination
+    };
+  }
+};
 
 type Transaction = { _id: string; id: string; date: string; description: string; type: string; amount: number; account: string; category: string; txnId?: string };
 
@@ -12,20 +28,17 @@ type Transaction = { _id: string; id: string; date: string; description: string;
 
 export function Accounting() {
   const { t } = useLang();
-  const [transactionList, setTransactionList] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { items: pagedTransactions, allItems: transactionList, pagination, page, setPage, isLoading, reload } = usePaginatedList<Transaction>(
+    accountingListService
+  );
 
   async function loadData() {
     try {
-      setIsLoading(true);
       const data = await accountingService.getAll();
-      setTransactionList((data.transactions || []).map((d: any) => ({ ...d, id: d.txnId || d._id, date: d.date?.slice(0, 10) || "—" })));
       setAccounts(data.accounts || []);
     } catch (err) {
-      toast.error("Failed to load transactions");
-    } finally {
-      setIsLoading(false);
+      toast.error("Failed to load accounts");
     }
   }
 
@@ -103,7 +116,7 @@ export function Accounting() {
               </tr>
             </thead>
             <tbody>
-              {transactionList.map((t, i) => (
+              {pagedTransactions.map((t, i) => (
                 <tr key={t.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{t.id}</td>
                   <td className="px-4 py-2.5">
@@ -121,6 +134,7 @@ export function Accounting() {
               ))}
             </tbody>
           </table>
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
       </div>
     </div>

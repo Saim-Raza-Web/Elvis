@@ -31,6 +31,7 @@ import { Admin } from "./components/Admin";
 import { Incidents } from "./components/Incidents";
 import { StockCount } from "./components/StockCount";
 import { authService } from "../services/auth.service";
+import { canAccessPage } from "../utils/roles";
 
 // Screen states
 type Screen = "home" | "login" | "app";
@@ -125,6 +126,13 @@ function AppInner({
 }) {
   const { t } = useLang();
   const p = t.pages[currentPage as keyof typeof t.pages] ?? { title: currentPage, sub: "" };
+
+  useEffect(() => {
+    const user = authService.getCurrentUser();
+    if (user && !canAccessPage(user.role, currentPage)) {
+      setCurrentPage("dashboard");
+    }
+  }, [currentPage, setCurrentPage]);
 
   const pageActions: Partial<Record<Page, React.ReactNode>> = {
     warehouses: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-warehouse'))} icon={Plus}>{t.warehouses.addWarehouse}</PrimaryButton>,

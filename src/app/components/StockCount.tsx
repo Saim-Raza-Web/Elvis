@@ -1,10 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ClipboardList, Search, Plus, Play, CheckCircle2, AlertTriangle, Boxes, ScanLine, XCircle, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { stockCountsService } from "../../services/stock_counts.service";
 import { warehousesService } from "../../services/warehouses.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const stockCountsListService: ListService<StockCount> = {
+  getAll: async (params) => (await stockCountsService.getAll(params)) as StockCount[],
+  getPage: async (params) => {
+    const res = await stockCountsService.getPage(params);
+    return { data: res.data as StockCount[], pagination: res.pagination };
+  },
+};
 
 type StockCountItem = {
   sku: string;
@@ -39,7 +49,6 @@ const blankCount = (): Omit<StockCount, "_id" | "countId" | "status" | "items" |
 });
 
 export function StockCount() {
-  const [counts, setCounts] = useState<StockCount[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -48,21 +57,21 @@ export function StockCount() {
   const [activeSession, setActiveSession] = useState<StockCount | null>(null);
   const [scanSku, setScanSku] = useState("");
   const [scanQty, setScanQty] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const { items: pagedCounts, allItems: counts, pagination, page, setPage, isLoading, reload } = usePaginatedList<StockCount>(
+    stockCountsListService,
+    {
+      apiParams: { search: search.toLowerCase() },
+      deps: [search],
+    }
+  );
 
   async function loadData() {
     try {
-      setIsLoading(true);
-      const [data, whs] = await Promise.all([
-        stockCountsService.getAll(),
-        warehousesService.getAll()
-      ]);
-      setCounts(data);
+      const whs = await warehousesService.getAll();
       setWarehouses(whs);
     } catch (err) {
-      toast.error("Failed to load stock counts");
-    } finally {
-      setIsLoading(false);
+      toast.error("Failed to load warehouses");
     }
   }
 
@@ -70,18 +79,13 @@ export function StockCount() {
     loadData();
   }, []);
 
-  const filtered = counts.filter(c => 
-    c.countId?.toLowerCase().includes(search.toLowerCase()) || 
-    c.warehouse?.toLowerCase().includes(search.toLowerCase())
-  );
-
   async function handleCreate() {
     try {
       await stockCountsService.create(form);
       toast.success("Stock count session created");
       setShowAdd(false);
       setForm(blankCount());
-      loadData();
+      reload();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to create count");
     }
@@ -198,7 +202,7 @@ export function StockCount() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c, i) => (
+            {pagedCounts.map((c, i) => (
               <tr key={c._id} className={`border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up ${activeSession?._id === c._id ? 'bg-primary/5' : ''}`} style={{ animationDelay: `${i * 30}ms` }}>
                 <td className="px-4 py-3 font-medium text-primary" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.875rem" }}>{c.countId}</td>
                 <td className="px-4 py-3 uppercase text-xs">{c.type}</td>
@@ -229,11 +233,12 @@ export function StockCount() {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {pagedCounts.length === 0 && (
               <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No stock counts found</td></tr>
             )}
           </tbody>
         </table>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
 
       {activeSession && (

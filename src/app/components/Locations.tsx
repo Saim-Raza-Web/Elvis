@@ -1,13 +1,24 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { locationsService } from "../../services/locations.service";
 import { warehousesService } from "../../services/warehouses.service";
+import { zonesService } from "../../services/zones.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const locationsListService: ListService<Loc> = {
+  getAll: async (params) => (await locationsService.getAll(params)) as Loc[],
+  getPage: async (params) => {
+    const res = await locationsService.getPage(params);
+    return { data: res.data as Loc[], pagination: res.pagination };
+  },
+};
 
 type Zone = { _id: string; code: string; name: string; type: string; warehouse: string; locations: number; occupied: number; capacity: number; };
 type Loc = { _id: string; code: string; zone: string; aisle: string; shelf: string; bin: string; sku: string | null; product: string | null; qty: number; capacity: number; status: string; };
@@ -26,7 +37,6 @@ const zoneTypeColor: Record<string, string> = {
 export function Locations() {
   const { t } = useLang();
   const [zones, setZones] = useState<Zone[]>([]);
-  const [locs, setLocs] = useState<Loc[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState("MIA");
   const [search, setSearch] = useState("");
@@ -51,33 +61,35 @@ export function Locations() {
   const [editLocTarget, setEditLocTarget] = useState<Loc | null>(null);
   const [deleteLocTarget, setDeleteLocTarget] = useState<Loc | null>(null);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const { items: pagedLocs, allItems: locs, pagination, page, setPage, isLoading, reload } = usePaginatedList<Loc>(
+    locationsListService,
+    {
+      apiParams: { search: search.toLowerCase(), warehouse: selectedWarehouse },
+      deps: [search, selectedWarehouse],
+    }
+  );
 
   async function loadData() {
     try {
-      setIsLoading(true);
-      const [data, whs, rulesData] = await Promise.all([
-        locationsService.getAll(),
+      const [whs, zonesData, rulesData] = await Promise.all([
         warehousesService.getAll(),
+        zonesService.getAll({ warehouse: selectedWarehouse }),
         fetch(`/api/v1/storage-rules`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
         }).then(res => res.json())
       ]);
-      setLocs(data.locations || []);
-      setZones(data.zones || []);
+      setZones((zonesData as Zone[]) || []);
       setWarehouses(whs || []);
-      setRules(rulesData || []);
+      setRules((rulesData as any) || []);
       if (whs && whs.length > 0 && !selectedWarehouse) setSelectedWarehouse(whs[0].code);
     } catch (err) {
       toast.error("Failed to load data");
-    } finally {
-      setIsLoading(false);
     }
   }
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedWarehouse]);
 
   // Listen for header button CustomEvent
   useEffect(() => {
@@ -87,25 +99,18 @@ export function Locations() {
   }, [selectedWarehouse]);
 
   const filteredZones = zones.filter(
-    (z) => z.warehouse === selectedWarehouse &&
-      ((z.code || "").toLowerCase().includes(search.toLowerCase()) || (z.name || "").toLowerCase().includes(search.toLowerCase()))
-  );
-
-  const filteredLocs = locs.filter(
-    (l) => l.code.toLowerCase().includes(search.toLowerCase()) ||
-      (l.sku ?? "").toLowerCase().includes(search.toLowerCase()) ||
-      (l.product ?? "").toLowerCase().includes(search.toLowerCase())
+    (z) => (z.code || "").toLowerCase().includes(search.toLowerCase()) || (z.name || "").toLowerCase().includes(search.toLowerCase())
   );
 
   async function handleAddZone() {
     if (!zoneForm.code || !zoneForm.name) return;
     try {
       if (editZoneTarget) {
-        await locationsService.update(editZoneTarget._id, { ...zoneForm, isZone: true });
+        await zonesService.update(editZoneTarget._id, zoneForm);
         toast.success(`Zone updated.`);
         setEditZoneTarget(null);
       } else {
-        await locationsService.create({ ...zoneForm, isZone: true });
+        await zonesService.create(zoneForm);
         toast.success(`${t.locations.zoneCreated}: ${zoneForm.code}`);
         setShowZone(false);
       }
@@ -116,7 +121,7 @@ export function Locations() {
   async function handleDeleteZone() {
     if (!deleteZoneTarget) return;
     try {
-      await locationsService.delete(deleteZoneTarget._id);
+      await zonesService.delete(deleteZoneTarget._id);
       toast.success(`Zone deleted.`);
       setDeleteZoneTarget(null);
       loadData();
@@ -140,7 +145,7 @@ export function Locations() {
         toast.success(`${t.locations.locCreated}: ${code}`);
         setShowLoc(false);
       }
-      loadData();
+      reload();
     } catch (e) { toast.error("Failed to save location"); }
   }
 
@@ -150,7 +155,7 @@ export function Locations() {
       await locationsService.delete(deleteLocTarget._id);
       toast.success(`Location deleted.`);
       setDeleteLocTarget(null);
-      loadData();
+      reload();
     } catch (e) { toast.error("Failed to delete location"); }
   }
 
@@ -286,7 +291,7 @@ export function Locations() {
               </tr>
             </thead>
             <tbody>
-              {filteredLocs.map((loc, i) => (
+              {pagedLocs.map((loc, i) => (
                 <tr key={loc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                   <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{loc.code}</td>
                   <td className="px-4 py-3 hidden md:table-cell"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${zoneTypeColor[zones.find((z) => z.code === loc.zone)?.type ?? "storage"]}`}>{loc.zone}</span></td>
@@ -303,9 +308,10 @@ export function Locations() {
                   </td>
                 </tr>
               ))}
-              {filteredLocs.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
+              {pagedLocs.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
             </tbody>
           </table>
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
       )}
       

@@ -1,10 +1,9 @@
 import api from './api';
+import { fetchList, fetchPaginated } from './listApi';
 
 export const crmService = {
-  getAll: async (params = {}) => {
-    const response = await api.get('/crm', { params });
-    return response.data;
-  },
+  getAll: async (params = {}) => fetchList('/crm', params),
+  getPage: async (params = {}) => fetchPaginated('/crm', params),
   getById: async (id) => {
     const response = await api.get('/crm/' + id);
     return response.data;

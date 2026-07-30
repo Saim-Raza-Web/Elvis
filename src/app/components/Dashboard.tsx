@@ -17,6 +17,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
   const [lowStockSKUs, setLowStockSKUs] = useState(0);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [pendingShipments, setPendingShipments] = useState(0);
+  const [activeWarehouses, setActiveWarehouses] = useState(0);
 
   useEffect(() => {
     async function fetchDashboard() {
@@ -30,6 +31,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
         
         setRecentOrders(orders.slice(0, 5));
         setWarehouseStatus(whs.slice(0, 3));
+        setActiveWarehouses(whs.filter((w: any) => w.status === "active").length);
         
         setTotalStock(prods.reduce((a: number, p: any) => a + (p.qty_available || 0), 0));
         setLowStockSKUs(prods.filter((p: any) => p.status === "low").length);
@@ -57,7 +59,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
     { label: "Units in stock", value: totalStock.toLocaleString(), icon: Boxes, color: "text-purple-500", delay: 80 },
     { label: "Low-stock SKUs", value: lowStockSKUs, icon: AlertTriangle, color: "text-destructive", delay: 120 },
     { label: "Revenue (paid)", value: `€${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-success", delay: 160 },
-    { label: "Active warehouses", value: 3, icon: Warehouse, color: "text-amber-500", delay: 200 },
+    { label: "Active warehouses", value: activeWarehouses, icon: Warehouse, color: "text-amber-500", delay: 200 },
   ];
 
   return (

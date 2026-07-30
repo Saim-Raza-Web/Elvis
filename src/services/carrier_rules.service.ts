@@ -1,10 +1,9 @@
 import api from './api';
+import { fetchList, fetchPaginated } from './listApi';
 
 export const carrierRulesService = {
-  getAll: async (params = {}) => {
-    const response = await api.get('/carrier-rules', { params });
-    return response.data;
-  },
+  getAll: async (params = {}) => fetchList('/carrier-rules', params),
+  getPage: async (params = {}) => fetchPaginated('/carrier-rules', params),
   getById: async (id: string) => {
     const response = await api.get('/carrier-rules/' + id);
     return response.data;

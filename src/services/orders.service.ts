@@ -1,10 +1,9 @@
 import api from './api';
+import { fetchList, fetchPaginated } from './listApi';
 
 export const ordersService = {
-  getAll: async (params = {}) => {
-    const response = await api.get('/orders', { params });
-    return response.data;
-  },
+  getAll: async (params = {}) => fetchList('/orders', params),
+  getPage: async (params = {}) => fetchPaginated('/orders', params),
   getById: async (id: string) => {
     const response = await api.get('/orders/' + id);
     return response.data;

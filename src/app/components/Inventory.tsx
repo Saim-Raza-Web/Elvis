@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
-import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing } from "lucide-react";
+import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing, Download, ChevronUp, ChevronDown, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
+import { BarcodeGenerator } from "./BarcodeGenerator";
 import { useLang } from "../LangContext";
-
+import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { inventoryService } from "../../services/inventory.service";
 import { warehousesService } from "../../services/warehouses.service";
+import { exportToCSV } from "../../lib/csvExport";
 
 type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; };
 
@@ -32,7 +35,6 @@ export function Inventory() {
     { id: "replenishment", label: "Replenishment", icon: BellRing },
   ];
   const [replenishment, setReplenishment] = useState<any[]>([]);
-  const [productList, setProductList] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [filterLow, setFilterLow] = useState(false);
@@ -40,28 +42,28 @@ export function Inventory() {
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Product | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [barcodeTarget, setBarcodeTarget] = useState<Product | null>(null);
   const [form, setForm] = useState(blankProduct());
+  const [sortField, setSortField] = useState("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  const [isLoading, setIsLoading] = useState(true);
   const [warehouses, setWarehouses] = useState<any[]>([]);
+
+  const { items: productList, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<Product>(inventoryService, { limit: 25 });
 
   async function loadData() {
     try {
-      setIsLoading(true);
-      const [data, whs, alerts] = await Promise.all([
-        inventoryService.getAll(),
+      const [whs, alerts] = await Promise.all([
         warehousesService.getAll(),
         fetch(`/api/v1/inventory/alerts/low-stock`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+          headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token")}` }
         }).then(r => r.json())
       ]);
-      setProductList(data);
       setWarehouses(whs);
       setReplenishment(alerts || []);
+      reload();
     } catch (err) {
       toast.error("Failed to load inventory");
-    } finally {
-      setIsLoading(false);
     }
   }
 
@@ -90,7 +92,7 @@ export function Inventory() {
         toast.success(`"${form.name}" updated.`);
         setEditTarget(null);
       }
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to save product");
     }
@@ -102,10 +104,20 @@ export function Inventory() {
       await inventoryService.delete(deleteTarget._id);
       toast.success(`Product deleted.`);
       setDeleteTarget(null);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to delete product");
     }
+  }
+
+  function handleSort(field: string) {
+    if (sortField === field) setSortOrder(o => o === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortOrder("asc"); }
+  }
+
+  function SortIcon({ field }: { field: string }) {
+    if (sortField !== field) return <ChevronUp className="size-3 opacity-30" />;
+    return sortOrder === "asc" ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />;
   }
 
   const filtered = productList.filter((p) => {
@@ -119,11 +131,25 @@ export function Inventory() {
       || (stockTab === "ecommerce" && p.qty_ecommerce > 0)
       || (stockTab === "customer" && p.owner === "customer");
     return matchSearch && matchCat && matchLow && matchTab;
+  }).sort((a, b) => {
+    const av = (a as any)[sortField] ?? "";
+    const bv = (b as any)[sortField] ?? "";
+    if (av < bv) return sortOrder === "asc" ? -1 : 1;
+    if (av > bv) return sortOrder === "asc" ? 1 : -1;
+    return 0;
   });
 
-  const totalValue = productList.reduce((a, p) => a + p.qty_available * p.price, 0);
-  const lowCount = productList.filter((p) => p.status === "low").length;
-  const totalReserved = productList.reduce((a, p) => a + p.qty_reserved, 0);
+  const totalValue = allItems.reduce((a: number, p: any) => a + p.qty_available * p.price, 0);
+  const lowCount = allItems.filter((p: any) => p.status === "low").length;
+  const totalReserved = allItems.reduce((a: number, p: any) => a + p.qty_reserved, 0);
+
+  function handleExportCSV() {
+    exportToCSV(allItems.map((p: any) => ({
+      SKU: p.sku, Name: p.name, Category: p.category, Warehouse: p.warehouse,
+      Available: p.qty_available, Reserved: p.qty_reserved, Blocked: p.qty_blocked,
+      Price: p.price, Status: p.status, Owner: p.owner
+    })), 'inventory');
+  }
 
   function getQtyForTab(p: Product) {
     switch (stockTab) {
@@ -178,6 +204,7 @@ export function Inventory() {
           ))}
         </div>
         <SecondaryButton icon={Filter} onClick={() => setFilterLow(!filterLow)}>{filterLow ? t.common.all : t.inventory.lowStock}</SecondaryButton>
+        <SecondaryButton icon={Download} onClick={handleExportCSV}>Export CSV</SecondaryButton>
         <PrimaryButton icon={Plus} onClick={openAdd}>{t.inventory.addProduct}</PrimaryButton>
       </div>
 
@@ -223,12 +250,12 @@ export function Inventory() {
         <table className="w-full text-sm">
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
             <tr>
-              <th className="text-left px-4 py-3">{t.inventory.sku}</th>
-              <th className="text-left px-4 py-3">{t.inventory.productName}</th>
-              <th className="text-left px-4 py-3 hidden md:table-cell">{t.inventory.category}</th>
+              <th className="text-left px-4 py-3 cursor-pointer hover:text-foreground" onClick={() => handleSort("sku")}><div className="flex items-center gap-1">{t.inventory.sku}<SortIcon field="sku" /></div></th>
+              <th className="text-left px-4 py-3 cursor-pointer hover:text-foreground" onClick={() => handleSort("name")}><div className="flex items-center gap-1">{t.inventory.productName}<SortIcon field="name" /></div></th>
+              <th className="text-left px-4 py-3 hidden md:table-cell cursor-pointer hover:text-foreground" onClick={() => handleSort("category")}><div className="flex items-center gap-1">{t.inventory.category}<SortIcon field="category" /></div></th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">{t.common.warehouse}</th>
               <th className="text-left px-4 py-3 hidden xl:table-cell">{t.inventory.owner}</th>
-              <th className="text-right px-4 py-3">{t.inventory.available}</th>
+              <th className="text-right px-4 py-3 cursor-pointer hover:text-foreground" onClick={() => handleSort("qty_available")}><div className="flex items-center justify-end gap-1">{t.inventory.available}<SortIcon field="qty_available" /></div></th>
               <th className="text-right px-4 py-3 hidden sm:table-cell">{t.inventory.reserved}</th>
               <th className="text-right px-4 py-3 hidden lg:table-cell">{t.inventory.blocked}</th>
               <th className="text-center px-4 py-3">{t.common.status}</th>
@@ -258,6 +285,7 @@ export function Inventory() {
                 <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-1">
+                    <button onClick={() => setBarcodeTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title="Print Barcode"><Printer className="size-3.5" /></button>
                     <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={t.common.edit}><Edit3 className="size-3.5" /></button>
                     <button onClick={() => setDeleteTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={t.common.delete}><AlertTriangle className="size-3.5" /></button>
                   </div>
@@ -267,6 +295,7 @@ export function Inventory() {
             {filtered.length === 0 && <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
           </tbody>
         </table>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
       )}
 
@@ -314,6 +343,18 @@ export function Inventory() {
       {/* Delete confirmation */}
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Product" width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
         <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone.</p>
+      </Modal>
+
+      {/* Barcode Modal */}
+      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title="Print SKU Barcode" size="sm">
+        {barcodeTarget && (
+          <div className="p-4">
+            <p className="text-sm text-muted-foreground mb-4 text-center">
+              Generate and print a standard 1D barcode for this product's SKU.
+            </p>
+            <BarcodeGenerator value={barcodeTarget.sku} title={barcodeTarget.name} />
+          </div>
+        )}
       </Modal>
     </div>
   );

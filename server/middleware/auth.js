@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { canAccessModule } from '../config/permissions.js';
 
 export const protect = async (req, res, next) => {
   let token;
@@ -22,4 +23,24 @@ export const protect = async (req, res, next) => {
   } catch (error) {
     res.status(401).json({ message: 'Not authorized, token failed' });
   }
+};
+
+export const requireRole = (...roles) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({ message: `Access denied. Required role: ${roles.join(' or ')}` });
+  }
+  next();
+};
+
+export const requireModuleAccess = (module) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+  if (!canAccessModule(req.user.role, module)) {
+    return res.status(403).json({ message: `Access denied to ${module}` });
+  }
+  next();
 };

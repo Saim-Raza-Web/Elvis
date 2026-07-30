@@ -1,10 +1,9 @@
 import api from './api';
+import { fetchList, fetchPaginated } from './listApi';
 
 export const ecommerceService = {
-  getAll: async (params = {}) => {
-    const response = await api.get('/ecommerce', { params });
-    return response.data;
-  },
+  getAll: async (params = {}) => fetchList('/ecommerce', params),
+  getPage: async (params = {}) => fetchPaginated('/ecommerce', params),
   getById: async (id: string) => {
     const response = await api.get('/ecommerce/' + id);
     return response.data;

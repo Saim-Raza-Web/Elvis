@@ -1,12 +1,22 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Globe, Plus, RefreshCw, ShoppingCart, Package, AlertTriangle, CheckCircle2, ArrowUpRight, Zap, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { ecommerceService } from "../../services/ecommerce.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const ecommerceListService: ListService<Channel> = {
+  getAll: async (params) => (await ecommerceService.getAll(params)) as Channel[],
+  getPage: async (params) => {
+    const res = await ecommerceService.getPage(params);
+    return { data: res.data as Channel[], pagination: res.pagination };
+  },
+};
 
 type Channel = { _id: string; id: string; name: string; platform: string; url: string; status: string; orders_today: number; synced_at: string; products: number; pending_sync: number };
 
@@ -22,7 +32,6 @@ import { ordersService } from "../../services/orders.service";
 
 export function Ecommerce() {
   const { t } = useLang();
-  const [channelList, setChannelList] = useState<Channel[]>([]);
   const [search, setSearch] = useState("");
   const [showConnect, setShowConnect] = useState(false);
   const [editMode, setEditMode] = useState<"connect" | "edit">("connect");
@@ -30,17 +39,15 @@ export function Ecommerce() {
   const [connectForm, setConnectForm] = useState({ name: "", platform: "Shopify", url: "", apiKey: "" });
 
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const { items: pagedChannels, allItems: channelList, pagination, page, setPage, isLoading, reload } = usePaginatedList<Channel>(
+    ecommerceListService,
+    { limit: 10 }
+  );
 
   async function loadData() {
     try {
-      setIsLoading(true);
-      const [data, orders] = await Promise.all([
-        ecommerceService.getAll(),
-        ordersService.getAll()
-      ]);
-      setChannelList(data.map((d: any) => ({ ...d, id: d._id, synced_at: d.synced_at?.slice(0, 10) || "Never" })));
-      
+      const orders = await ordersService.getAll();
       const channelOrders = orders
         .filter((o: any) => o.channel && o.channel !== "Direct")
         .sort((a: any, b: any) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime())
@@ -55,9 +62,7 @@ export function Ecommerce() {
         }));
       setRecentOrders(channelOrders);
     } catch (err) {
-      toast.error("Failed to load ecommerce channels");
-    } finally {
-      setIsLoading(false);
+      toast.error("Failed to load recent orders");
     }
   }
 
@@ -84,7 +89,7 @@ export function Ecommerce() {
       }
       setShowConnect(false);
       setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" });
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to save channel"); }
   }
 
@@ -106,7 +111,7 @@ export function Ecommerce() {
     try {
       await ecommerceService.delete(id);
       toast.success("Channel removed.");
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to delete channel"); }
   }
 
@@ -115,7 +120,7 @@ export function Ecommerce() {
     try {
       await ecommerceService.syncChannel(id);
       toast.success(`${name} ${t.ecommerce.syncCompleted}.`);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Sync failed.");
     }
@@ -149,7 +154,7 @@ export function Ecommerce() {
             <PrimaryButton icon={Plus} onClick={() => { setEditMode("connect"); setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" }); setShowConnect(true); }}>{t.ecommerce.connectChannel}</PrimaryButton>
           </div>
 
-          {channelList.map((ch, i) => (
+          {pagedChannels.map((ch, i) => (
             <div key={ch.id} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div className="flex items-center gap-3">
@@ -199,6 +204,7 @@ export function Ecommerce() {
               </div>
             </div>
           ))}
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
 
         {/* Recent orders + Integration tips */}

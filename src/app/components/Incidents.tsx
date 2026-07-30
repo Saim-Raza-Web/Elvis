@@ -1,47 +1,33 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { AlertTriangle, Search, CheckCircle2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import { PrimaryButton, StatusBadge } from "./AppShell";
-import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { StatusBadge } from "./AppShell";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { incidentsService } from "../../services/incidents.service";
 
 export function Incidents() {
   const { t } = useLang();
-  const [incidents, setIncidents] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const searchLower = search.toLowerCase();
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const data = await incidentsService.getAll();
-      setIncidents(data || []);
-    } catch (err) {
-      toast.error("Failed to load incidents");
-    } finally {
-      setIsLoading(false);
+  const { items: incidents, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<any>(
+    incidentsService,
+    {
+      apiParams: { search: searchLower || undefined },
+      deps: [search],
     }
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const filtered = incidents.filter((i) =>
-    i.incidentId?.toLowerCase().includes(search.toLowerCase()) || 
-    i.sku?.toLowerCase().includes(search.toLowerCase()) ||
-    i.type?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
-  const qcRejects = incidents.filter(i => i.type.includes('QC')).length;
+  const openIncidents = allItems.filter((i) => i.status !== "resolved").length;
+  const qcRejects = allItems.filter((i) => i.type?.includes("QC")).length;
 
   async function resolveIncident(incident: any) {
     try {
       await incidentsService.update(incident._id, { status: "resolved" });
       toast.success(`Incident ${incident.incidentId} resolved.`);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to resolve incident");
     }
@@ -49,12 +35,11 @@ export function Incidents() {
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Total Open", value: openIncidents, icon: AlertTriangle, color: "text-warning" },
           { label: "QC Failures", value: qcRejects, icon: ShieldAlert, color: "text-destructive" },
-          { label: "Resolved", value: incidents.length - openIncidents, icon: CheckCircle2, color: "text-success" },
+          { label: "Resolved", value: allItems.length - openIncidents, icon: CheckCircle2, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -83,7 +68,7 @@ export function Incidents() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((inc, i) => (
+            {incidents.map((inc, i) => (
               <tr key={inc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                 <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{inc.incidentId}</td>
                 <td className="px-4 py-3 font-semibold text-destructive">{inc.type}</td>
@@ -102,9 +87,10 @@ export function Incidents() {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No incidents found</td></tr>}
+            {incidents.length === 0 && !isLoading && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No incidents found</td></tr>}
           </tbody>
         </table>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
     </div>
   );

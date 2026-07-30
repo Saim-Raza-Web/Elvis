@@ -1,12 +1,22 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PackageOpen, ScanLine, CheckCircle2, AlertCircle, Package, Box, Printer, Scale, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { packingService } from "../../services/packing.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const packingListService: ListService<PackTask> = {
+  getAll: async (params) => (await packingService.getAll(params)) as PackTask[],
+  getPage: async (params) => {
+    const res = await packingService.getPage(params);
+    return { data: res.data as PackTask[], pagination: res.pagination };
+  },
+};
 
 type PackTask = { _id: string; id: string; order: string; customer: string; items: number; picked: number; station: string; priority: string; status: string; packId?: string; packItems?: any[] };
 
@@ -20,7 +30,6 @@ const priorityColor: Record<string, string> = {
 
 export function Packing() {
   const { t } = useLang();
-  const [queue, setQueue] = useState<PackTask[]>([]);
   const [packItems, setPackItems] = useState<any[]>([]);
   const [activeTask, setActiveTask] = useState<string | null>("PCK-0057");
   const [scanned, setScanned] = useState("");
@@ -32,20 +41,18 @@ export function Packing() {
   const [showAdd, setShowAdd] = useState(false);
   const [manualForm, setManualForm] = useState({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" });
 
+  const { items: pagedQueue, allItems: queue, pagination, page, setPage, isLoading, reload } = usePaginatedList<PackTask>(
+    packingListService,
+    { limit: 10 }
+  );
+
   const activePack = queue.find((p) => p.id === activeTask);
   const allVerified = packItems.every((i) => i.verified);
 
-  const [isLoading, setIsLoading] = useState(true);
-
   async function loadData() {
     try {
-      setIsLoading(true);
-      const data = await packingService.getAll();
-      setQueue(data.map((d: any) => ({ ...d, id: d.packId || d._id })));
     } catch (err) {
       toast.error("Failed to load packing queue");
-    } finally {
-      setIsLoading(false);
     }
   }
 
@@ -112,7 +119,7 @@ export function Packing() {
       setPackItems([]);
       setLabelPrinted(false);
       setWeighed(false);
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to complete packing"); }
   }
 
@@ -124,8 +131,8 @@ export function Packing() {
       toast.success(`Pack task created: ${id}`);
       setShowAdd(false);
       setManualForm({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" });
-      loadData();
-    } catch (err) { toast.error("Failed to create pack task"); }
+      reload();
+    } catch (err) { toast.error("Failed to create packing task"); }
   }
 
   return (
@@ -149,7 +156,7 @@ export function Packing() {
         {/* Queue */}
         <div className="space-y-2">
           <h3 className="font-bold mb-3">{t.packing.packingQueue}</h3>
-          {queue.map((task, i) => (
+          {pagedQueue.map((task, i) => (
             <div
               key={task.id}
               onClick={() => { setActiveTask(task.id); setLabelPrinted(false); setWeighed(false); }}
@@ -168,6 +175,7 @@ export function Packing() {
               </div>
             </div>
           ))}
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
 
         {/* Active packing station */}

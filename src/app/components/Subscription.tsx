@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Zap, Shield, Star } from "lucide-react";
 import { settingsService } from "../../services/settings.service";
+import { adminService } from "../../services/admin.service";
 import { toast } from "sonner";
 
 const plans = [
@@ -68,12 +69,22 @@ const plans = [
 
 export function Subscription() {
   const [currentPlan, setCurrentPlan] = useState("professional");
+  const [usage, setUsage] = useState({ warehouses: 0, orders: 0, team: 0 });
 
   useEffect(() => {
     settingsService.getCompanySettings().then(data => {
-      if (data && data.plan) {
-        setCurrentPlan(data.plan);
-      }
+      if (data && data.plan) setCurrentPlan(data.plan);
+    }).catch(console.error);
+
+    adminService.getMetrics().then((metrics: any[]) => {
+      const wh = metrics.find(m => m.label === 'Warehouses');
+      const ord = metrics.find(m => m.label === 'Orders (24h)');
+      const team = metrics.find(m => m.label === 'Team members');
+      setUsage({
+        warehouses: wh ? Number(wh.value) : 0,
+        orders: ord ? Number(ord.value) : 0,
+        team: team ? Number(team.value) : 0,
+      });
     }).catch(console.error);
   }, []);
 
@@ -158,9 +169,9 @@ export function Subscription() {
         <h3 className="font-bold mb-4">Current usage</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {[
-            { label: "Warehouses", used: 3, limit: 10, color: "bg-primary" },
-            { label: "Orders this month", used: 183, limit: 5000, color: "bg-success" },
-            { label: "Team members", used: 5, limit: 10, color: "bg-info" },
+          { label: "Warehouses", used: usage.warehouses, limit: 10, color: "bg-primary" },
+            { label: "Orders (24h)", used: usage.orders, limit: 5000, color: "bg-success" },
+            { label: "Team members", used: usage.team, limit: 10, color: "bg-info" },
           ].map((u) => {
             const pct = Math.round((u.used / u.limit) * 100);
             return (

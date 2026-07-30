@@ -1,20 +1,23 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/CarrierRule.js';
 
 const router = express.Router();
 
 router.use(protect);
 
+const requireOpsRole = requireRole('admin', 'manager');
+
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company });
-    res.json(items);
+    const result = await paginateQuery(Model, { company: req.user.company }, req);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -23,7 +26,7 @@ router.post('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndUpdate(
@@ -36,7 +39,7 @@ router.put('/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });

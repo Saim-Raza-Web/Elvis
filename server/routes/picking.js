@@ -1,5 +1,6 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/PickTask.js';
 import PickBatch from '../models/PickBatch.js';
 import Order from '../models/Order.js';
@@ -9,19 +10,21 @@ const router = express.Router();
 
 router.use(protect); // Secure all routes by default
 
+const requireOpsRole = requireRole('admin', 'manager');
+
 // GET all batches
 router.get('/batches', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await PickBatch.find({ company: req.user.company });
-    res.json(items);
+    const result = await paginateQuery(PickBatch, { company: req.user.company }, req);
+    res.json(result);
   } catch (err) {
     next(err);
   }
 });
 
 // CREATE a batch
-router.post('/batches', async (req, res, next) => {
+router.post('/batches', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -40,7 +43,7 @@ router.post('/batches', async (req, res, next) => {
 });
 
 // UPDATE a batch (start, complete)
-router.put('/batches/:id', async (req, res, next) => {
+router.put('/batches/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await PickBatch.findOneAndUpdate(
@@ -59,8 +62,8 @@ router.put('/batches/:id', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company });
-    res.json(items);
+    const result = await paginateQuery(Model, { company: req.user.company }, req);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -79,7 +82,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE
-router.post('/', async (req, res, next) => {
+router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -91,7 +94,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // UPDATE
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
@@ -146,7 +149,7 @@ router.put('/:id', async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });

@@ -1,5 +1,7 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
+import { buildListFilter } from '../utils/listFilters.js';
 import Model from '../models/ActivityLog.js';
 
 const router = express.Router();
@@ -10,8 +12,12 @@ router.use(protect); // Secure all routes by default
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company });
-    res.json(items);
+    const filter = buildListFilter({ company: req.user.company }, req, {
+      searchFields: ['action', 'detail', 'user', 'logId'],
+      exact: { module: 'module', user: 'user' },
+    });
+    const result = await paginateQuery(Model, filter, req);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -20,12 +26,36 @@ router.get('/', async (req, res, next) => {
 router.get('/notifications', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    
-    const notifications = [
-      { id: "1", kind: "success", title: "System Online", body: "Connected to Elvis OS services.", created_at: new Date().toISOString(), read_at: null },
-      { id: "2", kind: "info", title: "Sync Complete", body: "Inventory synced successfully.", created_at: new Date(Date.now() - 3600000).toISOString(), read_at: null }
-    ];
-    
+
+    const logs = await Model.find({ company: req.user.company })
+      .sort('-createdAt')
+      .limit(10)
+      .lean();
+
+    const kindMap = {
+      shipped: 'success',
+      delivered: 'success',
+      received: 'info',
+      created: 'info',
+      updated: 'info',
+      deleted: 'warning',
+      error: 'error',
+      low: 'warning',
+    };
+
+    const notifications = logs.map((log) => {
+      const action = (log.action || '').toLowerCase();
+      const kind = Object.entries(kindMap).find(([key]) => action.includes(key))?.[1] || 'info';
+      return {
+        id: log._id.toString(),
+        kind,
+        title: log.action || 'Activity',
+        body: log.detail || `${log.module || 'System'} event`,
+        created_at: (log.timestamp || log.createdAt || new Date()).toISOString(),
+        read_at: null,
+      };
+    });
+
     res.json(notifications);
   } catch (err) {
     next(err);

@@ -11,7 +11,9 @@ import type { Lang } from "../i18n";
 import { useT } from "../i18n";
 import { useLang } from "../LangContext";
 import { authService } from "../../services/auth.service";
+import { filterNavSections } from "../../utils/roles";
 import { activityService } from "../../services/activity.service";
+import { notificationsService } from "../../services/notifications.service";
 
 export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "transfers" | "picking" | "packing"
@@ -139,13 +141,14 @@ export function AppShell({
     }).catch((err: any) => console.error("Failed to load companies", err));
 
     // Fetch dynamic notifications
-    activityService.getNotifications()
+    notificationsService.getNotifications()
       .then(data => setNotifs(data))
       .catch(err => console.error("Failed to load notifications", err));
   }, []);
 
   const unread = notifs.filter((n) => !n.read_at).length;
-  const navSections = buildNavSections(t.nav);
+  const userRole = currentUser?.role as string | undefined;
+  const navSections = filterNavSections(buildNavSections(t.nav), userRole);
   const langs: Lang[] = ["en", "es", "fr", "it"];
 
   useEffect(() => {
@@ -153,11 +156,21 @@ export function AppShell({
     return () => clearInterval(timer);
   }, []);
 
-  function markAllRead() {
-    setNotifs((ns) => ns.map((n) => ({ ...n, read_at: n.read_at ?? "now" })));
+  async function markAllRead() {
+    try {
+      await notificationsService.markAllRead();
+      setNotifs((ns) => ns.map((n) => ({ ...n, read_at: n.read_at ?? "now" })));
+    } catch (e) {
+      console.error(e);
+    }
   }
-  function markRead(id: string) {
-    setNotifs((ns) => ns.map((n) => n.id === id ? { ...n, read_at: "now" } : n));
+  async function markRead(id: string) {
+    try {
+      await notificationsService.markRead(id);
+      setNotifs((ns) => ns.map((n) => n.id === id ? { ...n, read_at: "now" } : n));
+    } catch (e) {
+      console.error(e);
+    }
   }
   function navigate(page: Page) {
     setCurrentPage(page);

@@ -1,42 +1,54 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ReceiptText, Search, Plus, DollarSign, Clock, AlertCircle, CheckCircle2, Send } from "lucide-react";
 import { toast } from "sonner";
-import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
-import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { PrimaryButton, StatusBadge } from "./AppShell";
+import { Modal, Field, Input, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { billingService } from "../../services/billing.service";
+import type { ListService } from "../../hooks/usePaginatedList";
 
 type Invoice = { _id: string; id: string; customer: string; amount: number; status: string; issued: string; due: string; items: number; invoiceId?: string };
 
 const blankInvoice = () => ({ customer: "", amount: 0, items: 1, issued: new Date().toISOString().slice(0, 10), due: "", notes: "" });
 
+function mapInvoice(d: Record<string, unknown>): Invoice {
+  return {
+    ...(d as Invoice),
+    id: (d.invoiceId as string) || (d._id as string),
+    issued: (d.issued as string)?.slice(0, 10) || "—",
+    due: (d.due as string)?.slice(0, 10) || "—",
+  };
+}
+
+const billingListService: ListService<Invoice> = {
+  getAll: async (params) => (await billingService.getAll(params)).map(mapInvoice),
+  getPage: async (params) => {
+    const result = await billingService.getPage(params);
+    return { data: result.data.map(mapInvoice), pagination: result.pagination };
+  },
+};
+
 export function Billing() {
   const { t } = useLang();
-  const [invoiceList, setInvoiceList] = useState<Invoice[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankInvoice());
 
-  const [isLoading, setIsLoading] = useState(true);
+  const searchLower = search.toLowerCase();
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const data = await billingService.getAll();
-      setInvoiceList(data.map((d: any) => ({ ...d, id: d.invoiceId || d._id, issued: d.issued?.slice(0, 10) || "—", due: d.due?.slice(0, 10) || "—" })));
-    } catch (err) {
-      toast.error("Failed to load invoices");
-    } finally {
-      setIsLoading(false);
+  const { items: invoiceList, allItems, pagination, page, setPage, reload } = usePaginatedList<Invoice>(
+    billingListService,
+    {
+      apiParams: {
+        search: searchLower || undefined,
+        status: filter !== "All" ? filter : undefined,
+      },
+      deps: [search, filter],
     }
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
+  );
 
   useEffect(() => {
     const handler = () => { setForm(blankInvoice()); setShowAdd(true); };
@@ -46,36 +58,34 @@ export function Billing() {
 
   async function handleCreate() {
     if (!form.customer || !form.amount) { toast.error("Customer and amount required."); return; }
-    const id = `INV-${String(invoiceList.length + 88).padStart(4, "0")}`;
+    const id = `INV-${String(allItems.length + 88).padStart(4, "0")}`;
     try {
       await billingService.create({ invoiceId: id, customer: form.customer, amount: Number(form.amount), status: "draft", issued: form.issued, due: form.due || form.issued, items: Number(form.items) });
       toast.success(t.billing.invoiceCreated.replace("{id}", id).replace("{customer}", form.customer));
       setShowAdd(false);
       setForm(blankInvoice());
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to create invoice"); }
   }
 
-  async function handleSend(inv: typeof invoiceList[0]) {
+  async function handleSend(inv: Invoice) {
     try {
       await billingService.update(inv._id, { status: "unpaid" });
       toast.success(t.billing.invoiceSent.replace("{id}", inv.id).replace("{customer}", inv.customer));
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to send invoice"); }
   }
 
   const filters = ["All", "draft", "unpaid", "paid", "overdue"];
-
-  const paid = invoiceList.filter((inv) => inv.status === "paid").reduce((a, inv) => a + inv.amount, 0);
-  const outstanding = invoiceList.filter((inv) => inv.status === "unpaid" || inv.status === "overdue").reduce((a, inv) => a + inv.amount, 0);
-  const overdue = invoiceList.filter((inv) => inv.status === "overdue").length;
+  const paid = allItems.filter((inv) => inv.status === "paid").reduce((a, inv) => a + inv.amount, 0);
+  const outstanding = allItems.filter((inv) => inv.status === "unpaid" || inv.status === "overdue").reduce((a, inv) => a + inv.amount, 0);
+  const overdue = allItems.filter((inv) => inv.status === "overdue").length;
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.billing.totalInvoices, value: invoiceList.length, icon: ReceiptText, color: "text-primary" },
+          { label: t.billing.totalInvoices, value: allItems.length, icon: ReceiptText, color: "text-primary" },
           { label: t.billing.revenueCollected, value: `€${(paid / 1000).toFixed(1)}k`, icon: CheckCircle2, color: "text-success" },
           { label: t.billing.outstanding, value: `€${outstanding.toFixed(0)}`, icon: Clock, color: "text-warning" },
           { label: t.billing.overdue, value: overdue, icon: AlertCircle, color: "text-destructive" },
@@ -90,33 +100,19 @@ export function Billing() {
         ))}
       </div>
 
-      {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t.common.search + "…"}
-            className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors"
-            style={{ fontSize: "0.875rem" }}
-          />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t.common.search + "…"} className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
         </div>
         <div className="flex gap-1.5">
           {filters.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all capitalize ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}
-            >
-              {f}
-            </button>
+            <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all capitalize ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{f}</button>
           ))}
         </div>
         <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.billing.newInvoice}</PrimaryButton>
       </div>
 
-      {/* Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
@@ -132,11 +128,7 @@ export function Billing() {
             </tr>
           </thead>
           <tbody>
-            {invoiceList.filter((inv) => {
-        const matchSearch = (inv.id || "").toLowerCase().includes(search.toLowerCase()) || (inv.customer || "").toLowerCase().includes(search.toLowerCase());
-        const matchFilter = filter === "All" || inv.status === filter;
-        return matchSearch && matchFilter;
-      }).map((inv, i) => (
+            {invoiceList.map((inv, i) => (
               <tr key={inv.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                 <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{inv.id}</td>
                 <td className="px-4 py-3 font-medium">{inv.customer}</td>
@@ -156,6 +148,7 @@ export function Billing() {
             ))}
           </tbody>
         </table>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.billing.newInvoice} subtitle="Create an invoice for a customer" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.billing.newInvoice}</ModalSubmit></>}>

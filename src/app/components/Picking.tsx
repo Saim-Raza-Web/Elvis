@@ -1,12 +1,28 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { ScanLine, CheckCircle2, Clock, AlertCircle, Package, User, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { pickingService } from "../../services/picking.service";
+import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+
+const batchesListService: ListService<PickBatch> = {
+  getAll: async (params) => {
+    const data = await pickingService.getBatches(params);
+    return data.map((d: any) => ({ ...d, id: d.batchId || d._id }));
+  },
+  getPage: async (params) => {
+    const data = await pickingService.getBatchesPage(params);
+    return {
+      data: data.data.map((d: any) => ({ ...d, id: d.batchId || d._id })),
+      pagination: data.pagination
+    };
+  }
+};
 
 type PickTask = { _id: string; id: string; order: string; priority: string; status: string; assignee: string; items: number; picked: number; zone: string; started: string; taskId?: string };
 type PickBatch = { _id: string; id: string; batchId: string; orders: string[]; priority: string; status: string; assignee: string; total_items: number; picked_items: number; };
@@ -20,7 +36,6 @@ const priorityColor: Record<string, string> = {
 export function Picking() {
   const { t } = useLang();
   const [tasks, setTasks] = useState<PickTask[]>([]);
-  const [batches, setBatches] = useState<PickBatch[]>([]);
   const [view, setView] = useState<"tasks" | "batches">("tasks");
   const [scanValue, setScanValue] = useState("");
   const [showManual, setShowManual] = useState(false);
@@ -32,15 +47,16 @@ export function Picking() {
 
   const [isLoading, setIsLoading] = useState(true);
 
+  const { items: pagedBatches, allItems: batches, pagination, page, setPage, reload } = usePaginatedList<PickBatch>(
+    batchesListService,
+    { limit: 10 }
+  );
+
   async function loadData() {
     try {
       setIsLoading(true);
-      const [tasksData, batchesData] = await Promise.all([
-        pickingService.getAll(),
-        pickingService.getBatches()
-      ]);
+      const tasksData = await pickingService.getAll();
       setTasks(tasksData.map((d: any) => ({ ...d, id: d.taskId || d._id })));
-      setBatches(batchesData.map((d: any) => ({ ...d, id: d.batchId || d._id })));
     } catch (err) {
       toast.error("Failed to load pick tasks");
     } finally {
@@ -225,8 +241,9 @@ export function Picking() {
         ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {batches.map((batch, i) => (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {pagedBatches.map((batch, i) => (
             <div key={batch.id} className="bg-card border border-border rounded-xl p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -253,6 +270,8 @@ export function Picking() {
             </div>
           ))}
           {batches.length === 0 && <div className="col-span-full border-2 border-dashed border-border rounded-xl p-8 text-center text-sm text-muted-foreground">No pick batches created yet.</div>}
+          </div>
+          <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
       )}
 

@@ -3,41 +3,54 @@ import { Undo2, Search, AlertTriangle, Clock, DollarSign, FileText } from "lucid
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
+import type { ListService } from "../../hooks/usePaginatedList";
 import { returnsService } from "../../services/returns.service";
 import { warehousesService } from "../../services/warehouses.service";
 
 type ReturnItem = { _id: string; id: string; order: string; customer: string; reason: string; items: number; amount: number; status: string; date: string; warehouse: string; returnId?: string; items_details?: any[] };
 
+function mapReturn(d: Record<string, unknown>): ReturnItem {
+  return {
+    ...(d as ReturnItem),
+    id: (d.returnId as string) || (d._id as string),
+    date: (d.date as string)?.slice(0, 10) || "—",
+  };
+}
+
+const returnsListService: ListService<ReturnItem> = {
+  getAll: async (params) => {
+    const data = await returnsService.getAll(params);
+    return data.map((d: any) => mapReturn(d));
+  },
+  getPage: async (params) => {
+    const result = await returnsService.getPage(params);
+    return { data: result.data.map((d: any) => mapReturn(d)), pagination: result.pagination };
+  },
+};
+
 export function Returns() {
   const { t } = useLang();
-  const [returnList, setReturnList] = useState<ReturnItem[]>([]);
   const [activeReturn, setActiveReturn] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
   const [warehouses, setWarehouses] = useState<any[]>([]);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const searchLower = search.toLowerCase();
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const [data, whs] = await Promise.all([
-        returnsService.getAll(),
-        warehousesService.getAll()
-      ]);
-      setReturnList(data.map((d: any) => ({ ...d, id: d.returnId || d._id, date: d.date?.slice(0, 10) || "—" })));
-      setWarehouses(whs);
-    } catch (err) {
-      toast.error("Failed to load returns");
-    } finally {
-      setIsLoading(false);
+  const { items: filtered, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<ReturnItem>(
+    returnsListService,
+    {
+      apiParams: { search: searchLower || undefined },
+      deps: [search],
     }
-  }
+  );
 
   useEffect(() => {
-    loadData();
+    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error("Failed to load warehouses"));
   }, []);
 
   // Listen for header button CustomEvent
@@ -49,14 +62,14 @@ export function Returns() {
 
   async function handleCreate() {
     if (!form.order || !form.customer) { toast.error("Order and customer required."); return; }
-    const id = `RET-${String(returnList.length + 42).padStart(4, "0")}`;
+    const id = `RET-${String(allItems.length + 42).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
     try {
       await returnsService.create({ ...form, returnId: id, status: "pending", date: today });
       toast.success(`Return ${id} created.`);
       setShowAdd(false);
       setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to create return"); }
   }
 
@@ -64,7 +77,7 @@ export function Returns() {
     try {
       await returnsService.update(ret._id, { status: "processing" });
       toast.info(`Return ${ret.id} is now processing.`);
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to update status"); }
   }
 
@@ -72,7 +85,7 @@ export function Returns() {
     try {
       await returnsService.update(ret._id, { status: "refunded" });
       toast.success(`Return ${ret.id} refunded successfully.`);
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to process refund"); }
   }
 
@@ -94,7 +107,7 @@ export function Returns() {
       await returnsService.update(ret._id, { items_details });
       toast.success(`QC recorded for ${skuInput.value}`);
       skuInput.value = ""; qtyInput.value = "";
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to record returned item");
     }
@@ -119,20 +132,16 @@ export function Returns() {
     }
   }
 
-  const filtered = returnList.filter((r) =>
-    (r.id || "").toLowerCase().includes(search.toLowerCase()) || (r.customer || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  const totalRefunded = returnList.filter((r) => r.status === "refunded").reduce((a, r) => a + r.amount, 0);
+  const totalRefunded = allItems.filter((r) => r.status === "refunded").reduce((a, r) => a + r.amount, 0);
 
   return (
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.returns.totalReturns, value: returnList.length, icon: Undo2, color: "text-primary" },
-          { label: t.common.status, value: returnList.filter((r) => r.status === "pending").length, icon: Clock, color: "text-warning" },
-          { label: t.status.processing, value: returnList.filter((r) => r.status === "processing").length, icon: AlertTriangle, color: "text-info" },
+          { label: t.returns.totalReturns, value: allItems.length, icon: Undo2, color: "text-primary" },
+          { label: t.common.status, value: allItems.filter((r) => r.status === "pending").length, icon: Clock, color: "text-warning" },
+          { label: t.status.processing, value: allItems.filter((r) => r.status === "processing").length, icon: AlertTriangle, color: "text-info" },
           { label: t.returns.totalRefunded, value: `€${totalRefunded.toFixed(0)}`, icon: DollarSign, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
@@ -242,6 +251,7 @@ export function Returns() {
             ))}
           </tbody>
         </table>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.returns.createReturn} subtitle="Register a customer return" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.returns.createReturn}</ModalSubmit></>}>

@@ -59,10 +59,10 @@ export function Modal({ open, onClose, title, subtitle, children, footer, width 
 }
 
 /* ── Form helpers ── */
-interface FieldProps { label: string; required?: boolean; children: ReactNode; hint?: string }
-export function Field({ label, required, children, hint }: FieldProps) {
+interface FieldProps { label: string; required?: boolean; children: ReactNode; hint?: string; className?: string }
+export function Field({ label, required, children, hint, className }: FieldProps) {
   return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${className ?? ""}`}>
       <label className="text-sm font-semibold text-foreground">
         {label}{required && <span className="text-destructive ml-0.5">*</span>}
       </label>

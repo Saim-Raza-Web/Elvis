@@ -5,6 +5,10 @@ export const settingsService = {
     const response = await api.get('/settings');
     return response.data;
   },
+  getUsage: async () => {
+    const response = await api.get('/settings/usage');
+    return response.data;
+  },
   updateCompanySettings: async (data: any) => {
     const response = await api.put('/settings', data);
     return response.data;

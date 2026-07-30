@@ -1,26 +1,27 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
+import { buildListFilter } from '../utils/listFilters.js';
 import Model from '../models/Order.js';
 import PickTask from '../models/PickTask.js';
+import Notification from '../models/Notification.js';
 
 const router = express.Router();
 
 router.use(protect); // Secure all routes by default
 
+const requireOpsRole = requireRole('admin', 'manager');
+
 // GET all
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company }).populate('store_id', 'name');
-    const mapped = items.map(item => {
-      const doc = item.toJSON();
-      if (doc.store_id) {
-        doc.store_name = doc.store_id.name;
-        doc.store_id = doc.store_id._id;
-      }
-      return doc;
+    const filter = buildListFilter({ company: req.user.company }, req, {
+      searchFields: ['orderId', 'customer', 'email'],
+      exact: { status: 'status' },
     });
-    res.json(mapped);
+    const result = await paginateQuery(Model, filter, req, { populate: 'store_id' });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -39,7 +40,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE
-router.post('/', async (req, res, next) => {
+router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -47,6 +48,15 @@ router.post('/', async (req, res, next) => {
       data.orderId = 'ORD-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
     }
     const item = await Model.create(data);
+    
+    // Emit notification
+    await Notification.create({
+      company: req.user.company,
+      kind: 'info',
+      title: 'New Order Created',
+      body: `Order ${item.orderId} was created for ${item.customer}`
+    });
+
     res.status(201).json(item);
   } catch (err) {
     next(err);
@@ -54,7 +64,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // UPDATE
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndUpdate(
@@ -70,7 +80,7 @@ router.put('/:id', async (req, res, next) => {
 });
 
 // RELEASE to Fulfillment
-router.post('/:id/release', async (req, res, next) => {
+router.post('/:id/release', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     
@@ -101,7 +111,7 @@ router.post('/:id/release', async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });

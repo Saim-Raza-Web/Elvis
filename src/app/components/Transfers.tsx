@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowRightLeft, Plus, Search, MapPin, Package, CheckCircle2, Clock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
+import type { ListService } from "../../hooks/usePaginatedList";
 import { transfersService } from "../../services/transfers.service";
 import { warehousesService } from "../../services/warehouses.service";
 
@@ -18,35 +19,42 @@ const typeColor: Record<string, string> = {
 
 const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "MIA", from_loc: "", to_wh: "LAX", to_loc: "", type: "transfer", requestedBy: "Admin" });
 
+function mapTransfer(d: Record<string, unknown>): Transfer {
+  return { ...(d as Transfer), id: (d.transferId as string) || (d._id as string) };
+}
+
+const transfersListService: ListService<Transfer> = {
+  getAll: async (params) => (await transfersService.getAll(params)).map(mapTransfer),
+  getPage: async (params) => {
+    const result = await transfersService.getPage(params);
+    return { data: result.data.map(mapTransfer), pagination: result.pagination };
+  },
+};
+
 export function Transfers() {
   const { t } = useLang();
-  const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankTransfer());
 
-  const [isLoading, setIsLoading] = useState(true);
+  const searchLower = search.toLowerCase();
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const [data, whs] = await Promise.all([
-        transfersService.getAll(),
-        warehousesService.getAll()
-      ]);
-      setTransfers(data.map((d: any) => ({ ...d, id: d.transferId || d._id })));
-      setWarehouses(whs);
-    } catch (err) {
-      toast.error("Failed to load data");
-    } finally {
-      setIsLoading(false);
+  const { items: transfers, allItems, pagination, page, setPage, reload } = usePaginatedList<Transfer>(
+    transfersListService,
+    {
+      apiParams: {
+        search: searchLower || undefined,
+        status: filter !== "All" && ["pending", "in_progress", "completed"].includes(filter) ? filter : undefined,
+        type: filter !== "All" && filter.toLowerCase() === "replenishment" ? "replenishment" : filter !== "All" && filter.toLowerCase() === "transfer" ? "transfer" : undefined,
+      },
+      deps: [search, filter],
     }
-  }
+  );
 
   useEffect(() => {
-    loadData();
+    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error("Failed to load warehouses"));
   }, []);
 
   // Listen for header button CustomEvent
@@ -58,14 +66,14 @@ export function Transfers() {
 
   async function handleCreate() {
     if (!form.sku || !form.from_loc || !form.to_loc) { toast.error("SKU and locations are required."); return; }
-    const id = `TRF-${String(transfers.length + 85).padStart(4, "0")}`;
+    const id = `TRF-${String(allItems.length + 85).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
     try {
       await transfersService.create({ ...form, transferId: id, status: "pending", date: today });
       toast.success(`${t.transfers.transferCreated}: ${id}.`);
       setShowAdd(false);
       setForm(blankTransfer());
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to create transfer"); }
   }
 
@@ -73,7 +81,7 @@ export function Transfers() {
     try {
       await transfersService.update(trf._id, { status: "in_progress" });
       toast.info(`${t.transfers.transferStarted}: ${trf.id}.`);
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to start transfer"); }
   }
 
@@ -81,18 +89,13 @@ export function Transfers() {
     try {
       await transfersService.update(trf._id, { status: "completed" });
       toast.success(`${t.transfers.transferCompleted}: ${trf.id}.`);
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to complete transfer"); }
   }
 
-  const filtered = transfers.filter((tr) => {
-    const matchSearch = (tr.id || "").toLowerCase().includes(search.toLowerCase()) || (tr.product || "").toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === "All" || tr.status === filter || tr.type === filter.toLowerCase();
-    return matchSearch && matchFilter;
-  });
-
-  const pending = transfers.filter((tr) => tr.status === "pending").length;
-  const inProgress = transfers.filter((tr) => tr.status === "in_progress").length;
+  const pending = allItems.filter((tr) => tr.status === "pending").length;
+  const inProgress = allItems.filter((tr) => tr.status === "in_progress").length;
+  const completedToday = allItems.filter((tr) => tr.status === "completed").length;
 
   return (
     <div className="space-y-6">
@@ -101,7 +104,7 @@ export function Transfers() {
         {[
           { label: t.transfers.pendingTransfers, value: pending, icon: Clock, color: "text-warning" },
           { label: "In progress", value: inProgress, icon: ArrowRightLeft, color: "text-primary" },
-          { label: t.transfers.completedToday, value: 2, icon: CheckCircle2, color: "text-success" },
+          { label: t.transfers.completedToday, value: completedToday, icon: CheckCircle2, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -126,7 +129,7 @@ export function Transfers() {
 
       {/* Transfer cards */}
       <div className="space-y-3">
-        {filtered.map((tr, i) => (
+        {transfers.map((tr, i) => (
           <div key={tr.id} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-3">
@@ -171,6 +174,7 @@ export function Transfers() {
           </div>
         ))}
       </div>
+      <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       {/* New Transfer Modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.transfers.newTransfer} subtitle="Move stock between locations" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.transfers.newTransfer}</ModalSubmit></>}>
         <Row>

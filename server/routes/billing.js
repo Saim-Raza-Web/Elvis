@@ -1,17 +1,24 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, requireRole } from '../middleware/auth.js';
+import { paginateQuery } from '../utils/pagination.js';
+import { buildListFilter } from '../utils/listFilters.js';
 import Model from '../models/Invoice.js';
 
 const router = express.Router();
 
-router.use(protect); // Secure all routes by default
+router.use(protect);
+router.use(requireRole('admin', 'manager'));
 
 // GET all
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const items = await Model.find({ company: req.user.company });
-    res.json(items);
+    const filter = buildListFilter({ company: req.user.company }, req, {
+      searchFields: ['invoiceId', 'customer'],
+      exact: { status: 'status' },
+    });
+    const result = await paginateQuery(Model, filter, req);
+    res.json(result);
   } catch (err) {
     next(err);
   }

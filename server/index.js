@@ -4,6 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { protect, requireModuleAccess } from './middleware/auth.js';
+import { ROUTE_MODULE_MAP } from './config/permissions.js';
 
 // Load environment variables
 dotenv.config();
@@ -77,38 +79,52 @@ import asnRoutes from './routes/asn.js';
 import leadsRoutes from './routes/leads.js';
 import carrierRulesRoutes from './routes/carrier_rules.js';
 import incidentsRoutes from './routes/incidents.js';
+import zonesRoutes from './routes/zones.js';
 import storageRulesRoutes from './routes/storage_rules.js';
 import stockCountsRoutes from './routes/stock_counts.js';
 import documentsRoutes from './routes/documents.js';
+import notificationsRoutes from './routes/notifications.js';
+
+function mountModuleRoute(path, router) {
+  const segment = path.replace('/api/v1/', '');
+  const module = ROUTE_MODULE_MAP[segment];
+  if (module) {
+    app.use(path, protect, requireModuleAccess(module), router);
+  } else {
+    app.use(path, router);
+  }
+}
 
 app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/warehouses', warehousesRoutes);
-app.use('/api/v1/locations', locationsRoutes);
-app.use('/api/v1/inventory', inventoryRoutes);
-app.use('/api/v1/receiving', receivingRoutes);
-app.use('/api/v1/asn', asnRoutes);
-app.use('/api/v1/transfers', transfersRoutes);
-app.use('/api/v1/picking', pickingRoutes);
-app.use('/api/v1/packing', packingRoutes);
-app.use('/api/v1/orders', ordersRoutes);
-app.use('/api/v1/ecommerce', ecommerceRoutes);
-app.use('/api/v1/shipping', shippingRoutes);
-app.use('/api/v1/carriers', carriersRoutes);
-app.use('/api/v1/returns', returnsRoutes);
-app.use('/api/v1/crm', crmRoutes);
-app.use('/api/v1/billing', billingRoutes);
-app.use('/api/v1/accounting', accountingRoutes);
-app.use('/api/v1/reports', reportsRoutes);
-app.use('/api/v1/settings', settingsRoutes);
-app.use('/api/v1/activity', activityRoutes);
-app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1/incidents', incidentsRoutes);
-app.use('/api/v1/dashboard', dashboardRoutes);
-app.use('/api/v1/leads', leadsRoutes);
-app.use('/api/v1/carrier-rules', carrierRulesRoutes);
-app.use('/api/v1/storage-rules', storageRulesRoutes);
-app.use('/api/v1/stock-counts', stockCountsRoutes);
-app.use('/api/v1/documents', documentsRoutes);
+mountModuleRoute('/api/v1/warehouses', warehousesRoutes);
+mountModuleRoute('/api/v1/locations', locationsRoutes);
+mountModuleRoute('/api/v1/inventory', inventoryRoutes);
+mountModuleRoute('/api/v1/receiving', receivingRoutes);
+mountModuleRoute('/api/v1/asn', asnRoutes);
+mountModuleRoute('/api/v1/transfers', transfersRoutes);
+mountModuleRoute('/api/v1/picking', pickingRoutes);
+mountModuleRoute('/api/v1/packing', packingRoutes);
+mountModuleRoute('/api/v1/orders', ordersRoutes);
+mountModuleRoute('/api/v1/ecommerce', ecommerceRoutes);
+mountModuleRoute('/api/v1/shipping', shippingRoutes);
+mountModuleRoute('/api/v1/carriers', carriersRoutes);
+mountModuleRoute('/api/v1/returns', returnsRoutes);
+mountModuleRoute('/api/v1/crm', crmRoutes);
+mountModuleRoute('/api/v1/billing', billingRoutes);
+mountModuleRoute('/api/v1/accounting', accountingRoutes);
+mountModuleRoute('/api/v1/reports', reportsRoutes);
+mountModuleRoute('/api/v1/settings', settingsRoutes);
+mountModuleRoute('/api/v1/activity', activityRoutes);
+mountModuleRoute('/api/v1/admin', adminRoutes);
+mountModuleRoute('/api/v1/incidents', incidentsRoutes);
+mountModuleRoute('/api/v1/dashboard', dashboardRoutes);
+mountModuleRoute('/api/v1/leads', leadsRoutes);
+mountModuleRoute('/api/v1/carrier-rules', carrierRulesRoutes);
+mountModuleRoute('/api/v1/zones', zonesRoutes);
+mountModuleRoute('/api/v1/storage-rules', storageRulesRoutes);
+mountModuleRoute('/api/v1/stock-counts', stockCountsRoutes);
+mountModuleRoute('/api/v1/documents', documentsRoutes);
+mountModuleRoute('/api/v1/notifications', notificationsRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

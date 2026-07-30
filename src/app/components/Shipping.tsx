@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Truck, Search, MapPin, Package, Clock, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
+import type { ListService } from "../../hooks/usePaginatedList";
 import { shippingService } from "../../services/shipping.service";
 import { warehousesService } from "../../services/warehouses.service";
 
@@ -15,35 +16,46 @@ const carriers = ["All", "FedEx", "UPS", "DHL", "USPS", "LTL Freight"];
 
 const blankShipment = () => ({ order: "", customer: "", carrier: "FedEx", origin: "MIA", destination: "", weight: "", eta: "", shipment_type: "Parcel", pallets_count: 0 });
 
+function mapShipment(d: Record<string, unknown>): Shipment {
+  return {
+    ...(d as Shipment),
+    id: (d.shipmentId as string) || (d._id as string),
+    date: (d.date as string)?.slice(0, 10) || "—",
+    eta: (d.eta as string)?.slice(0, 10) || "—",
+  };
+}
+
+const shippingListService: ListService<Shipment> = {
+  getAll: async (params) => (await shippingService.getAll(params)).map(mapShipment),
+  getPage: async (params) => {
+    const result = await shippingService.getPage(params);
+    return { data: result.data.map(mapShipment), pagination: result.pagination };
+  },
+};
+
 export function Shipping() {
   const { t } = useLang();
-  const [shipmentList, setShipmentList] = useState<Shipment[]>([]);
   const [search, setSearch] = useState("");
   const [carrier, setCarrier] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blankShipment());
   const [warehouses, setWarehouses] = useState<any[]>([]);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const searchLower = search.toLowerCase();
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const [data, whs] = await Promise.all([
-        shippingService.getAll(),
-        warehousesService.getAll()
-      ]);
-      setShipmentList(data.map((d: any) => ({ ...d, id: d.shipmentId || d._id, date: d.date?.slice(0, 10) || "—", eta: d.eta?.slice(0, 10) || "—" })));
-      setWarehouses(whs);
-    } catch (err) {
-      toast.error("Failed to load shipments");
-    } finally {
-      setIsLoading(false);
+  const { items: shipmentList, allItems, pagination, page, setPage, reload } = usePaginatedList<Shipment>(
+    shippingListService,
+    {
+      apiParams: {
+        search: searchLower || undefined,
+        carrier: carrier !== "All" ? carrier : undefined,
+      },
+      deps: [search, carrier],
     }
-  }
+  );
 
   useEffect(() => {
-    loadData();
+    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error("Failed to load warehouses"));
   }, []);
 
   // Listen for header button CustomEvent
@@ -55,14 +67,14 @@ export function Shipping() {
 
   async function handleCreate() {
     if (!form.order || !form.destination) { toast.error("Order and destination are required."); return; }
-    const id = `SHP-${String(shipmentList.length + 431).padStart(4, "0")}`;
+    const id = `SHP-${String(allItems.length + 431).padStart(4, "0")}`;
     const tracking = Math.random().toString().slice(2, 20);
     try {
       await shippingService.create({ ...form, shipmentId: id, tracking, status: "processing", weight: form.weight || "—", date: new Date().toISOString().slice(0, 10), eta: form.eta || "TBD", shipment_type: form.shipment_type, pallets_count: Number(form.pallets_count) });
       toast.success(`${t.shipping.shipmentCreated}: ${id}`);
       setShowAdd(false);
       setForm(blankShipment());
-      loadData();
+      reload();
     } catch (err) { toast.error("Failed to create shipment"); }
   }
 
@@ -71,21 +83,15 @@ export function Shipping() {
       const newStatus = s.status === "processing" ? "in_transit" : "delivered";
       await shippingService.update(s._id, { status: newStatus });
       toast.success(`Shipment ${s.id} is now ${newStatus.replace("_", " ")}.`);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to update shipment status");
     }
   }
 
-  const filtered = shipmentList.filter((s) => {
-    const matchSearch = (s.id || "").toLowerCase().includes(search.toLowerCase()) || (s.customer || "").toLowerCase().includes(search.toLowerCase()) || (s.tracking || "").includes(search);
-    const matchCarrier = carrier === "All" || s.carrier === carrier;
-    return matchSearch && matchCarrier;
-  });
-
-  const inTransit = shipmentList.filter((s) => s.status === "in_transit").length;
-  const delivered = shipmentList.filter((s) => s.status === "delivered").length;
-  const processing = shipmentList.filter((s) => s.status === "processing").length;
+  const inTransit = allItems.filter((s) => s.status === "in_transit").length;
+  const delivered = allItems.filter((s) => s.status === "delivered").length;
+  const processing = allItems.filter((s) => s.status === "processing").length;
 
   return (
     <div className="space-y-6">
@@ -134,7 +140,7 @@ export function Shipping() {
 
       {/* Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filtered.map((s, i) => (
+        {shipmentList.map((s, i) => (
           <div key={s.id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-start justify-between mb-3">
               <div>
@@ -186,6 +192,7 @@ export function Shipping() {
           </div>
         ))}
       </div>
+      <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.shipping.newShipment} subtitle="Create a shipment and assign carrier" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.common.create}</ModalSubmit></>}>
         <Row>

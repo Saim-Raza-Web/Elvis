@@ -1,39 +1,20 @@
 import { useEffect, useState } from "react";
-import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus } from "lucide-react";
+import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X } from "lucide-react";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
 import { settingsService } from "../../services/settings.service";
+import { authService } from "../../services/auth.service";
 import { toast } from "sonner";
+import { ROLE_DEFINITIONS, PERMISSION_MODULES } from "../../utils/permissions";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
 
 const settingsTabIds = ["general", "notifications", "security", "team", "roles", "api"] as const;
 const settingsTabIcons = [Settings2, Bell, Shield, Users, LockKeyhole, Key];
 
-const roles = [
-  {
-    id: "owner", name: "Owner", description: "Full access to all features and settings", users: 1, color: "text-primary bg-primary/10",
-    permissions: { dashboard: true, warehouses: true, inventory: true, orders: true, billing: true, reports: true, settings: true, admin: true },
-  },
-  {
-    id: "admin", name: "Admin", description: "Can manage all operations except billing and subscription", users: 1, color: "text-amber-500 bg-amber-500/10",
-    permissions: { dashboard: true, warehouses: true, inventory: true, orders: true, billing: false, reports: true, settings: true, admin: false },
-  },
-  {
-    id: "manager", name: "Manager", description: "Can manage warehouse operations and view reports", users: 2, color: "text-blue-500 bg-blue-500/10",
-    permissions: { dashboard: true, warehouses: true, inventory: true, orders: true, billing: false, reports: true, settings: false, admin: false },
-  },
-  {
-    id: "staff", name: "Warehouse Staff", description: "Can perform picking, packing, receiving operations", users: 4, color: "text-success bg-success/10",
-    permissions: { dashboard: true, warehouses: false, inventory: true, orders: false, billing: false, reports: false, settings: false, admin: false },
-  },
-  {
-    id: "readonly", name: "Read-only", description: "View-only access to dashboards and reports", users: 2, color: "text-muted-foreground bg-secondary",
-    permissions: { dashboard: true, warehouses: false, inventory: false, orders: false, billing: false, reports: true, settings: false, admin: false },
-  },
-];
+const roles = ROLE_DEFINITIONS;
 
-const permissionModules = ["dashboard", "warehouses", "inventory", "orders", "billing", "reports", "settings", "admin"] as const;
+const permissionModules = PERMISSION_MODULES;
 
 
 
@@ -58,6 +39,18 @@ export function Settings() {
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [keys, setKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+  // Invite modal state
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState("warehouse_staff");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   async function loadSettings() {
     try {
@@ -103,6 +96,55 @@ export function Settings() {
       toast.success("Notification preferences updated.");
     } catch (err) {
       toast.error("Failed to update preferences");
+    }
+  }
+
+  async function handleUpdatePassword() {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error("Please fill in all password fields."); return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match."); return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters."); return;
+    }
+    try {
+      setPwLoading(true);
+      await authService.changePassword(currentPassword, newPassword);
+      toast.success("Password updated successfully.");
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to update password.");
+    } finally {
+      setPwLoading(false);
+    }
+  }
+
+  async function handleInviteMember() {
+    if (!inviteEmail || !invitePassword) { toast.error("Email and password are required."); return; }
+    try {
+      setInviteLoading(true);
+      await adminService.inviteUser({ email: inviteEmail, name: inviteName, password: invitePassword, role: inviteRole });
+      toast.success(`${inviteEmail} has been invited.`);
+      setShowInvite(false); setInviteEmail(""); setInviteName(""); setInvitePassword(""); setInviteRole("warehouse_staff");
+      const data = await adminService.getUsers();
+      setTeamMembers(data);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to invite member.");
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
+  async function handleRemoveMember(id: string) {
+    if (!confirm("Remove this team member? They will lose access immediately.")) return;
+    try {
+      await adminService.deleteUser(id);
+      setTeamMembers(prev => prev.filter(m => m._id !== id));
+      toast.success("Team member removed.");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to remove member.");
     }
   }
 
@@ -249,16 +291,22 @@ export function Settings() {
         {activeTab === "security" && (
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-card p-6">
-              <h3 className="font-bold mb-4">Password</h3>
+              <h3 className="font-bold mb-4">Change Password</h3>
               <div className="space-y-3 max-w-sm">
-                {["Current password", "New password", "Confirm new password"].map((label) => (
-                  <div key={label}>
-                    <label className="text-sm font-medium mb-1.5 block">{label}</label>
-                    <input type="password" placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
-                  </div>
-                ))}
-                <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all mt-2">
-                  <Shield className="size-4" /> Update password
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Current password</label>
+                  <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">New password</label>
+                  <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Confirm new password</label>
+                  <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+                </div>
+                <button onClick={handleUpdatePassword} disabled={pwLoading} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all mt-2 disabled:opacity-50">
+                  <Shield className="size-4" /> {pwLoading ? "Updating…" : "Update password"}
                 </button>
               </div>
             </div>
@@ -271,49 +319,95 @@ export function Settings() {
         )}
 
         {activeTab === "team" && (
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <h3 className="font-bold">Team Members</h3>
-              <button className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
-                <Users className="size-3.5" /> Invite member
-              </button>
+          <div className="space-y-4">
+            {/* Invite Modal */}
+            {showInvite && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowInvite(false)}>
+                <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg">Invite Team Member</h3>
+                    <button onClick={() => setShowInvite(false)} className="p-1 rounded-lg hover:bg-secondary transition-colors"><X className="size-4" /></button>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Email *</label>
+                      <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} type="email" placeholder="colleague@company.com" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Full Name</label>
+                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="John Smith" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Temporary Password *</label>
+                      <input value={invitePassword} onChange={e => setInvitePassword(e.target.value)} type="password" placeholder="Min 6 characters" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Role</label>
+                      <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm">
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                        <option value="warehouse_staff">Warehouse Staff</option>
+                        <option value="readonly">Read-only</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end pt-2">
+                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">Cancel</button>
+                    <button onClick={handleInviteMember} disabled={inviteLoading} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50">
+                      {inviteLoading ? "Inviting…" : "Add Member"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <h3 className="font-bold">Team Members</h3>
+                <button onClick={() => setShowInvite(true)} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
+                  <Users className="size-3.5" /> Invite member
+                </button>
+              </div>
+              {teamMembers.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground">No team members found.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-secondary/50 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-4 py-3">Member</th>
+                      <th className="text-left px-4 py-3 hidden sm:table-cell">Role</th>
+                      <th className="text-left px-4 py-3 hidden md:table-cell">Joined</th>
+                      <th className="text-right px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamMembers.map((m, i) => (
+                      <tr key={m._id} className="border-t border-border animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="size-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground">
+                              {(m.name || m.email).slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-medium">{m.name || m.email}</div>
+                              <div className="text-xs text-muted-foreground">{m.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 hidden sm:table-cell">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                            m.role === "admin" ? "bg-primary/15 text-primary" : m.role === "manager" ? "bg-amber-500/15 text-amber-500" : "bg-secondary text-muted-foreground"
+                          }`}>{m.role}</span>
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell text-xs text-muted-foreground">{m.createdAt?.slice(0, 10)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleRemoveMember(m._id)} className="text-xs text-muted-foreground hover:text-destructive transition-colors">Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="text-left px-4 py-3">Member</th>
-                  <th className="text-left px-4 py-3 hidden sm:table-cell">Role</th>
-                  <th className="text-left px-4 py-3 hidden md:table-cell">Joined</th>
-                  <th className="text-right px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamMembers.map((m, i) => (
-                  <tr key={m.email} className="border-t border-border animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="size-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold text-primary-foreground">
-                          {m.name.split(" ").map((n) => n[0]).join("")}
-                        </div>
-                        <div>
-                          <div className="font-medium">{m.name}</div>
-                          <div className="text-xs text-muted-foreground">{m.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${m.role === "OWNER" ? "bg-primary/15 text-primary" : m.role === "ADMIN" ? "bg-amber-500/15 text-amber-500" : "bg-secondary text-muted-foreground"}`}>{m.role}</span>
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell text-xs text-muted-foreground">{m.createdAt?.slice(0, 10)}</td>
-                    <td className="px-4 py-3 text-right">
-                      {m.role !== "OWNER" && (
-                        <button className="text-xs text-muted-foreground hover:text-destructive transition-colors">Remove</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         )}
 
@@ -346,7 +440,7 @@ export function Settings() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${role.color}`}>{role.name}</span>
-                            <span className="text-xs text-muted-foreground hidden lg:block">{role.users} user{role.users !== 1 ? "s" : ""}</span>
+                            <span className="text-xs text-muted-foreground hidden lg:block">{teamMembers.filter((m) => m.role === role.id).length} user{teamMembers.filter((m) => m.role === role.id).length !== 1 ? "s" : ""}</span>
                           </div>
                           <div className="text-[10px] text-muted-foreground mt-0.5 hidden md:block">{role.description}</div>
                         </td>
@@ -361,8 +455,8 @@ export function Settings() {
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title="View"><Eye className="size-3.5" /></button>
-                            {role.id !== "owner" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title="Edit"><Pencil className="size-3.5" /></button>}
-                            {role.id !== "owner" && role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="size-3.5" /></button>}
+                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title="Edit"><Pencil className="size-3.5" /></button>}
+                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="size-3.5" /></button>}
                           </div>
                         </td>
                       </tr>

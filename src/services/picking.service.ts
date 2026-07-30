@@ -1,10 +1,9 @@
 import api from './api';
+import { fetchList, fetchPaginated, unwrapList } from './listApi';
 
 export const pickingService = {
-  getAll: async (params = {}) => {
-    const response = await api.get('/picking', { params });
-    return response.data;
-  },
+  getAll: async (params = {}) => fetchList('/picking', params),
+  getPage: async (params = {}) => fetchPaginated('/picking', params),
   getById: async (id: string) => {
     const response = await api.get('/picking/' + id);
     return response.data;
@@ -22,9 +21,10 @@ export const pickingService = {
     return response.data;
   },
   getBatches: async (params = {}) => {
-    const response = await api.get('/picking/batches', { params });
-    return response.data;
+    const response = await api.get('/picking/batches', { params: { ...params, all: true } });
+    return unwrapList(response.data);
   },
+  getBatchesPage: async (params = {}) => fetchPaginated('/picking/batches', params),
   createBatch: async (data: any) => {
     const response = await api.post('/picking/batches', data);
     return response.data;

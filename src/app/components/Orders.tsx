@@ -1,15 +1,16 @@
-import { useState } from "react";
-import { ShoppingCart, Plus, Search, Eye, Package, FileText } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ShoppingCart, Plus, Search, Eye, Package, FileText, Download } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
+import { usePaginatedList } from "../../hooks/usePaginatedList";
+import type { ListService } from "../../hooks/usePaginatedList";
 import { ordersService } from "../../services/orders.service";
 import { warehousesService } from "../../services/warehouses.service";
-
 import { ecommerceService } from "../../services/ecommerce.service";
+import { exportToCSV } from "../../lib/csvExport";
 
 type Order = { _id: string; orderId: string; customer: string; email: string; channel: string; warehouse: string; items: number; total: number; status: string; date: string; notes: string; order_type?: string; store_id?: string; store_name?: string };
 
@@ -17,39 +18,49 @@ const statusFilters = ["All", "pending", "processing", "shipped", "delivered", "
 
 const blankOrder = () => ({ customer: "", email: "", channel: "web", warehouse: "MIA", items: 1, total: 0, notes: "", order_type: "B2C", store_id: "" });
 
+const ordersListService: ListService<Order> = {
+  getAll: (params) => ordersService.getAll(params),
+  getPage: (params) => ordersService.getPage(params),
+};
+
 export function Orders() {
   const { t } = useLang();
-  const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Order | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [form, setForm] = useState(blankOrder());
-  const [isLoading, setIsLoading] = useState(true);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
 
-  async function loadData() {
-    try {
-      setIsLoading(true);
-      const [data, whs, ecom] = await Promise.all([
-        ordersService.getAll(),
-        warehousesService.getAll(),
-        ecommerceService.getAll()
-      ]);
-      setOrders(data);
-      setWarehouses(whs);
-      setStores(ecom);
-    } catch (err) {
-      toast.error("Failed to load orders");
-    } finally {
-      setIsLoading(false);
+  const searchLower = search.toLowerCase();
+
+  const { items: orders, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<Order>(
+    ordersListService,
+    {
+      apiParams: {
+        search: searchLower || undefined,
+        status: statusFilter !== "All" ? statusFilter : undefined,
+      },
+      deps: [search, statusFilter],
     }
-  }
+  );
 
   useEffect(() => {
-    loadData();
+    async function loadMeta() {
+      try {
+        const [whs, ecom] = await Promise.all([
+          warehousesService.getAll({ all: true }),
+          ecommerceService.getAll({ all: true }),
+        ]);
+        setWarehouses(whs);
+        setStores(ecom);
+      } catch {
+        toast.error("Failed to load order metadata");
+      }
+    }
+    loadMeta();
   }, []);
 
   // Listen for header button CustomEvent
@@ -72,13 +83,13 @@ export function Orders() {
         toast.success(`Order updated for ${form.customer}.`);
         setEditTarget(null);
       } else {
-        const num = `ORD-${String(orders.length + 184).padStart(5, "0")}`;
+        const num = `ORD-${String(allItems.length + 184).padStart(5, "0")}`;
         const today = new Date().toISOString().slice(0, 10);
         await ordersService.create({ orderId: num, customer: form.customer, email: form.email, status: "pending", total: Number(form.total), items: Number(form.items), channel: form.channel, date: today, warehouse: form.warehouse, order_type: form.order_type, store_id: form.store_id || undefined });
         toast.success(`${t.orders.orderCreated}: ${num} for ${form.customer}.`);
         setShowAdd(false);
       }
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to save order");
     }
@@ -90,7 +101,7 @@ export function Orders() {
       await ordersService.delete(deleteTarget._id);
       toast.success(`Order deleted.`);
       setDeleteTarget(null);
-      loadData();
+      reload();
     } catch (err) {
       toast.error("Failed to delete order");
     }
@@ -102,7 +113,7 @@ export function Orders() {
       await ordersService.releaseOrder(editTarget._id);
       toast.success(`Order ${editTarget.orderId} released to fulfillment!`);
       setEditTarget(null);
-      loadData();
+      reload();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to release order");
     }
@@ -127,22 +138,16 @@ export function Orders() {
     }
   }
 
-  const filtered = orders.filter((o) => {
-    const matchSearch = (o.orderId || "").toLowerCase().includes(search.toLowerCase()) || (o.customer || "").toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === "All" || o.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
-
-  const totalRevenue = orders.reduce((a, o) => a + o.total, 0);
-  const pendingCount = orders.filter((o) => o.status === "pending").length;
-  const processingCount = orders.filter((o) => o.status === "processing").length;
+  const totalRevenue = allItems.reduce((a, o) => a + o.total, 0);
+  const pendingCount = allItems.filter((o) => o.status === "pending").length;
+  const processingCount = allItems.filter((o) => o.status === "processing").length;
 
   return (
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.orders.totalOrders, value: orders.length, icon: ShoppingCart, color: "text-primary" },
+          { label: t.orders.totalOrders, value: allItems.length, icon: ShoppingCart, color: "text-primary" },
           { label: t.orders.pending, value: pendingCount, icon: Package, color: "text-warning" },
           { label: t.orders.processing, value: processingCount, icon: Package, color: "text-blue-500" },
           { label: t.orders.totalRevenue, value: `€${(totalRevenue / 1000).toFixed(1)}k`, icon: Package, color: "text-success" },
@@ -180,6 +185,7 @@ export function Orders() {
             </button>
           ))}
         </div>
+        <button onClick={() => exportToCSV(allItems.map((o: any) => ({ ID: o.orderId, Customer: o.customer, Email: o.email, Channel: o.channel, Warehouse: o.warehouse, Date: o.date, Items: o.items, Total: o.total, Status: o.status })), 'orders')} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-secondary transition-colors"><Download className="size-4" />Export CSV</button>
         <PrimaryButton icon={Plus} onClick={() => { setForm(blankOrder()); setShowAdd(true); }}>{t.orders.newOrder}</PrimaryButton>
       </div>
 
@@ -200,7 +206,7 @@ export function Orders() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((o, i) => (
+            {orders.map((o, i) => (
               <tr key={o._id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
                 <td className="px-4 py-3 font-medium text-primary" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.875rem" }}>{o.orderId}</td>
                 <td className="px-4 py-3">
@@ -232,11 +238,12 @@ export function Orders() {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {orders.length === 0 && !isLoading && (
               <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">{t.common.noData}</td></tr>
             )}
           </tbody>
         </table>
+        <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
 
       {/* Add Modal */}
