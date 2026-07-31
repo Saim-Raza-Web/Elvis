@@ -75,13 +75,14 @@ export function Locations() {
         warehousesService.getAll(),
         zonesService.getAll({ warehouse: selectedWarehouse }),
         fetch(`/api/v1/storage-rules`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+          headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
         }).then(res => res.json())
       ]);
+      const whList = (whs || []) as any[];
       setZones((zonesData as Zone[]) || []);
-      setWarehouses(whs || []);
+      setWarehouses(whList);
       setRules((rulesData as any) || []);
-      if (whs && whs.length > 0 && !selectedWarehouse) setSelectedWarehouse(whs[0].code);
+      if (whList.length > 0 && !selectedWarehouse) setSelectedWarehouse(whList[0].code);
     } catch (err) {
       toast.error("Failed to load data");
     }
@@ -163,7 +164,7 @@ export function Locations() {
     if (!ruleForm.name || !ruleForm.conditionValue) return;
     try {
       const url = `/api/v1/storage-rules`;
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       if (editRuleTarget) {
         await fetch(`${url}/${editRuleTarget._id}`, {
           method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -187,7 +188,7 @@ export function Locations() {
     if (!deleteRuleTarget) return;
     try {
       await fetch(`/api/v1/storage-rules/${deleteRuleTarget._id}`, {
-        method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
       });
       toast.success(`Rule deleted.`);
       setDeleteRuleTarget(null);
