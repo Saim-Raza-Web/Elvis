@@ -323,8 +323,8 @@ export function QCWorkspace() {
         <Modal
           open={true}
           onClose={() => { if (!isSubmitting) setInspectTarget(null); }}
-          title={`QC Inspection: ${inspectTarget.inspectionId || inspectTarget.quarantineId}`}
-          subtitle={`SKU: ${inspectTarget.sku} (${inspectTarget.productName}) · Qty: ${inspectTarget.qty} units`}
+          title={`${t.qc.title}: ${inspectTarget.inspectionId || inspectTarget.quarantineId}`}
+          subtitle={`SKU: ${inspectTarget.sku} (${inspectTarget.productName}) · ${t.transfers.qty}: ${inspectTarget.qty} units`}
           width="xl"
           footer={
             <div className="flex items-center justify-between w-full">
@@ -333,7 +333,7 @@ export function QCWorkspace() {
                 onClick={() => setRtvTarget(inspectTarget)}
                 className="px-3.5 py-1.5 rounded-lg border border-purple-500/40 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 font-bold text-xs transition-all"
               >
-                Return To Vendor (RTV)
+                {t.qc.returnToVendor} (RTV)
               </button>
               <div className="flex gap-2">
                 <button
@@ -341,7 +341,7 @@ export function QCWorkspace() {
                   onClick={() => setFailTarget(inspectTarget)}
                   className="px-4 py-2 rounded-lg bg-destructive text-destructive-foreground font-bold text-xs hover:opacity-90 transition-all"
                 >
-                  Fail Inspection
+                  {t.qc.failInspection}
                 </button>
                 <button
                   type="button"
@@ -349,7 +349,7 @@ export function QCWorkspace() {
                   disabled={isSubmitting}
                   className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  <CheckCircle2 className="size-4" /> Pass & Release to Stock
+                  <CheckCircle2 className="size-4" /> {t.qc.passAndRelease}
                 </button>
               </div>
             </div>
@@ -359,11 +359,11 @@ export function QCWorkspace() {
             {/* Header info */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-secondary/30 p-3.5 rounded-xl border border-border">
               <div>
-                <span className="text-[10px] text-muted-foreground uppercase font-bold">ASN Number</span>
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">{t.putaway.asnId}</span>
                 <div className="font-mono font-bold text-foreground mt-0.5">{inspectTarget.asnId || inspectTarget.asnNumber}</div>
               </div>
               <div>
-                <span className="text-[10px] text-muted-foreground uppercase font-bold">Warehouse</span>
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">{t.common.warehouse}</span>
                 <div className="font-bold text-foreground mt-0.5">{inspectTarget.warehouse}</div>
               </div>
               <div>
@@ -378,16 +378,16 @@ export function QCWorkspace() {
 
             {/* Inspection Parameters Grid */}
             <div className="bg-secondary/20 p-4 rounded-xl border border-border space-y-3">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Quality Check Measurements & Parameters</h4>
+              <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">{t.qc.paramTitle}</h4>
               <Row>
-                <Field label="Packaging Condition">
+                <Field label={t.qc.pkgCondition}>
                   <Select value={form.packagingCondition} onChange={(e) => setForm(p => ({ ...p, packagingCondition: e.target.value }))}>
                     <option value="Good">Good / Intact</option>
                     <option value="Minor Damage">Minor Box Damage</option>
                     <option value="Severely Damaged">Severely Damaged</option>
                   </Select>
                 </Field>
-                <Field label="Product Condition">
+                <Field label={t.qc.prodCondition}>
                   <Select value={form.productCondition} onChange={(e) => setForm(p => ({ ...p, productCondition: e.target.value }))}>
                     <option value="Pass">Pass / Pristine</option>
                     <option value="Scratched">Scratched / Cosmetic Fault</option>
@@ -396,21 +396,21 @@ export function QCWorkspace() {
                 </Field>
               </Row>
               <Row>
-                <Field label="Temperature Reading">
+                <Field label={t.qc.tempReading}>
                   <Input value={form.temperature} onChange={(e) => setForm(p => ({ ...p, temperature: e.target.value }))} />
                 </Field>
-                <Field label="Humidity Level">
+                <Field label={t.qc.humidityLevel}>
                   <Input value={form.humidity} onChange={(e) => setForm(p => ({ ...p, humidity: e.target.value }))} />
                 </Field>
               </Row>
               <Row>
-                <Field label="Visual Inspection Result">
+                <Field label={t.qc.visualResult}>
                   <Select value={form.visualInspection} onChange={(e) => setForm(p => ({ ...p, visualInspection: e.target.value }))}>
                     <option value="Pass">Pass</option>
                     <option value="Fail">Fail</option>
                   </Select>
                 </Field>
-                <Field label="Functional Test Result">
+                <Field label={t.qc.functionalResult}>
                   <Select value={form.functionalTest} onChange={(e) => setForm(p => ({ ...p, functionalTest: e.target.value }))}>
                     <option value="Pass">Pass</option>
                     <option value="Fail">Fail</option>
@@ -418,8 +418,8 @@ export function QCWorkspace() {
                   </Select>
                 </Field>
               </Row>
-              <Field label="Inspector Notes & Comments">
-                <Input value={form.notes} onChange={(e) => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Verified barcode, seals intact..." />
+              <Field label={t.qc.inspectorComments}>
+                <Input value={form.notes} onChange={(e) => setForm(p => ({ ...p, notes: e.target.value }))} placeholder={t.qc.notesPlaceholder} />
               </Field>
             </div>
           </div>
@@ -431,7 +431,7 @@ export function QCWorkspace() {
         <Modal
           open={true}
           onClose={() => setFailTarget(null)}
-          title="Fail QC Inspection"
+          title={t.qc.failInspection}
           subtitle={`Flag SKU ${failTarget.sku} (${failTarget.qty} units) as QC Failed.`}
           footer={
             <div className="flex justify-end gap-2 w-full">
@@ -442,13 +442,13 @@ export function QCWorkspace() {
                 disabled={isSubmitting}
                 className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg font-bold text-xs"
               >
-                Confirm QC Failure
+                {t.qc.confirmFailTitle}
               </button>
             </div>
           }
         >
           <div className="space-y-3 text-xs">
-            <Field label="Reason for Failure *" required>
+            <Field label={`${t.qc.reasonForFailure} *`} required>
               <Select value={failReason} onChange={(e) => setFailReason(e.target.value)}>
                 <option value="Damaged Packaging & Visual Failure">Damaged Packaging & Visual Failure</option>
                 <option value="Expired or Invalid Expiry Date">Expired or Invalid Expiry Date</option>
@@ -466,7 +466,7 @@ export function QCWorkspace() {
         <Modal
           open={true}
           onClose={() => setRtvTarget(null)}
-          title="Return To Vendor (RTV) Authorization"
+          title={t.qc.returnToVendor}
           subtitle={`Remove ${rtvTarget.qty} units of SKU ${rtvTarget.sku} from quarantine for vendor return.`}
           footer={
             <div className="flex justify-end gap-2 w-full">
@@ -477,19 +477,19 @@ export function QCWorkspace() {
                 disabled={isSubmitting}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg font-bold text-xs hover:bg-purple-700"
               >
-                Execute Return To Vendor
+                {t.qc.executeRtv}
               </button>
             </div>
           }
         >
           <div className="space-y-3 text-xs">
-            <Field label="RTV Authorization Number *" required>
+            <Field label={`${t.qc.rtvAuthNo} *`} required>
               <Input value={rtvAuthNumber} onChange={(e) => setRtvAuthNumber(e.target.value)} />
             </Field>
-            <Field label="RTV Return Carrier">
+            <Field label={t.qc.rtvCarrier}>
               <Input value={rtvCarrier} onChange={(e) => setRtvCarrier(e.target.value)} />
             </Field>
-            <Field label="Return Reason">
+            <Field label={t.qc.returnReason}>
               <Input value={failReason} onChange={(e) => setFailReason(e.target.value)} />
             </Field>
           </div>

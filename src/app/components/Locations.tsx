@@ -385,7 +385,7 @@ export function Locations() {
           <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
         </Row>
         <div className="pt-2 border-t border-border mt-2 mb-2">
-          <p className="text-sm font-bold text-muted-foreground mb-3">Storage Rules (Optional)</p>
+          <p className="text-sm font-bold text-muted-foreground mb-3">{t.common.rules}</p>
           <Row>
             <Field label="Allowed Manufacturers"><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder="Samsung, Apple (comma separated)" /></Field>
             <Field label="Allowed Families"><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder="Electronics, Clothing" /></Field>
@@ -394,7 +394,7 @@ export function Locations() {
       </Modal>
 
       {/* Edit Zone Modal */}
-      <Modal open={!!editZoneTarget} onClose={() => setEditZoneTarget(null)} title="Edit Zone" footer={<><ModalCancel onClose={() => setEditZoneTarget(null)} /><ModalSubmit onClick={handleAddZone}>{t.common.save}</ModalSubmit></>}>
+      <Modal open={!!editZoneTarget} onClose={() => setEditZoneTarget(null)} title={`${t.common.edit} ${t.common.zone}`} footer={<><ModalCancel onClose={() => setEditZoneTarget(null)} /><ModalSubmit onClick={handleAddZone}>{t.common.save}</ModalSubmit></>}>
         <Row>
           <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
@@ -417,12 +417,12 @@ export function Locations() {
       </Modal>
 
       {/* Delete Zone Modal */}
-      <Modal open={!!deleteZoneTarget} onClose={() => setDeleteZoneTarget(null)} title="Delete Zone" width="sm" footer={<><ModalCancel onClose={() => setDeleteZoneTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteZone}>{t.common.delete}</ModalSubmit></>}>
-        <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteZoneTarget?.code}</strong>? This cannot be undone.</p>
+      <Modal open={!!deleteZoneTarget} onClose={() => setDeleteZoneTarget(null)} title={`${t.common.delete} ${t.common.zone}`} width="sm" footer={<><ModalCancel onClose={() => setDeleteZoneTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteZone}>{t.common.delete}</ModalSubmit></>}>
+        <p className="text-sm text-muted-foreground">{t.warehouses.confirmDelete} <strong>{deleteZoneTarget?.code}</strong>? {t.warehouses.cannotUndo}</p>
       </Modal>
 
       {/* Edit Location Modal */}
-      <Modal open={!!editLocTarget} onClose={() => setEditLocTarget(null)} title="Edit Location" footer={<><ModalCancel onClose={() => setEditLocTarget(null)} /><ModalSubmit onClick={handleAddLoc}>{t.common.save}</ModalSubmit></>}>
+      <Modal open={!!editLocTarget} onClose={() => setEditLocTarget(null)} title={`${t.common.edit} ${t.common.location}`} footer={<><ModalCancel onClose={() => setEditLocTarget(null)} /><ModalSubmit onClick={handleAddLoc}>{t.common.save}</ModalSubmit></>}>
         <Field label={t.common.zone} required><Select value={locForm.zone} onChange={(e) => setLocForm({ ...locForm, zone: e.target.value })}>
           {zones.map((z) => <option key={z.code} value={z.code}>{z.code} — {z.name}</option>)}
         </Select></Field>
@@ -439,7 +439,7 @@ export function Locations() {
           <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
         </Row>
         <div className="pt-2 border-t border-border mt-2 mb-2">
-          <p className="text-sm font-bold text-muted-foreground mb-3">Storage Rules (Optional)</p>
+          <p className="text-sm font-bold text-muted-foreground mb-3">{t.common.rules}</p>
           <Row>
             <Field label="Allowed Manufacturers"><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder="Samsung, Apple (comma separated)" /></Field>
             <Field label="Allowed Families"><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder="Electronics, Clothing" /></Field>

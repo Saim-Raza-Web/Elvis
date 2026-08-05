@@ -254,14 +254,14 @@ export function PutawayQueue() {
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground bg-card rounded-xl border border-border">
             <RefreshCw className="size-6 animate-spin mx-auto mb-2 text-primary" />
-            Loading Putaway Buffer Queue...
+            {t.common.loading}
           </div>
         ) : pagedTasks.length === 0 ? (
           <div className="p-12 text-center bg-card rounded-xl border border-border space-y-2">
             <Truck className="size-10 text-muted-foreground mx-auto opacity-40" />
-            <div className="font-semibold text-base">No Putaway Tasks Found</div>
+            <div className="font-semibold text-base">{t.putaway.noTasksFound}</div>
             <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-              Once Quality Control passes an item, a Putaway task is automatically generated in this buffer queue.
+              {t.putaway.noTasksSub}
             </p>
           </div>
         ) : (
@@ -269,15 +269,15 @@ export function PutawayQueue() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-secondary/60 border-b border-border font-semibold text-muted-foreground">
-                  <th className="p-3">Task ID</th>
-                  <th className="p-3">ASN / QC #</th>
-                  <th className="p-3">SKU & Product Name</th>
-                  <th className="p-3 text-right">Qty</th>
-                  <th className="p-3">From Location</th>
-                  <th className="p-3">Destination Bin</th>
-                  <th className="p-3">Assigned Operator</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3 text-right">Actions</th>
+                  <th className="p-3">{t.putaway.taskId}</th>
+                  <th className="p-3">{t.putaway.asnId} / {t.putaway.qcId}</th>
+                  <th className="p-3">{t.inventory.sku}</th>
+                  <th className="p-3 text-right">{t.transfers.qty}</th>
+                  <th className="p-3">{t.putaway.fromLocation}</th>
+                  <th className="p-3">{t.putaway.toLocation}</th>
+                  <th className="p-3">{t.putaway.assignedOperator}</th>
+                  <th className="p-3">{t.common.status}</th>
+                  <th className="p-3 text-right">{t.common.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -311,7 +311,7 @@ export function PutawayQueue() {
                           {task.assignedTo}
                         </span>
                       ) : (
-                        <span className="text-muted-foreground italic text-[11px]">Unassigned</span>
+                        <span className="text-muted-foreground italic text-[11px]">{t.putaway.unassigned}</span>
                       )}
                     </td>
                     <td className="p-3">
@@ -326,20 +326,20 @@ export function PutawayQueue() {
                               onClick={() => { setSelectedTask(task); setAssignOperatorEmail(task.assignedTo || ""); setAssignModalOpen(true); }}
                               className="px-2.5 py-1 bg-secondary border border-border rounded text-[11px] font-semibold hover:bg-secondary/80 text-foreground flex items-center gap-1"
                             >
-                              <UserPlus className="size-3" /> Assign
+                              <UserPlus className="size-3" /> {t.putaway.assign}
                             </button>
                             <button
                               type="button"
                               onClick={() => openExecuteModal(task)}
                               className="px-2.5 py-1 bg-primary text-primary-foreground rounded text-[11px] font-semibold hover:bg-primary/90 flex items-center gap-1"
                             >
-                              <Scan className="size-3" /> Execute
+                              <Scan className="size-3" /> {t.putaway.execute}
                             </button>
                           </>
                         )}
                         {task.status === 'completed' && (
                           <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] flex items-center gap-1">
-                            <CheckCircle2 className="size-3.5" /> Done
+                            <CheckCircle2 className="size-3.5" /> {t.putaway.done}
                           </span>
                         )}
                       </div>
@@ -359,8 +359,8 @@ export function PutawayQueue() {
           <div className="bg-card border border-border rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="font-bold text-base">Assign Operator</h3>
-                <p className="text-xs text-muted-foreground">Putaway Task #{selectedTask.taskId}</p>
+                <h3 className="font-bold text-base">{t.putaway.assignModalTitle}</h3>
+                <p className="text-xs text-muted-foreground">{t.putaway.taskId} #{selectedTask.taskId}</p>
               </div>
               <button onClick={() => setAssignModalOpen(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="size-5" />
@@ -369,7 +369,7 @@ export function PutawayQueue() {
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-semibold mb-1">Operator Email / Username</label>
+                <label className="block font-semibold mb-1">{t.putaway.operatorEmailLabel}</label>
                 <input
                   type="text"
                   value={assignOperatorEmail}
@@ -386,7 +386,7 @@ export function PutawayQueue() {
                 onClick={() => setAssignModalOpen(false)}
                 className="px-4 py-2 border border-border rounded-lg text-xs font-medium hover:bg-secondary"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -394,7 +394,7 @@ export function PutawayQueue() {
                 onClick={handleAssignOperator}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90 disabled:opacity-50"
               >
-                {isSubmitting ? "Assigning..." : "Confirm Assignment"}
+                {isSubmitting ? t.putaway.assigning : t.putaway.confirmAssignment}
               </button>
             </div>
           </div>
@@ -408,7 +408,7 @@ export function PutawayQueue() {
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
                 <h3 className="font-bold text-base flex items-center gap-2">
-                  <Scan className="size-5 text-primary" /> Execute Putaway Task
+                  <Scan className="size-5 text-primary" /> {t.putaway.executeTaskTitle}
                 </h3>
                 <p className="text-xs text-muted-foreground">Task #{selectedTask.taskId} • SKU: {selectedTask.sku}</p>
               </div>
@@ -421,15 +421,15 @@ export function PutawayQueue() {
               {/* Task Details Banner */}
               <div className="p-3 bg-secondary/40 border border-border rounded-lg space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Product:</span>
+                  <span className="text-muted-foreground">{t.common.name}:</span>
                   <span className="font-bold text-foreground">{selectedTask.productName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Quantity to Move:</span>
+                  <span className="text-muted-foreground">{t.putaway.quantityToMove}:</span>
                   <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">{selectedTask.qty} units</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Current Buffer:</span>
+                  <span className="text-muted-foreground">{t.putaway.currentBuffer}:</span>
                   <span className="font-bold font-mono">{selectedTask.fromLocation}</span>
                 </div>
               </div>
@@ -437,7 +437,7 @@ export function PutawayQueue() {
               {/* Step 1: Scan Task Barcode */}
               <div>
                 <label className="block font-semibold mb-1 flex items-center gap-1">
-                  <QrCode className="size-4 text-primary" /> Scan Task Barcode (Optional)
+                  <QrCode className="size-4 text-primary" /> {t.putaway.scanTaskOptional}
                 </label>
                 <input
                   type="text"
@@ -451,7 +451,7 @@ export function PutawayQueue() {
               {/* Step 2: Scan Destination Bin / Select from Hierarchy */}
               <div>
                 <label className="block font-semibold mb-1 flex items-center gap-1">
-                  <MapPin className="size-4 text-emerald-600" /> Destination Bin Code
+                  <MapPin className="size-4 text-emerald-600" /> {t.putaway.destBinCode}
                 </label>
                 <input
                   type="text"
@@ -463,13 +463,13 @@ export function PutawayQueue() {
 
                 {locations.length > 0 && (
                   <div>
-                    <span className="text-[11px] text-muted-foreground block mb-1">Or select from Location Master:</span>
+                    <span className="text-[11px] text-muted-foreground block mb-1">{t.putaway.selectFromLocMaster}:</span>
                     <select
                       value={selectedBin}
                       onChange={(e) => { setSelectedBin(e.target.value); setScannedBinBarcode(e.target.value); }}
                       className="w-full p-2 bg-secondary/50 border border-border rounded-lg outline-none text-xs"
                     >
-                      <option value="">-- Select Destination Bin --</option>
+                      <option value="">{t.putaway.selectDestBinOption}</option>
                       {locations.map((loc: any) => (
                         <option key={loc._id} value={loc.code || loc.name}>
                           {loc.code || loc.name} ({loc.zone || 'Zone'} - {loc.type || 'Bin'})
@@ -487,7 +487,7 @@ export function PutawayQueue() {
                 onClick={() => setExecuteModalOpen(false)}
                 className="px-4 py-2 border border-border rounded-lg text-xs font-medium hover:bg-secondary"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -496,7 +496,7 @@ export function PutawayQueue() {
                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5"
               >
                 <CheckCircle2 className="size-4" />
-                {isSubmitting ? "Executing..." : "Confirm & Complete Putaway"}
+                {isSubmitting ? t.putaway.executing : t.putaway.confirmCompletePutaway}
               </button>
             </div>
           </div>

@@ -457,11 +457,11 @@ export function Receiving() {
       {/* ── KPI Stat Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: "Total ASNs", value: stats.total, icon: Layers, color: "text-foreground" },
-          { label: "Pending", value: stats.pending, icon: Clock, color: "text-warning" },
-          { label: "In Progress", value: stats.inProgress, icon: Truck, color: "text-primary" },
-          { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-success" },
-          { label: "Discrepancies", value: stats.discrepancies, icon: AlertTriangle, color: "text-destructive" },
+          { label: `${t.common.total} ASNs`, value: stats.total, icon: Layers, color: "text-foreground" },
+          { label: t.status.pending, value: stats.pending, icon: Clock, color: "text-warning" },
+          { label: t.status.in_progress, value: stats.inProgress, icon: Truck, color: "text-primary" },
+          { label: t.status.completed, value: stats.completed, icon: CheckCircle2, color: "text-success" },
+          { label: t.documents.discrepancyReport, value: stats.discrepancies, icon: AlertTriangle, color: "text-destructive" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2">
@@ -484,7 +484,7 @@ export function Receiving() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by ASN #, Supplier, PO #, Carrier, SKU..."
+                placeholder={`${t.common.search} by ASN #, Supplier, PO #...`}
                 className="w-full pl-9 pr-4 py-2 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary/50 text-sm transition-colors"
               />
             </div>
@@ -498,7 +498,7 @@ export function Receiving() {
               className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-xs font-medium outline-none focus:border-primary/50 transition-colors"
             >
               {STATUS_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>{opt.value === 'All' ? `${t.common.all} ${t.common.status}` : (t.status[opt.value as keyof typeof t.status] || opt.label)}</option>
               ))}
             </select>
 
@@ -509,7 +509,7 @@ export function Receiving() {
                 onChange={(e) => setSupplierFilter(e.target.value)}
                 className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-xs font-medium outline-none focus:border-primary/50 transition-colors"
               >
-                <option value="">All Suppliers</option>
+                <option value="">{t.common.all} Suppliers</option>
                 {uniqueSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             )}
@@ -535,7 +535,7 @@ export function Receiving() {
             </button>
 
             <PrimaryButton icon={Plus} onClick={() => { setForm(blankASN()); setEditTarget(null); setShowAdd(true); }}>
-              New ASN
+              {t.common.new} ASN
             </PrimaryButton>
           </div>
         </div>
@@ -546,17 +546,17 @@ export function Receiving() {
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground bg-card rounded-xl border border-border">
             <RefreshCw className="size-6 animate-spin mx-auto mb-2 text-primary" />
-            Loading Inbound ASNs...
+            {t.common.loading}
           </div>
         ) : sortedAsns.length === 0 ? (
           <div className="p-12 text-center bg-card rounded-xl border border-border space-y-3">
             <Package className="size-10 text-muted-foreground mx-auto opacity-40" />
-            <div className="font-semibold text-lg">No Advanced Shipping Notices Found</div>
+            <div className="font-semibold text-lg">{t.common.noResults}</div>
             <p className="text-xs text-muted-foreground max-w-sm mx-auto">
               Create an inbound ASN to register upcoming supplier shipments before physical arrival.
             </p>
             <PrimaryButton icon={Plus} onClick={() => { setForm(blankASN()); setEditTarget(null); setShowAdd(true); }}>
-              Create First ASN
+              {t.common.create} ASN
             </PrimaryButton>
           </div>
         ) : (
@@ -624,7 +624,7 @@ export function Receiving() {
                       className="flex items-center gap-1 px-3 py-1.5 border border-border rounded-lg text-xs font-semibold hover:bg-secondary transition-colors"
                       title="View Details & History"
                     >
-                      <Eye className="size-3.5" /> View
+                      <Eye className="size-3.5" /> {t.common.view}
                     </button>
                     {!isCompleted && (
                       <button
@@ -633,7 +633,7 @@ export function Receiving() {
                         className="flex items-center gap-1 px-3 py-1.5 border border-border rounded-lg text-xs font-semibold hover:bg-secondary transition-colors"
                         title="Edit ASN"
                       >
-                        <Pencil className="size-3.5" /> Edit
+                        <Pencil className="size-3.5" /> {t.common.edit}
                       </button>
                     )}
                     <button
