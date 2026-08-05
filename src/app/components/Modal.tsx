@@ -117,10 +117,10 @@ export function ModalCancel({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function ModalSubmit({ children, onClick, variant = "primary" }: { children: ReactNode; onClick?: () => void; variant?: "primary" | "success" | "destructive" }) {
+export function ModalSubmit({ children, onClick, variant = "primary", disabled }: { children: ReactNode; onClick?: () => void; variant?: "primary" | "success" | "destructive"; disabled?: boolean }) {
   const cls = variant === "success" ? "bg-success text-white hover:opacity-90" : variant === "destructive" ? "bg-destructive text-white hover:opacity-90" : "bg-primary text-primary-foreground hover:opacity-90";
   return (
-    <button onClick={onClick} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${cls}`}>
+    <button onClick={onClick} disabled={disabled} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${cls}`}>
       {children}
     </button>
   );

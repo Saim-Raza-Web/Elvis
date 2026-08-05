@@ -80,6 +80,8 @@ export const ROUTE_MODULE_MAP = {
   inventory: 'inventory',
   locations: 'inventory',
   receiving: 'inventory',
+  qc: 'inventory',
+  putaway: 'inventory',
   asn: 'inventory',
   transfers: 'inventory',
   picking: 'inventory',

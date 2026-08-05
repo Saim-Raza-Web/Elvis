@@ -30,6 +30,8 @@ import { ActivityLog } from "./components/ActivityLog";
 import { Admin } from "./components/Admin";
 import { Incidents } from "./components/Incidents";
 import { StockCount } from "./components/StockCount";
+import { QCWorkspace } from "./components/QCWorkspace";
+import { PutawayQueue } from "./components/PutawayQueue";
 import { authService } from "../services/auth.service";
 import { canAccessPage } from "../utils/roles";
 
@@ -159,6 +161,8 @@ function AppInner({
       case "locations": return <Locations />;
       case "inventory": return <Inventory />;
       case "receiving": return <Receiving />;
+      case "qc": return <QCWorkspace />;
+      case "putaway": return <PutawayQueue />;
       case "transfers": return <Transfers />;
       case "picking": return <Picking />;
       case "packing": return <Packing />;

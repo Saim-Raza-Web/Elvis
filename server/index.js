@@ -84,6 +84,8 @@ import storageRulesRoutes from './routes/storage_rules.js';
 import stockCountsRoutes from './routes/stock_counts.js';
 import documentsRoutes from './routes/documents.js';
 import notificationsRoutes from './routes/notifications.js';
+import qcRoutes from './routes/qc.js';
+import putawayRoutes from './routes/putaway.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -100,6 +102,8 @@ mountModuleRoute('/api/v1/warehouses', warehousesRoutes);
 mountModuleRoute('/api/v1/locations', locationsRoutes);
 mountModuleRoute('/api/v1/inventory', inventoryRoutes);
 mountModuleRoute('/api/v1/receiving', receivingRoutes);
+mountModuleRoute('/api/v1/qc', qcRoutes);
+mountModuleRoute('/api/v1/putaway', putawayRoutes);
 mountModuleRoute('/api/v1/asn', asnRoutes);
 mountModuleRoute('/api/v1/transfers', transfersRoutes);
 mountModuleRoute('/api/v1/picking', pickingRoutes);

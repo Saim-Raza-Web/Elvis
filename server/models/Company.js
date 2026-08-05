@@ -1,7 +1,21 @@
 import mongoose from 'mongoose';
 
 const companySchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: { type: String, required: true }, // Legal Name
+  tradingName: { type: String, default: '' },
+  vatNumber: { type: String, default: '' }, // CIF / NIF / VAT Number
+  logo: { type: String, default: '' }, // Base64 data URL or image URL/path
+  phone: { type: String, default: '' },
+  email: { type: String, default: '' },
+  website: { type: String, default: '' },
+  address: {
+    street: { type: String, default: '' },
+    number: { type: String, default: '' },
+    postcode: { type: String, default: '' },
+    city: { type: String, default: '' },
+    region: { type: String, default: '' },
+    country: { type: String, default: '' },
+  },
   plan: { type: String, enum: ['starter', 'professional', 'enterprise'], default: 'starter' },
   users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   warehouses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' }],

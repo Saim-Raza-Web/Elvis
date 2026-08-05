@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X } from "lucide-react";
+import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload } from "lucide-react";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
 import { settingsService } from "../../services/settings.service";
@@ -22,6 +22,7 @@ export function Settings() {
   const { t } = useLang();
   const settingsTabs = [
     { id: "general", label: t.settings.general, icon: settingsTabIcons[0] },
+    { id: "branding", label: "Company Branding", icon: Building2 },
     { id: "notifications", label: t.settings.notifications, icon: settingsTabIcons[1] },
     { id: "security", label: t.settings.security, icon: settingsTabIcons[2] },
     { id: "team", label: t.settings.team, icon: settingsTabIcons[3] },
@@ -39,6 +40,22 @@ export function Settings() {
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [keys, setKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Company Branding State
+  const [tradingName, setTradingName] = useState("");
+  const [vatNumber, setVatNumber] = useState("");
+  const [logo, setLogo] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [website, setWebsite] = useState("");
+  const [street, setStreet] = useState("");
+  const [number, setNumber] = useState("");
+  const [postcode, setPostcode] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [country, setCountry] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   // Password change state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -65,6 +82,21 @@ export function Settings() {
         setLowStockNotifs(data.lowStockNotifs ?? true);
         setShipmentNotifs(data.shipmentNotifs ?? false);
         setKeys(data.apiKeys || []);
+
+        setTradingName(data.tradingName || "");
+        setVatNumber(data.vatNumber || "");
+        setLogo(data.logo || "");
+        setPhone(data.phone || "");
+        setEmail(data.email || "");
+        setWebsite(data.website || "");
+        if (data.address) {
+          setStreet(data.address.street || "");
+          setNumber(data.address.number || "");
+          setPostcode(data.address.postcode || "");
+          setCity(data.address.city || "");
+          setRegion(data.address.region || "");
+          setCountry(data.address.country || "");
+        }
       }
     } catch (err) {
       toast.error("Failed to load settings");
@@ -83,6 +115,66 @@ export function Settings() {
       toast.success("General settings saved.");
     } catch (err) {
       toast.error("Failed to save settings");
+    }
+  }
+
+  async function handleSaveBranding() {
+    try {
+      await settingsService.updateCompanySettings({
+        name: companyName,
+        tradingName,
+        vatNumber,
+        logo,
+        phone,
+        email,
+        website,
+        address: { street, number, postcode, city, region, country },
+      });
+      toast.success("Company branding saved successfully!");
+    } catch (err) {
+      toast.error("Failed to save company branding.");
+    }
+  }
+
+  function handleLogoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo file size must be less than 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setLogo(reader.result);
+        toast.success("Logo uploaded. Click 'Save Company Branding' to apply.");
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handlePreviewDeliveryNote() {
+    try {
+      setPreviewLoading(true);
+      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
+      const res = await fetch("/api/v1/documents/preview-delivery-note", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Failed to generate preview");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "DeliveryNote-Preview.pdf";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Sample Delivery Note downloaded for preview!");
+    } catch (err) {
+      toast.error("Failed to preview delivery note.");
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -264,6 +356,188 @@ export function Settings() {
               <button onClick={handleSaveGeneral} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all">
                 <Save className="size-4" /> {t.settings.saveChanges}
               </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "branding" && (
+          <div className="space-y-6">
+            <div className="rounded-xl border border-border bg-card p-6 space-y-6">
+              <div className="flex items-center justify-between border-b border-border pb-4">
+                <div>
+                  <h3 className="font-bold text-lg">Company Branding & Documents Setup</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Configure your tenant company details. All generated PDF Delivery Notes dynamically load this branding.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePreviewDeliveryNote}
+                  disabled={previewLoading}
+                  className="flex items-center gap-2 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-all shadow-sm"
+                >
+                  <FileText className="size-4" />
+                  {previewLoading ? "Generating Preview..." : "Preview Delivery Note"}
+                </button>
+              </div>
+
+              {/* Logo Box */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Company Logo</label>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="size-24 rounded-xl border-2 border-dashed border-border bg-secondary/30 flex items-center justify-center overflow-hidden p-2 text-center relative">
+                    {logo ? (
+                      <img src={logo} alt="Company Logo" className="max-h-full max-w-full object-contain" />
+                    ) : (
+                      <div className="text-center">
+                        <Building2 className="size-6 text-muted-foreground mx-auto mb-1 opacity-50" />
+                        <span className="text-[10px] text-muted-foreground font-semibold uppercase">{tradingName || companyName || "LOGO"}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold cursor-pointer border border-border transition-colors">
+                      <Upload className="size-4" /> Upload Logo Image
+                      <input type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
+                    </label>
+                    {logo && (
+                      <button
+                        type="button"
+                        onClick={() => setLogo("")}
+                        className="block text-xs text-destructive hover:underline"
+                      >
+                        Remove Logo
+                      </button>
+                    )}
+                    <p className="text-xs text-muted-foreground">PNG or JPG under 2MB. Displayed on top-left of Delivery Notes.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Legal & Trading Names */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Legal Company Name *</label>
+                  <input
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="House Logistic S.L."
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Trading Name</label>
+                  <input
+                    value={tradingName}
+                    onChange={(e) => setTradingName(e.target.value)}
+                    placeholder="House Logistic"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">VAT / CIF / NIF *</label>
+                  <input
+                    value={vatNumber}
+                    onChange={(e) => setVatNumber(e.target.value)}
+                    placeholder="B-12345678"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Contact Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Phone Number</label>
+                  <input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+34 91 000 0000"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Email Address</label>
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="logistics@houselogistic.es"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Website (Optional)</label>
+                  <input
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                    placeholder="www.houselogistic.es"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Address Header */}
+              <div className="pt-2 border-t border-border">
+                <h4 className="font-semibold text-sm mb-3">Official Warehouse Address</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">Street Name</label>
+                    <input
+                      value={street}
+                      onChange={(e) => setStreet(e.target.value)}
+                      placeholder="Polígono Industrial Norte"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">Building / Nave #</label>
+                    <input
+                      value={number}
+                      onChange={(e) => setNumber(e.target.value)}
+                      placeholder="Nave 7"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">Postcode</label>
+                    <input
+                      value={postcode}
+                      onChange={(e) => setPostcode(e.target.value)}
+                      placeholder="28001"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">City</label>
+                    <input
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="Madrid"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">Country</label>
+                    <input
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      placeholder="Spain"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={handleSaveBranding}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all shadow-sm"
+                >
+                  <Save className="size-4" /> Save Company Branding
+                </button>
+              </div>
             </div>
           </div>
         )}

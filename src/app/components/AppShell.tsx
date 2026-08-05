@@ -16,7 +16,7 @@ import { activityService } from "../../services/activity.service";
 import { notificationsService } from "../../services/notifications.service";
 
 export type Page =
-  | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "transfers" | "picking" | "packing"
+  | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "qc" | "putaway" | "transfers" | "picking" | "packing"
   | "orders" | "ecommerce" | "shipping" | "carriers" | "returns" | "incidents"
   | "crm" | "billing" | "accounting" | "reports" | "subscription" | "settings"
   | "activity" | "admin" | "stock-counts";
@@ -39,6 +39,8 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "locations", label: nav.locations, icon: MapPin },
         { id: "inventory", label: nav.inventory, icon: Boxes },
         { id: "receiving", label: nav.receiving, icon: PackageCheck, badge: "3" },
+        { id: "qc", label: "Quality Control", icon: ShieldCheck },
+        { id: "putaway", label: "Putaway Queue", icon: Truck },
         { id: "transfers", label: nav.transfers, icon: ArrowRightLeft },
         { id: "stock-counts", label: "Stock Counts", icon: ClipboardList },
         { id: "picking", label: nav.picking, icon: ScanLine },

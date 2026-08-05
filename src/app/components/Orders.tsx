@@ -63,7 +63,7 @@ const blankForm = (): OrderForm => ({
   delivery_address: blankAddress(), product_lines: [blankLine()],
   tracking_number: "", package_weight: "", package_dimensions: "",
   company_name: "", vat_number: "", contact_person: "", contact_phone: "",
-  pallet_count: "", shipment_weight: "", delivery_terms: "EXW",
+  pallet_count: "", shipment_weight: "", delivery_terms: "",
   agreed_delivery_date: "", po_reference: "",
 });
 
@@ -222,7 +222,6 @@ function validateForm(form: OrderForm): string | null {
     if (!form.contact_person.trim()) return "Contact person is required.";
     if (!form.pallet_count || Number(form.pallet_count) < 1) return "Pallet count is required.";
     if (!form.shipment_weight.trim()) return "Shipment weight is required.";
-    if (!form.delivery_terms) return "Delivery terms are required.";
     if (!form.po_reference.trim()) return "PO reference is required.";
     const hasLine = form.product_lines.some(l => l.sku.trim() && l.product_name.trim() && l.qty > 0);
     if (!hasLine) return "At least one valid product line is required.";
@@ -386,8 +385,9 @@ function OrderFormContent({
             </Field>
           </Row>
           <Row>
-            <Field label="Delivery Terms" required>
+            <Field label="Delivery Terms (Optional)">
               <Select value={form.delivery_terms} onChange={f("delivery_terms")}>
+                <option value="">— Select Delivery Terms —</option>
                 {DELIVERY_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
               </Select>
             </Field>
@@ -761,30 +761,55 @@ export function Orders() {
       </Modal>
 
       {/* ── Edit Modal ── */}
-      {editTarget && (
-        <Modal
-          open={true}
-          onClose={() => setEditTarget(null)}
-          title={modalTitle}
-          subtitle={`${editTarget.order_type || "B2C"} Order`}
-          width="xl"
-          footer={
-            <>
-              {editTarget.status === "pending" && (
-                <PrimaryButton onClick={handleRelease} className="mr-auto !bg-purple-600 hover:!bg-purple-700">
-                  Release to Fulfillment
-                </PrimaryButton>
-              )}
-              <div className="flex gap-2 ml-auto">
-                <ModalCancel onClose={() => setEditTarget(null)} />
-                <ModalSubmit onClick={handleSave}>Save Changes</ModalSubmit>
+      {editTarget && (() => {
+        const hasValidAddress = Boolean(
+          form.delivery_address?.street?.trim() &&
+          form.delivery_address?.city?.trim() &&
+          form.delivery_address?.postcode?.trim() &&
+          form.delivery_address?.country?.trim()
+        );
+        const hasValidProductLine = form.product_lines?.some(
+          l => l.sku?.trim() && l.product_name?.trim() && Number(l.qty) > 0
+        );
+        const canGenerateDN = hasValidAddress && hasValidProductLine;
+
+        return (
+          <Modal
+            open={true}
+            onClose={() => setEditTarget(null)}
+            title={modalTitle}
+            subtitle={`${editTarget.order_type || "B2C"} Order`}
+            width="xl"
+            footer={
+              <div className="flex items-center gap-2 w-full justify-between">
+                <div className="flex items-center gap-2">
+                  {editTarget.status === "pending" && (
+                    <PrimaryButton onClick={handleRelease} className="!bg-purple-600 hover:!bg-purple-700">
+                      Release to Fulfillment
+                    </PrimaryButton>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => downloadDeliveryNote(editTarget)}
+                    disabled={!canGenerateDN || downloadingId === editTarget._id}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
+                    title={canGenerateDN ? "Generate and Download Delivery Note PDF" : "Requires complete delivery address and at least one valid product line"}
+                  >
+                    <FileText className="size-4" />
+                    {downloadingId === editTarget._id ? "Generating..." : "Generate Delivery Note"}
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <ModalCancel onClose={() => setEditTarget(null)} />
+                  <ModalSubmit onClick={handleSave}>Save Changes</ModalSubmit>
+                </div>
               </div>
-            </>
-          }
-        >
-          <OrderFormContent form={form} setForm={setForm} warehouses={warehouses} stores={stores} isB2B={isB2B} />
-        </Modal>
-      )}
+            }
+          >
+            <OrderFormContent form={form} setForm={setForm} warehouses={warehouses} stores={stores} isB2B={isB2B} />
+          </Modal>
+        );
+      })()}
 
       {/* ── Delete Confirm ── */}
       <Modal

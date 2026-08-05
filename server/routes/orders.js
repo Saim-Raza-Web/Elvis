@@ -83,7 +83,6 @@ function validateOrderPayload(body) {
     if (!contact_person || !String(contact_person).trim()) errors.push('Contact person is required for B2B orders.');
     if (!pallet_count || Number(pallet_count) < 1) errors.push('Pallet count must be at least 1 for B2B orders.');
     if (!shipment_weight || !String(shipment_weight).trim()) errors.push('Shipment weight is required for B2B orders.');
-    if (!delivery_terms) errors.push('Delivery terms are required for B2B orders.');
     if (!po_reference || !String(po_reference).trim()) errors.push('PO reference is required for B2B orders.');
   }
 
