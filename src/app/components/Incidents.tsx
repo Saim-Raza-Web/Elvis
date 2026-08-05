@@ -29,7 +29,7 @@ export function Incidents() {
       toast.success(`Incident ${incident.incidentId} resolved.`);
       reload();
     } catch (err) {
-      toast.error("Failed to resolve incident");
+      toast.error(t.common?.error || "Failed to resolve incident");
     }
   }
 
@@ -51,7 +51,7 @@ export function Incidents() {
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Incidents..." className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`${t.common?.search || "Search"}  Incidents...`} className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
         </div>
       </div>
 
@@ -60,11 +60,11 @@ export function Incidents() {
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
             <tr>
               <th className="text-left px-4 py-3">ID</th>
-              <th className="text-left px-4 py-3">Type</th>
+              <th className="text-left px-4 py-3">{t.common?.type || "Type"}</th>
               <th className="text-left px-4 py-3">SKU</th>
               <th className="text-left px-4 py-3">Details</th>
-              <th className="text-center px-4 py-3">Status</th>
-              <th className="text-right px-4 py-3">Actions</th>
+              <th className="text-center px-4 py-3">{t.common?.status || "Status"}</th>
+              <th className="text-right px-4 py-3">{t.common?.actions || "Actions"}</th>
             </tr>
           </thead>
           <tbody>

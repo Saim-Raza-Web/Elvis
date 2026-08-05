@@ -59,6 +59,26 @@ const dict = {
       signOut: "Sign out", systemOnline: "System online", cloudSync: "Cloud sync active",
       noNotifications: "No notifications", noResults: "No results found",
       noData: "No data yet", loading: "Loading…", saving: "Saving…",
+      // --- Order Form & General Extras ---
+      addLine: "Add Line", sku: "SKU", productName: "Product Name", qty: "Qty",
+      unitPrice: "Unit Price", lineTotal: "Line Total", sKU001: "SKU-001",
+      productDescription: "Product description", warehouseDeliveryAddress: "Warehouse Delivery Address",
+      customerDeliveryAddress: "Customer Delivery Address", shipmentInfo: "Shipment Information",
+      numberOfPallets: "Number of Pallets", totalShipmentWeight: "Total Shipment Weight",
+      deliveryTerms: "Delivery Terms", selectDeliveryTerms: "Select Delivery Terms",
+      agreedDeliveryDate: "Agreed Delivery Date", shippingInformationOptional: "Shipping Information (Optional)",
+      trackingNumber: "Tracking Number", packageWeight: "Package Weight",
+      packageDimensions: "Package Dimensions", channel: "Channel", web: "Web", aPI: "API", mobile: "Mobile",
+      eCommerceStoreOptional: "eCommerce Store (Optional)", fulfillmentWarehouse: "Fulfillment Warehouse", mIA: "MIA",
+      notesSpecialInstructions: "Notes / Special Instructions", handleWithCareRequiresColdChain: "Handle with care, requires cold chain…",
+      b2cEcommerce: "B2C — E-commerce", b2bWholesale: "B2B — Wholesale / Pallets",
+      customerName: "Customer Name", johnDoeAcmeLtd: "John Doe / Acme Ltd", ordersCompanyCom: "orders@company.com",
+      poReference: "PO Reference", pO2025001: "PO-2025-001", companyInfo: "Company Info", companyName: "Company Name",
+      acmeCorporationSL: "Acme Corporation S.L.", vatNumber: "VAT Number", b12345678: "B-12345678", contactPerson: "Contact Person",
+      mariaGarcA: "Maria Garcia", contactPhone: "Contact Phone", street: "Street", calleMayor: "Calle Mayor",
+      number: "Number", postcode: "Postcode", city: "City", madrid: "Madrid", region: "Region / State", comunidadDeMadrid: "Comunidad de Madrid",
+      country: "Country", spain: "Spain", error: "Error", operationSuccess: "Success", viewEdit: "View / Edit",
+      deleteOrder: "Delete Order", subtotal: "Subtotal",
     },
     // ── Statuses ─────────────────────────────────────────────────
     status: {
@@ -269,7 +289,7 @@ const dict = {
       processing: "Processing", totalRevenue: "Total revenue",
       orderNo: "Order #", customer: "Customer", channel: "Channel",
       warehouse: "Warehouse", noOfItems: "No. of items", orderTotal: "Order total (€)",
-      orderCreated: "Order created",
+      orderCreated: "Order created", productLines: "Product Lines",
     },
     // ── Ecommerce ────────────────────────────────────────────────
     ecommerce: {

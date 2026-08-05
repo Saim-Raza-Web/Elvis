@@ -54,7 +54,7 @@ export function Transfers() {
   );
 
   useEffect(() => {
-    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error("Failed to load warehouses"));
+    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
   }, []);
 
   // Listen for header button CustomEvent
@@ -65,7 +65,7 @@ export function Transfers() {
   }, []);
 
   async function handleCreate() {
-    if (!form.sku || !form.from_loc || !form.to_loc) { toast.error("SKU and locations are required."); return; }
+    if (!form.sku || !form.from_loc || !form.to_loc) { toast.error(t.common?.error || "SKU and locations are required."); return; }
     const id = `TRF-${String(allItems.length + 85).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
     try {
@@ -74,7 +74,7 @@ export function Transfers() {
       setShowAdd(false);
       setForm(blankTransfer());
       reload();
-    } catch (err) { toast.error("Failed to create transfer"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to create transfer"); }
   }
 
   async function handleStart(trf: Transfer) {
@@ -82,7 +82,7 @@ export function Transfers() {
       await transfersService.update(trf._id, { status: "in_progress" });
       toast.info(`${t.transfers.transferStarted}: ${trf.id}.`);
       reload();
-    } catch (err) { toast.error("Failed to start transfer"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to start transfer"); }
   }
 
   async function handleComplete(trf: Transfer) {
@@ -90,7 +90,7 @@ export function Transfers() {
       await transfersService.update(trf._id, { status: "completed" });
       toast.success(`${t.transfers.transferCompleted}: ${trf.id}.`);
       reload();
-    } catch (err) { toast.error("Failed to complete transfer"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to complete transfer"); }
   }
 
   const pending = allItems.filter((tr) => tr.status === "pending").length;
@@ -176,25 +176,25 @@ export function Transfers() {
       </div>
       <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       {/* New Transfer Modal */}
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.transfers.newTransfer} subtitle="Move stock between locations" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.transfers.newTransfer}</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.transfers.newTransfer} subtitle={t.common?.moveStockBetweenLocations || "Move stock between locations"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.transfers.newTransfer}</ModalSubmit></>}>
         <Row>
-          <Field label="SKU" required><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder="SKU-XXXX" /></Field>
+          <Field label={t.common?.sKU || "SKU"} required><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
           <Field label={t.transfers.qty}><Input type="number" value={form.qty} onChange={(e) => setForm({ ...form, qty: Number(e.target.value) })} /></Field>
         </Row>
-        <Field label="Product description"><Input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
+        <Field label={t.common?.productDescription || "Product description"}><Input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} placeholder={t.common?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
         <Row>
           <Field label={t.transfers.fromWarehouse}><Select value={form.from_wh} onChange={(e) => setForm({ ...form, from_wh: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">MIA</option>}
+            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
           </Select></Field>
-          <Field label={t.transfers.fromLocation} required><Input value={form.from_loc} onChange={(e) => setForm({ ...form, from_loc: e.target.value })} placeholder="A-01-B" /></Field>
+          <Field label={t.transfers.fromLocation} required><Input value={form.from_loc} onChange={(e) => setForm({ ...form, from_loc: e.target.value })} placeholder={t.common?.a01B || "A-01-B"} /></Field>
         </Row>
         <Row>
           <Field label={t.transfers.toWarehouse}><Select value={form.to_wh} onChange={(e) => setForm({ ...form, to_wh: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="LAX">LAX</option>}
+            {warehouses.length === 0 && <option value="LAX">{t.common?.lAX || "LAX"}</option>}
           </Select></Field>
-          <Field label={t.transfers.toLocation} required><Input value={form.to_loc} onChange={(e) => setForm({ ...form, to_loc: e.target.value })} placeholder="B-03-A" /></Field>
+          <Field label={t.transfers.toLocation} required><Input value={form.to_loc} onChange={(e) => setForm({ ...form, to_loc: e.target.value })} placeholder={t.common?.b03A || "B-03-A"} /></Field>
         </Row>
         <Field label={t.transfers.transferType}><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
           <option value="transfer">{t.transfers.transfer}</option><option value="replenishment">{t.transfers.replenishment}</option>

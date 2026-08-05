@@ -29,34 +29,34 @@ export function Admin() {
         setSystemMetrics(mets);
         setUsers(usrs);
       } catch(e) {
-        toast.error("Failed to load admin data");
+        toast.error(t.common?.error || "Failed to load admin data");
       }
     }
     load();
   }, []);
 
   async function handleAddCompany() {
-    if(!form.name) return toast.error("Name is required");
+    if(!form.name) return toast.error(t.common?.error || "Name is required");
     try {
       await adminService.createCompany(form);
-      toast.success("Company created");
+      toast.success(t.common?.operationSuccess || "Company created");
       setShowAdd(false);
       setForm({ name: "", plan: "starter", status: "active" });
       const comps = await adminService.getCompanies();
       setCompanies(comps);
     } catch(e) {
-      toast.error("Failed to create company");
+      toast.error(t.common?.error || "Failed to create company");
     }
   }
 
   async function handleDeleteCompany(id: string) {
     try {
       await adminService.deleteCompany(id);
-      toast.success("Company deleted");
+      toast.success(t.common?.operationSuccess || "Company deleted");
       const comps = await adminService.getCompanies();
       setCompanies(comps);
     } catch(e) {
-      toast.error("Failed to delete company");
+      toast.error(t.common?.error || "Failed to delete company");
     }
   }
 
@@ -67,7 +67,7 @@ export function Admin() {
 
   async function handleInviteUser() {
     if (!inviteForm.email || !inviteForm.password) {
-      return toast.error("Email and password are required");
+      return toast.error(t.common?.error || "Email and password are required");
     }
     try {
       await adminService.inviteUser(inviteForm);
@@ -84,18 +84,18 @@ export function Admin() {
     if (!editUser) return;
     try {
       await adminService.updateUser(editUser._id, editUserForm);
-      toast.success("User updated");
+      toast.success(t.common?.operationSuccess || "User updated");
       setEditUser(null);
       await reloadUsers();
     } catch (e) {
-      toast.error("Failed to update user");
+      toast.error(t.common?.error || "Failed to update user");
     }
   }
 
   async function handleDeleteUser(id: string) {
     try {
       await adminService.deleteUser(id);
-      toast.success("User removed");
+      toast.success(t.common?.operationSuccess || "User removed");
       await reloadUsers();
     } catch (e: any) {
       toast.error(e.response?.data?.message || "Failed to remove user");
@@ -156,12 +156,12 @@ export function Admin() {
             <table className="w-full text-sm">
               <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
                 <tr>
-                  <th className="text-left px-4 py-3">Company</th>
+                  <th className="text-left px-4 py-3">{t.common?.company || "Company"}</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">Plan</th>
                   <th className="text-right px-4 py-3 hidden sm:table-cell">Users</th>
                   <th className="text-right px-4 py-3 hidden lg:table-cell">Warehouses</th>
                   <th className="text-right px-4 py-3 hidden md:table-cell">Orders MTD</th>
-                  <th className="text-center px-4 py-3">Status</th>
+                  <th className="text-center px-4 py-3">{t.common?.status || "Status"}</th>
                   <th className="text-right px-4 py-3 hidden sm:table-cell">Created</th>
                   <th className="text-right px-4 py-3"></th>
                 </tr>
@@ -192,14 +192,14 @@ export function Admin() {
             </table>
           </div>
 
-          <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Company" subtitle="Provision a new workspace" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddCompany}>Create Company</ModalSubmit></>}>
-            <Field label="Company Name" required><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+          <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.common?.addCompany || "Add Company"} subtitle={t.common?.provisionANewWorkspace || "Provision a new workspace"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddCompany}>Create Company</ModalSubmit></>}>
+            <Field label={t.common?.companyName || "Company Name"} required><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
             <Row>
-              <Field label="Plan"><Select value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}>
-                <option value="starter">Starter</option><option value="professional">Professional</option><option value="enterprise">Enterprise</option>
+              <Field label={t.common?.plan || "Plan"}><Select value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}>
+                <option value="starter">{t.common?.starter || "Starter"}</option><option value="professional">{t.common?.professional || "Professional"}</option><option value="enterprise">{t.common?.enterprise || "Enterprise"}</option>
               </Select></Field>
-              <Field label="Status"><Select value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
-                <option value="active">Active</option><option value="inactive">Inactive</option>
+              <Field label={t.common?.status || "Status"}><Select value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                <option value="active">{t.common?.active || "Active"}</option><option value="inactive">{t.common?.inactive || "Inactive"}</option>
               </Select></Field>
             </Row>
           </Modal>
@@ -238,7 +238,7 @@ export function Admin() {
               <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
                 <tr>
                   <th className="text-left px-4 py-3">User</th>
-                  <th className="text-left px-4 py-3 hidden md:table-cell">Email</th>
+                  <th className="text-left px-4 py-3 hidden md:table-cell">{t.common?.email || "Email"}</th>
                   <th className="text-center px-4 py-3">Role</th>
                   <th className="text-right px-4 py-3 hidden sm:table-cell">Joined</th>
                   <th className="text-right px-4 py-3"></th>
@@ -273,23 +273,23 @@ export function Admin() {
             </table>
           </div>
 
-          <Modal open={showInvite} onClose={() => setShowInvite(false)} title="Invite team member" subtitle="Create a new user account" footer={<><ModalCancel onClose={() => setShowInvite(false)} /><ModalSubmit onClick={handleInviteUser}>Send invite</ModalSubmit></>}>
-            <Field label="Email" required><Input type="email" value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} placeholder="user@company.com" /></Field>
-            <Field label="Name"><Input value={inviteForm.name} onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })} placeholder="Full name" /></Field>
-            <Field label="Temporary password" required><Input type="password" value={inviteForm.password} onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })} placeholder="Min 6 characters" /></Field>
-            <Field label="Role"><Select value={inviteForm.role} onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}>
-              <option value="warehouse_staff">Warehouse staff</option>
-              <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
+          <Modal open={showInvite} onClose={() => setShowInvite(false)} title={t.common?.inviteTeamMember || "Invite team member"} subtitle={t.common?.createANewUserAccount || "Create a new user account"} footer={<><ModalCancel onClose={() => setShowInvite(false)} /><ModalSubmit onClick={handleInviteUser}>Send invite</ModalSubmit></>}>
+            <Field label={t.common?.email || "Email"} required><Input type="email" value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} placeholder={t.common?.userCompanyCom || "user@company.com"} /></Field>
+            <Field label={t.common?.name || "Name"}><Input value={inviteForm.name} onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })} placeholder={t.common?.fullName || "Full name"} /></Field>
+            <Field label={t.common?.temporaryPassword || "Temporary password"} required><Input type="password" value={inviteForm.password} onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })} placeholder={t.common?.min6Characters || "Min 6 characters"} /></Field>
+            <Field label={t.common?.role || "Role"}><Select value={inviteForm.role} onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}>
+              <option value="warehouse_staff">{t.common?.warehouseStaff || "Warehouse staff"}</option>
+              <option value="manager">{t.common?.manager || "Manager"}</option>
+              <option value="admin">{t.common?.admin || "Admin"}</option>
             </Select></Field>
           </Modal>
 
-          <Modal open={!!editUser} onClose={() => setEditUser(null)} title="Edit user" subtitle={editUser?.email} footer={<><ModalCancel onClose={() => setEditUser(null)} /><ModalSubmit onClick={handleUpdateUser}>Save</ModalSubmit></>}>
-            <Field label="Name"><Input value={editUserForm.name} onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })} /></Field>
-            <Field label="Role"><Select value={editUserForm.role} onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}>
-              <option value="warehouse_staff">Warehouse staff</option>
-              <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
+          <Modal open={!!editUser} onClose={() => setEditUser(null)} title={t.common?.editUser || "Edit user"} subtitle={editUser?.email} footer={<><ModalCancel onClose={() => setEditUser(null)} /><ModalSubmit onClick={handleUpdateUser}>Save</ModalSubmit></>}>
+            <Field label={t.common?.name || "Name"}><Input value={editUserForm.name} onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })} /></Field>
+            <Field label={t.common?.role || "Role"}><Select value={editUserForm.role} onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}>
+              <option value="warehouse_staff">{t.common?.warehouseStaff || "Warehouse staff"}</option>
+              <option value="manager">{t.common?.manager || "Manager"}</option>
+              <option value="admin">{t.common?.admin || "Admin"}</option>
             </Select></Field>
           </Modal>
         </div>

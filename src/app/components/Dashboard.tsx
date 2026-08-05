@@ -47,10 +47,10 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
   }, []);
 
   const quickActions = [
-    { label: "Create order", icon: ShoppingCart, page: "orders", event: "open-new-order" },
-    { label: "Add product", icon: Boxes, page: "inventory", event: "open-add-product" },
-    { label: "Add warehouse", icon: Warehouse, page: "warehouses", event: "open-add-warehouse" },
-    { label: "Add customer", icon: Package, page: "crm", event: "open-add-customer" },
+    { label: t.orders?.newOrder || "Create order", icon: ShoppingCart, page: "orders", event: "open-new-order" },
+    { label: t.inventory?.addProduct || "Add product", icon: Boxes, page: "inventory", event: "open-add-product" },
+    { label: t.warehouses?.addWarehouse || "Add warehouse", icon: Warehouse, page: "warehouses", event: "open-add-warehouse" },
+    { label: t.crm?.addCustomer || "Add customer", icon: Package, page: "crm", event: "open-add-customer" },
   ];
 
   const stats = [

@@ -99,7 +99,7 @@ export function Settings() {
         }
       }
     } catch (err) {
-      toast.error("Failed to load settings");
+      toast.error(t.common?.error || "Failed to load settings");
     } finally {
       setLoading(false);
     }
@@ -112,9 +112,9 @@ export function Settings() {
   async function handleSaveGeneral() {
     try {
       await settingsService.updateCompanySettings({ name: companyName, timezone, currency });
-      toast.success("General settings saved.");
+      toast.success(t.common?.operationSuccess || "General settings saved.");
     } catch (err) {
-      toast.error("Failed to save settings");
+      toast.error(t.common?.error || "Failed to save settings");
     }
   }
 
@@ -130,9 +130,9 @@ export function Settings() {
         website,
         address: { street, number, postcode, city, region, country },
       });
-      toast.success("Company branding saved successfully!");
+      toast.success(t.common?.operationSuccess || "Company branding saved successfully!");
     } catch (err) {
-      toast.error("Failed to save company branding.");
+      toast.error(t.common?.error || "Failed to save company branding.");
     }
   }
 
@@ -140,7 +140,7 @@ export function Settings() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      toast.error("Logo file size must be less than 2MB.");
+      toast.error(t.common?.error || "Logo file size must be less than 2MB.");
       return;
     }
     const reader = new FileReader();
@@ -170,9 +170,9 @@ export function Settings() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success("Sample Delivery Note downloaded for preview!");
+      toast.success(t.common?.operationSuccess || "Sample Delivery Note downloaded for preview!");
     } catch (err) {
-      toast.error("Failed to preview delivery note.");
+      toast.error(t.common?.error || "Failed to preview delivery note.");
     } finally {
       setPreviewLoading(false);
     }
@@ -185,26 +185,26 @@ export function Settings() {
       if (field === 'orderNotifs') setOrderNotifs(val);
       if (field === 'lowStockNotifs') setLowStockNotifs(val);
       if (field === 'shipmentNotifs') setShipmentNotifs(val);
-      toast.success("Notification preferences updated.");
+      toast.success(t.common?.operationSuccess || "Notification preferences updated.");
     } catch (err) {
-      toast.error("Failed to update preferences");
+      toast.error(t.common?.error || "Failed to update preferences");
     }
   }
 
   async function handleUpdatePassword() {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      toast.error("Please fill in all password fields."); return;
+      toast.error(t.common?.error || "Please fill in all password fields."); return;
     }
     if (newPassword !== confirmPassword) {
-      toast.error("New passwords do not match."); return;
+      toast.error(t.common?.error || "New passwords do not match."); return;
     }
     if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters."); return;
+      toast.error(t.common?.error || "New password must be at least 6 characters."); return;
     }
     try {
       setPwLoading(true);
       await authService.changePassword(currentPassword, newPassword);
-      toast.success("Password updated successfully.");
+      toast.success(t.common?.operationSuccess || "Password updated successfully.");
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     } catch (err: any) {
       toast.error(err?.response?.data?.message || "Failed to update password.");
@@ -214,7 +214,7 @@ export function Settings() {
   }
 
   async function handleInviteMember() {
-    if (!inviteEmail || !invitePassword) { toast.error("Email and password are required."); return; }
+    if (!inviteEmail || !invitePassword) { toast.error(t.common?.error || "Email and password are required."); return; }
     try {
       setInviteLoading(true);
       await adminService.inviteUser({ email: inviteEmail, name: inviteName, password: invitePassword, role: inviteRole });
@@ -234,7 +234,7 @@ export function Settings() {
     try {
       await adminService.deleteUser(id);
       setTeamMembers(prev => prev.filter(m => m._id !== id));
-      toast.success("Team member removed.");
+      toast.success(t.common?.operationSuccess || "Team member removed.");
     } catch (err: any) {
       toast.error(err?.response?.data?.message || "Failed to remove member.");
     }
@@ -242,7 +242,7 @@ export function Settings() {
 
   useEffect(() => {
     if (activeTab === "team") {
-      adminService.getUsers().then(data => setTeamMembers(data)).catch(() => toast.error("Failed to load users"));
+      adminService.getUsers().then(data => setTeamMembers(data)).catch(() => toast.error(t.common?.error || "Failed to load users"));
     }
   }, [activeTab]);
 
@@ -252,9 +252,9 @@ export function Settings() {
     try {
       const updatedKeys = await settingsService.createApiKey(name);
       setKeys(updatedKeys);
-      toast.success("API key created.");
+      toast.success(t.common?.operationSuccess || "API key created.");
     } catch (err) {
-      toast.error("Failed to create API key.");
+      toast.error(t.common?.error || "Failed to create API key.");
     }
   }
 
@@ -263,9 +263,9 @@ export function Settings() {
     try {
       const updatedKeys = await settingsService.deleteApiKey(id);
       setKeys(updatedKeys);
-      toast.success("API key deleted.");
+      toast.success(t.common?.operationSuccess || "API key deleted.");
     } catch (err) {
-      toast.error("Failed to delete API key.");
+      toast.error(t.common?.error || "Failed to delete API key.");
     }
   }
 
@@ -324,11 +324,11 @@ export function Settings() {
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors"
                     style={{ fontSize: "0.875rem" }}
                   >
-                    <option value="America/New_York">America/New_York</option>
-                    <option value="America/Los_Angeles">America/Los_Angeles</option>
-                    <option value="Europe/London">Europe/London</option>
-                    <option value="Europe/Paris">Europe/Paris</option>
-                    <option value="Asia/Tokyo">Asia/Tokyo</option>
+                    <option value="America/New_York">{t.common?.americaNewYork || "America/New_York"}</option>
+                    <option value="America/Los_Angeles">{t.common?.americaLosAngeles || "America/Los_Angeles"}</option>
+                    <option value="Europe/London">{t.common?.europeLondon || "Europe/London"}</option>
+                    <option value="Europe/Paris">{t.common?.europeParis || "Europe/Paris"}</option>
+                    <option value="Asia/Tokyo">{t.common?.asiaTokyo || "Asia/Tokyo"}</option>
                   </select>
                 </div>
                 <div>
@@ -339,17 +339,17 @@ export function Settings() {
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors"
                     style={{ fontSize: "0.875rem" }}
                   >
-                    <option value="EUR">EUR — Euro</option>
-                    <option value="USD">USD — US Dollar</option>
-                    <option value="GBP">GBP — British Pound</option>
+                    <option value="EUR">{t.common?.eUREuro || "EUR — Euro"}</option>
+                    <option value="USD">{t.common?.uSDUSDollar || "USD — US Dollar"}</option>
+                    <option value="GBP">{t.common?.gBPBritishPound || "GBP — British Pound"}</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">{t.settings.dateFormat}</label>
                   <select className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }}>
-                    <option>YYYY-MM-DD</option>
-                    <option>MM/DD/YYYY</option>
-                    <option>DD/MM/YYYY</option>
+                    <option>{t.common?.yYYYMMDD || "YYYY-MM-DD"}</option>
+                    <option>{t.common?.mMDDYYYY || "MM/DD/YYYY"}</option>
+                    <option>{t.common?.dDMMYYYY || "DD/MM/YYYY"}</option>
                   </select>
                 </div>
               </div>
@@ -421,7 +421,7 @@ export function Settings() {
                   <input
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="House Logistic S.L."
+                    placeholder={t.common?.houseLogisticSL || "House Logistic S.L."}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -430,7 +430,7 @@ export function Settings() {
                   <input
                     value={tradingName}
                     onChange={(e) => setTradingName(e.target.value)}
-                    placeholder="House Logistic"
+                    placeholder={t.common?.houseLogistic || "House Logistic"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -439,7 +439,7 @@ export function Settings() {
                   <input
                     value={vatNumber}
                     onChange={(e) => setVatNumber(e.target.value)}
-                    placeholder="B-12345678"
+                    placeholder={t.common?.b12345678 || "B-12345678"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -461,7 +461,7 @@ export function Settings() {
                   <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="logistics@houselogistic.es"
+                    placeholder={t.common?.logisticsHouselogisticEs || "logistics@houselogistic.es"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -470,7 +470,7 @@ export function Settings() {
                   <input
                     value={website}
                     onChange={(e) => setWebsite(e.target.value)}
-                    placeholder="www.houselogistic.es"
+                    placeholder={t.common?.wwwHouselogisticEs || "www.houselogistic.es"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -485,7 +485,7 @@ export function Settings() {
                     <input
                       value={street}
                       onChange={(e) => setStreet(e.target.value)}
-                      placeholder="Polígono Industrial Norte"
+                      placeholder={t.common?.polGonoIndustrialNorte || "Polígono Industrial Norte"}
                       className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
                     />
                   </div>
@@ -494,7 +494,7 @@ export function Settings() {
                     <input
                       value={number}
                       onChange={(e) => setNumber(e.target.value)}
-                      placeholder="Nave 7"
+                      placeholder={t.common?.nave7 || "Nave 7"}
                       className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
                     />
                   </div>
@@ -512,7 +512,7 @@ export function Settings() {
                     <input
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
-                      placeholder="Madrid"
+                      placeholder={t.common?.madrid || "Madrid"}
                       className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
                     />
                   </div>
@@ -521,7 +521,7 @@ export function Settings() {
                     <input
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
-                      placeholder="Spain"
+                      placeholder={t.common?.spain || "Spain"}
                       className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
                     />
                   </div>
@@ -605,28 +605,28 @@ export function Settings() {
                   <div className="space-y-3">
                     <div>
                       <label className="text-sm font-medium mb-1 block">Email *</label>
-                      <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} type="email" placeholder="colleague@company.com" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                      <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} type="email" placeholder={t.common?.colleagueCompanyCom || "colleague@company.com"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-1 block">Full Name</label>
-                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder="John Smith" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder={t.common?.johnSmith || "John Smith"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-1 block">Temporary Password *</label>
-                      <input value={invitePassword} onChange={e => setInvitePassword(e.target.value)} type="password" placeholder="Min 6 characters" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                      <input value={invitePassword} onChange={e => setInvitePassword(e.target.value)} type="password" placeholder={t.common?.min6Characters || "Min 6 characters"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-1 block">Role</label>
                       <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm">
-                        <option value="admin">Admin</option>
-                        <option value="manager">Manager</option>
-                        <option value="warehouse_staff">Warehouse Staff</option>
-                        <option value="readonly">Read-only</option>
+                        <option value="admin">{t.common?.admin || "Admin"}</option>
+                        <option value="manager">{t.common?.manager || "Manager"}</option>
+                        <option value="warehouse_staff">{t.common?.warehouseStaff || "Warehouse Staff"}</option>
+                        <option value="readonly">{t.common?.readOnly || "Read-only"}</option>
                       </select>
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end pt-2">
-                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">Cancel</button>
+                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">{t.common?.cancel || "Cancel"}</button>
                     <button onClick={handleInviteMember} disabled={inviteLoading} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50">
                       {inviteLoading ? "Inviting…" : "Add Member"}
                     </button>
@@ -705,7 +705,7 @@ export function Settings() {
                       {permissionModules.map((m) => (
                         <th key={m} className="px-3 py-3 text-center text-xs text-muted-foreground font-semibold capitalize">{m}</th>
                       ))}
-                      <th className="px-4 py-3 text-right text-xs text-muted-foreground font-semibold">Actions</th>
+                      <th className="px-4 py-3 text-right text-xs text-muted-foreground font-semibold">{t.common?.actions || "Actions"}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -728,9 +728,9 @@ export function Settings() {
                         ))}
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title="View"><Eye className="size-3.5" /></button>
-                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title="Edit"><Pencil className="size-3.5" /></button>}
-                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="size-3.5" /></button>}
+                            <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title={t.common?.view || "View"}><Eye className="size-3.5" /></button>
+                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title={t.common?.edit || "Edit"}><Pencil className="size-3.5" /></button>}
+                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={t.common?.delete || "Delete"}><Trash2 className="size-3.5" /></button>}
                           </div>
                         </td>
                       </tr>

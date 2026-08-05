@@ -56,7 +56,7 @@ export function Reports() {
         if (data.headerStats) setHeaderStats(data.headerStats);
         if (kpis) setWarehouseKPIs(kpis);
       } catch (err) {
-        toast.error("Failed to load live report data");
+        toast.error(t.common?.error || "Failed to load live report data");
       } finally {
         setIsLoading(false);
       }
@@ -69,19 +69,19 @@ export function Reports() {
       await reportsService.exportPDF(activeTab);
       toast.success(`${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} report exported as PDF — check your downloads.`);
     } catch (error) {
-      toast.error("Failed to export report");
+      toast.error(t.common?.error || "Failed to export report");
     }
   }
 
   async function handleScheduleReport() {
-    if (!schedForm.email) { toast.error("Recipient email is required."); return; }
+    if (!schedForm.email) { toast.error(t.common?.error || "Recipient email is required."); return; }
     try {
       await reportsService.scheduleReport(schedForm);
       toast.success(`${schedForm.report} report scheduled ${schedForm.freq} → ${schedForm.email}`);
       setShowSchedule(false);
       setSchedForm({ report: "overview", freq: "weekly", email: "", format: "pdf" });
     } catch (error) {
-      toast.error("Failed to schedule report");
+      toast.error(t.common?.error || "Failed to schedule report");
     }
   }
 
@@ -327,7 +327,7 @@ export function Reports() {
         </div>
       )}
 
-      <Modal open={showSchedule} onClose={() => setShowSchedule(false)} title={t.reports.scheduleReport} subtitle="Auto-deliver reports on a recurring basis" footer={<><ModalCancel onClose={() => setShowSchedule(false)} /><ModalSubmit onClick={handleScheduleReport}>{t.common.schedule}</ModalSubmit></>}>
+      <Modal open={showSchedule} onClose={() => setShowSchedule(false)} title={t.reports.scheduleReport} subtitle={t.common?.autoDeliverReportsOnARecurringBasis || "Auto-deliver reports on a recurring basis"} footer={<><ModalCancel onClose={() => setShowSchedule(false)} /><ModalSubmit onClick={handleScheduleReport}>{t.common.schedule}</ModalSubmit></>}>
         <Row>
           <Field label={t.reports.reportType}><Select value={schedForm.report} onChange={(e) => setSchedForm({ ...schedForm, report: e.target.value })}>
             {reportTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.label}</option>)}
@@ -339,7 +339,7 @@ export function Reports() {
         <Field label={t.reports.frequency}><Select value={schedForm.freq} onChange={(e) => setSchedForm({ ...schedForm, freq: e.target.value })}>
           <option value="daily">{t.reports.freqs.daily}</option><option value="weekly">{t.reports.freqs.weekly}</option><option value="monthly">{t.reports.freqs.monthly}</option>
         </Select></Field>
-        <Field label={t.reports.recipient} required><Input type="email" value={schedForm.email} onChange={(e) => setSchedForm({ ...schedForm, email: e.target.value })} placeholder="finance@company.com" /></Field>
+        <Field label={t.reports.recipient} required><Input type="email" value={schedForm.email} onChange={(e) => setSchedForm({ ...schedForm, email: e.target.value })} placeholder={t.common?.financeCompanyCom || "finance@company.com"} /></Field>
       </Modal>
     </div>
   );

@@ -50,7 +50,7 @@ export function Returns() {
   );
 
   useEffect(() => {
-    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error("Failed to load warehouses"));
+    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
   }, []);
 
   // Listen for header button CustomEvent
@@ -61,7 +61,7 @@ export function Returns() {
   }, []);
 
   async function handleCreate() {
-    if (!form.order || !form.customer) { toast.error("Order and customer required."); return; }
+    if (!form.order || !form.customer) { toast.error(t.common?.error || "Order and customer required."); return; }
     const id = `RET-${String(allItems.length + 42).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
     try {
@@ -70,7 +70,7 @@ export function Returns() {
       setShowAdd(false);
       setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
       reload();
-    } catch (err) { toast.error("Failed to create return"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to create return"); }
   }
 
   async function handleProcess(ret: ReturnItem) {
@@ -78,7 +78,7 @@ export function Returns() {
       await returnsService.update(ret._id, { status: "processing" });
       toast.info(`Return ${ret.id} is now processing.`);
       reload();
-    } catch (err) { toast.error("Failed to update status"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to update status"); }
   }
 
   async function handleRefund(ret: ReturnItem) {
@@ -86,14 +86,14 @@ export function Returns() {
       await returnsService.update(ret._id, { status: "refunded" });
       toast.success(`Return ${ret.id} refunded successfully.`);
       reload();
-    } catch (err) { toast.error("Failed to process refund"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to process refund"); }
   }
 
   async function handleQCItem(ret: ReturnItem) {
     const skuInput = document.getElementById(`ret-sku-${ret.id}`) as HTMLInputElement;
     const qtyInput = document.getElementById(`ret-qty-${ret.id}`) as HTMLInputElement;
     const statusInput = document.getElementById(`ret-status-${ret.id}`) as HTMLSelectElement;
-    if (!skuInput?.value || !qtyInput?.value) return toast.error("SKU and Qty required");
+    if (!skuInput?.value || !qtyInput?.value) return toast.error(t.common?.error || "SKU and Qty required");
     
     const newItem = {
       sku: skuInput.value,
@@ -109,7 +109,7 @@ export function Returns() {
       skuInput.value = ""; qtyInput.value = "";
       reload();
     } catch (err) {
-      toast.error("Failed to record returned item");
+      toast.error(t.common?.error || "Failed to record returned item");
     }
   }
 
@@ -126,9 +126,9 @@ export function Returns() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      toast.success("Return note downloaded");
+      toast.success(t.common?.operationSuccess || "Return note downloaded");
     } catch (err) {
-      toast.error("Failed to generate document");
+      toast.error(t.common?.error || "Failed to generate document");
     }
   }
 
@@ -199,7 +199,7 @@ export function Returns() {
                 <td className="px-4 py-3 text-right hidden sm:table-cell text-muted-foreground text-xs">{r.date}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end items-center gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); downloadReturnNote(r); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary" title="Download Return Note">
+                    <button onClick={(e) => { e.stopPropagation(); downloadReturnNote(r); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary" title={t.common?.downloadReturnNote || "Download Return Note"}>
                       <FileText className="size-4" />
                     </button>
                     {r.status === "pending" && (
@@ -217,14 +217,14 @@ export function Returns() {
                     <div className="bg-card border border-primary/20 rounded-lg p-4 animate-fade-in-up">
                       <h4 className="font-bold text-sm mb-3 text-primary">Return Inspection & QC</h4>
                       <div className="flex gap-2 mb-3">
-                        <Input placeholder="Scan Returned SKU..." id={`ret-sku-${r.id}`} className="flex-1" />
-                        <Input type="number" placeholder="Qty" id={`ret-qty-${r.id}`} className="w-24" />
+                        <Input placeholder={t.common?.scanReturnedSKU || "Scan Returned SKU..."} id={`ret-sku-${r.id}`} className="flex-1" />
+                        <Input type="number" placeholder={t.common?.qty || "Qty"} id={`ret-qty-${r.id}`} className="w-24" />
                         <Select id={`ret-status-${r.id}`} className="w-32">
-                          <option value="restock">Restock</option>
-                          <option value="damage">Damaged</option>
-                          <option value="disposed">Dispose</option>
+                          <option value="restock">{t.common?.restock || "Restock"}</option>
+                          <option value="damage">{t.common?.damaged || "Damaged"}</option>
+                          <option value="disposed">{t.common?.dispose || "Dispose"}</option>
                         </Select>
-                        <PrimaryButton onClick={() => handleQCItem(r)}>Add</PrimaryButton>
+                        <PrimaryButton onClick={() => handleQCItem(r)}>{t.common?.add || "Add"}</PrimaryButton>
                       </div>
                       
                       {r.items_details && r.items_details.length > 0 && (
@@ -254,10 +254,10 @@ export function Returns() {
         <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.returns.createReturn} subtitle="Register a customer return" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.returns.createReturn}</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.returns.createReturn} subtitle={t.common?.registerACustomerReturn || "Register a customer return"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.returns.createReturn}</ModalSubmit></>}>
         <Row>
-          <Field label={t.returns.orderNo} required><Input value={form.order} onChange={(e) => setForm({ ...form, order: e.target.value })} placeholder="ORD-XXXXX" /></Field>
-          <Field label={t.common.name} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Company name" /></Field>
+          <Field label={t.returns.orderNo} required><Input value={form.order} onChange={(e) => setForm({ ...form, order: e.target.value })} placeholder={t.common?.oRDXXXXX || "ORD-XXXXX"} /></Field>
+          <Field label={t.common.name} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder={t.common?.companyName || "Company name"} /></Field>
         </Row>
         <Field label={t.returns.reason}><Select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
           <option value="">— {t.common.none} —</option>
@@ -273,9 +273,9 @@ export function Returns() {
           <Field label={t.returns.noOfItems}><Input type="number" value={form.items} onChange={(e) => setForm({ ...form, items: Number(e.target.value) })} /></Field>
           <Field label={t.returns.refundAmount}><Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} /></Field>
         </Row>
-        <Field label="Return to Warehouse"><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
+        <Field label={t.common?.returnToWarehouse || "Return to Warehouse"}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
           {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-          {warehouses.length === 0 && <option value="MIA">MIA</option>}
+          {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
         </Select></Field>
       </Modal>
     </div>

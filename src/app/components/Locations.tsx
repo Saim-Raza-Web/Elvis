@@ -84,7 +84,7 @@ export function Locations() {
       setRules((rulesData as any) || []);
       if (whList.length > 0 && !selectedWarehouse) setSelectedWarehouse(whList[0].code);
     } catch (err) {
-      toast.error("Failed to load data");
+      toast.error(t.common?.error || "Failed to load data");
     }
   }
 
@@ -116,7 +116,7 @@ export function Locations() {
         setShowZone(false);
       }
       loadData();
-    } catch (e) { toast.error("Failed to save zone"); }
+    } catch (e) { toast.error(t.common?.error || "Failed to save zone"); }
   }
 
   async function handleDeleteZone() {
@@ -126,7 +126,7 @@ export function Locations() {
       toast.success(`Zone deleted.`);
       setDeleteZoneTarget(null);
       loadData();
-    } catch (e) { toast.error("Failed to delete zone"); }
+    } catch (e) { toast.error(t.common?.error || "Failed to delete zone"); }
   }
 
   async function handleAddLoc() {
@@ -147,7 +147,7 @@ export function Locations() {
         setShowLoc(false);
       }
       reload();
-    } catch (e) { toast.error("Failed to save location"); }
+    } catch (e) { toast.error(t.common?.error || "Failed to save location"); }
   }
 
   async function handleDeleteLoc() {
@@ -157,7 +157,7 @@ export function Locations() {
       toast.success(`Location deleted.`);
       setDeleteLocTarget(null);
       reload();
-    } catch (e) { toast.error("Failed to delete location"); }
+    } catch (e) { toast.error(t.common?.error || "Failed to delete location"); }
   }
 
   async function handleAddRule() {
@@ -181,7 +181,7 @@ export function Locations() {
         setShowRule(false);
       }
       loadData();
-    } catch (e) { toast.error("Failed to save rule"); }
+    } catch (e) { toast.error(t.common?.error || "Failed to save rule"); }
   }
 
   async function handleDeleteRule() {
@@ -193,7 +193,7 @@ export function Locations() {
       toast.success(`Rule deleted.`);
       setDeleteRuleTarget(null);
       loadData();
-    } catch (e) { toast.error("Failed to delete rule"); }
+    } catch (e) { toast.error(t.common?.error || "Failed to delete rule"); }
   }
 
   return (
@@ -227,10 +227,10 @@ export function Locations() {
         <div className="flex rounded-lg border border-border overflow-hidden">
           <button onClick={() => setView("zones")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "zones" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.zone}s</button>
           <button onClick={() => setView("locations")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "locations" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.location}s</button>
-          <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Rules</button>
+          <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.locations?.rules || "Rules"}</button>
         </div>
         <PrimaryButton icon={Plus} onClick={() => view === "zones" ? setShowZone(true) : view === "locations" ? setShowLoc(true) : setShowRule(true)}>
-          {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : "Add Rule"}
+          {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : (t.locations?.addRule || "Add Rule")}
         </PrimaryButton>
       </div>
 
@@ -347,13 +347,13 @@ export function Locations() {
       {/* Add Zone Modal */}
       <Modal open={showZone} onClose={() => setShowZone(false)} title={t.locations.addZone} subtitle={t.locations.zoneName} footer={<><ModalCancel onClose={() => setShowZone(false)} /><ModalSubmit onClick={handleAddZone}>{t.common.create}</ModalSubmit></>}>
         <Row>
-          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
+          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder={t.common?.pICKC || "PICK-C"} /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">MIA</option>}
+            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
           </Select></Field>
         </Row>
-        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>
+        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder={t.common?.pickingZoneC || "Picking Zone C"} /></Field>
         <Row>
           <Field label={t.locations.zoneType}><Select value={zoneForm.type} onChange={(e) => setZoneForm({ ...zoneForm, type: e.target.value })}>
             {Object.keys(zoneTypeColor).map((typeKey) => (
@@ -374,21 +374,21 @@ export function Locations() {
         </Select></Field>
         <Row>
           <Field label={t.locations.aisle} required><Input value={locForm.aisle} onChange={(e) => setLocForm({ ...locForm, aisle: e.target.value })} placeholder="01" /></Field>
-          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder="A" /></Field>
+          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder={t.common?.a || "A"} /></Field>
         </Row>
         <Row>
           <Field label={t.locations.bin}><Input value={locForm.bin} onChange={(e) => setLocForm({ ...locForm, bin: e.target.value })} placeholder="01" /></Field>
           <Field label={t.warehouses.capacity}><Input type="number" value={locForm.capacity} onChange={(e) => setLocForm({ ...locForm, capacity: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder="SKU-XXXX" /></Field>
-          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
+          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
+          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder={t.common?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
         </Row>
         <div className="pt-2 border-t border-border mt-2 mb-2">
           <p className="text-sm font-bold text-muted-foreground mb-3">{t.common.rules}</p>
           <Row>
-            <Field label="Allowed Manufacturers"><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder="Samsung, Apple (comma separated)" /></Field>
-            <Field label="Allowed Families"><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder="Electronics, Clothing" /></Field>
+            <Field label={t.common?.allowedManufacturers || "Allowed Manufacturers"}><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder={t.common?.samsungAppleCommaSeparated || "Samsung, Apple (comma separated)"} /></Field>
+            <Field label={t.common?.allowedFamilies || "Allowed Families"}><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder={t.common?.electronicsClothing || "Electronics, Clothing"} /></Field>
           </Row>
         </div>
       </Modal>
@@ -396,13 +396,13 @@ export function Locations() {
       {/* Edit Zone Modal */}
       <Modal open={!!editZoneTarget} onClose={() => setEditZoneTarget(null)} title={`${t.common.edit} ${t.common.zone}`} footer={<><ModalCancel onClose={() => setEditZoneTarget(null)} /><ModalSubmit onClick={handleAddZone}>{t.common.save}</ModalSubmit></>}>
         <Row>
-          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
+          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder={t.common?.pICKC || "PICK-C"} /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">MIA</option>}
+            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
           </Select></Field>
         </Row>
-        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>
+        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder={t.common?.pickingZoneC || "Picking Zone C"} /></Field>
         <Row>
           <Field label={t.locations.zoneType}><Select value={zoneForm.type} onChange={(e) => setZoneForm({ ...zoneForm, type: e.target.value })}>
             {Object.keys(zoneTypeColor).map((typeKey) => (
@@ -428,65 +428,65 @@ export function Locations() {
         </Select></Field>
         <Row>
           <Field label={t.locations.aisle} required><Input value={locForm.aisle} onChange={(e) => setLocForm({ ...locForm, aisle: e.target.value })} placeholder="01" /></Field>
-          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder="A" /></Field>
+          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder={t.common?.a || "A"} /></Field>
         </Row>
         <Row>
           <Field label={t.locations.bin}><Input value={locForm.bin} onChange={(e) => setLocForm({ ...locForm, bin: e.target.value })} placeholder="01" /></Field>
           <Field label={t.warehouses.capacity}><Input type="number" value={locForm.capacity} onChange={(e) => setLocForm({ ...locForm, capacity: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder="SKU-XXXX" /></Field>
-          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder="Auto-filled from SKU" /></Field>
+          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
+          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder={t.common?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
         </Row>
         <div className="pt-2 border-t border-border mt-2 mb-2">
           <p className="text-sm font-bold text-muted-foreground mb-3">{t.common.rules}</p>
           <Row>
-            <Field label="Allowed Manufacturers"><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder="Samsung, Apple (comma separated)" /></Field>
-            <Field label="Allowed Families"><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder="Electronics, Clothing" /></Field>
+            <Field label={t.common?.allowedManufacturers || "Allowed Manufacturers"}><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder={t.common?.samsungAppleCommaSeparated || "Samsung, Apple (comma separated)"} /></Field>
+            <Field label={t.common?.allowedFamilies || "Allowed Families"}><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder={t.common?.electronicsClothing || "Electronics, Clothing"} /></Field>
           </Row>
         </div>
       </Modal>
 
       {/* Delete Location Modal */}
-      <Modal open={!!deleteLocTarget} onClose={() => setDeleteLocTarget(null)} title="Delete Location" width="sm" footer={<><ModalCancel onClose={() => setDeleteLocTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteLoc}>{t.common.delete}</ModalSubmit></>}>
+      <Modal open={!!deleteLocTarget} onClose={() => setDeleteLocTarget(null)} title={t.common?.deleteLocation || "Delete Location"} width="sm" footer={<><ModalCancel onClose={() => setDeleteLocTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteLoc}>{t.common.delete}</ModalSubmit></>}>
         <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteLocTarget?.code}</strong>? This cannot be undone.</p>
       </Modal>
 
       {/* Delete Rule Confirm Modal */}
-      <Modal open={!!deleteRuleTarget} onClose={() => setDeleteRuleTarget(null)} title="Delete Storage Rule">
+      <Modal open={!!deleteRuleTarget} onClose={() => setDeleteRuleTarget(null)} title={t.common?.deleteStorageRule || "Delete Storage Rule"}>
         <div className="p-4 text-sm text-muted-foreground">
           Are you sure you want to delete the rule <strong>{deleteRuleTarget?.name}</strong>? This action cannot be undone.
         </div>
         <div className="flex gap-3 p-4 pt-0">
           <ModalCancel onClose={() => setDeleteRuleTarget(null)} />
-          <button onClick={handleDeleteRule} className="flex-1 rounded-xl bg-destructive text-destructive-foreground font-bold hover:bg-destructive/90 transition-colors">Delete</button>
+          <button onClick={handleDeleteRule} className="flex-1 rounded-xl bg-destructive text-destructive-foreground font-bold hover:bg-destructive/90 transition-colors">{t.common?.delete || "Delete"}</button>
         </div>
       </Modal>
 
       {/* Rule Form Modal */}
       <Modal open={showRule || !!editRuleTarget} onClose={() => { setShowRule(false); setEditRuleTarget(null); }} title={editRuleTarget ? "Edit Storage Rule" : "New Storage Rule"}>
         <div className="space-y-4 p-4">
-          <Field label="Rule Name">
-            <Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="e.g. Hazardous Materials" />
+          <Field label={t.common?.ruleName || "Rule Name"}>
+            <Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder={t.common?.eGHazardousMaterials || "e.g. Hazardous Materials"} />
           </Field>
           <Row>
-            <Field label="Condition Type">
+            <Field label={t.common?.conditionType || "Condition Type"}>
               <Select value={ruleForm.conditionType} onChange={(e) => setRuleForm({ ...ruleForm, conditionType: e.target.value })}>
-                <option value="category">Category</option>
-                <option value="manufacturer">Manufacturer</option>
-                <option value="owner">Owner</option>
-                <option value="brand">Brand</option>
+                <option value="category">{t.common?.category || "Category"}</option>
+                <option value="manufacturer">{t.common?.manufacturer || "Manufacturer"}</option>
+                <option value="owner">{t.common?.owner || "Owner"}</option>
+                <option value="brand">{t.common?.brand || "Brand"}</option>
               </Select>
             </Field>
-            <Field label="Condition Value">
-              <Input value={ruleForm.conditionValue} onChange={(e) => setRuleForm({ ...ruleForm, conditionValue: e.target.value })} placeholder="e.g. Electronics" />
+            <Field label={t.common?.conditionValue || "Condition Value"}>
+              <Input value={ruleForm.conditionValue} onChange={(e) => setRuleForm({ ...ruleForm, conditionValue: e.target.value })} placeholder={t.common?.eGElectronics || "e.g. Electronics"} />
             </Field>
           </Row>
           <Row>
-            <Field label="Target Zone">
-              <Input value={ruleForm.targetZone} onChange={(e) => setRuleForm({ ...ruleForm, targetZone: e.target.value })} placeholder="e.g. Aisle A" />
+            <Field label={t.common?.targetZone || "Target Zone"}>
+              <Input value={ruleForm.targetZone} onChange={(e) => setRuleForm({ ...ruleForm, targetZone: e.target.value })} placeholder={t.common?.eGAisleA || "e.g. Aisle A"} />
             </Field>
-            <Field label="Priority (1-100)">
+            <Field label={t.common?.priority1100 || "Priority (1-100)"}>
               <Input type="number" value={ruleForm.priority} onChange={(e) => setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) })} />
             </Field>
           </Row>

@@ -86,7 +86,7 @@ export function CRM() {
   }, []);
 
   async function handleSave() {
-    if (!form.name || !form.email) { toast.error("Company name and email required."); return; }
+    if (!form.name || !form.email) { toast.error(t.common?.error || "Company name and email required."); return; }
     try {
       if (editMode === "add") {
         if (view === "leads" || view === "pipeline") {
@@ -99,33 +99,33 @@ export function CRM() {
       } else {
         if (view === "leads" || view === "pipeline") {
           await leadsService.update(editingId!, { name: form.name, contact: form.contact, email: form.email });
-          toast.success("Lead updated.");
+          toast.success(t.common?.operationSuccess || "Lead updated.");
         } else {
           await crmService.update(editingId!, { name: form.name, contact: form.contact, email: form.email, phone: form.phone, country: form.country, tier: form.tier });
-          toast.success("Customer updated.");
+          toast.success(t.common?.operationSuccess || "Customer updated.");
         }
       }
       setShowAdd(false);
       reloadAll();
-    } catch (err) { toast.error("Failed to save record"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to save record"); }
   }
 
   async function handleDeleteCustomer(id: string) {
     if (!confirm("Delete customer?")) return;
     try {
       await crmService.delete(id);
-      toast.success("Customer deleted.");
+      toast.success(t.common?.operationSuccess || "Customer deleted.");
       reloadAll();
-    } catch (err) { toast.error("Failed to delete customer"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to delete customer"); }
   }
 
   async function handleDeleteLead(id: string) {
     if (!confirm("Delete lead?")) return;
     try {
       await leadsService.delete(id);
-      toast.success("Lead deleted.");
+      toast.success(t.common?.operationSuccess || "Lead deleted.");
       reloadAll();
-    } catch (err) { toast.error("Failed to delete lead"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to delete lead"); }
   }
 
   function openEditCustomer(c: Customer) {
@@ -155,7 +155,7 @@ export function CRM() {
       await leadsService.update(draggedLead._id, { stage });
       toast.success(`Lead moved to ${stage}`);
       reloadAll();
-    } catch (err) { toast.error("Failed to move lead"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to move lead"); }
     setDraggedLead(null);
   }
 
@@ -331,11 +331,11 @@ export function CRM() {
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer) : "Edit Record"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer) : "Save Changes"}</ModalSubmit></>}>
         <Row>
-          <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Company Inc." /></Field>
-          <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="Full name" /></Field>
+          <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.companyInc || "Company Inc."} /></Field>
+          <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder={t.common?.fullName || "Full name"} /></Field>
         </Row>
         <Row>
-          <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="contact@company.com" /></Field>
+          <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={t.common?.contactCompanyCom || "contact@company.com"} /></Field>
           {(view === "customers") && <Field label={t.common.phone}><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 555 000 0000" /></Field>}
         </Row>
         {(view === "customers") && (
@@ -344,7 +344,7 @@ export function CRM() {
               {["US","DE","FR","ES","IT","GB","NL","SE","PT","BR"].map((c) => <option key={c}>{c}</option>)}
             </Select></Field>
             <Field label={t.crm.tier}><Select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
-              <option value="bronze">Bronze</option><option value="silver">Silver</option><option value="gold">Gold</option><option value="platinum">Platinum</option>
+              <option value="bronze">{t.common?.bronze || "Bronze"}</option><option value="silver">{t.common?.silver || "Silver"}</option><option value="gold">{t.common?.gold || "Gold"}</option><option value="platinum">{t.common?.platinum || "Platinum"}</option>
             </Select></Field>
           </Row>
         )}

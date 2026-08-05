@@ -52,7 +52,7 @@ export function Packing() {
   async function loadData() {
     try {
     } catch (err) {
-      toast.error("Failed to load packing queue");
+      toast.error(t.common?.error || "Failed to load packing queue");
     }
   }
 
@@ -75,7 +75,7 @@ export function Packing() {
   }, []);
 
   function handleVerify() {
-    if (!scanned.trim()) { toast.error("Scan or enter a barcode first."); return; }
+    if (!scanned.trim()) { toast.error(t.common?.error || "Scan or enter a barcode first."); return; }
     const item = packItems.find((i) => i.sku === scanned.trim() || i.product.toLowerCase().includes(scanned.toLowerCase()));
     if (!item) { toast.error(`Barcode "${scanned}" not found in this order.`); setScanned(""); return; }
     if (item.verified) { toast.info(`${item.sku} already verified.`); setScanned(""); return; }
@@ -91,27 +91,27 @@ export function Packing() {
       setLabelPrinted(true);
       toast.success(`Shipping label for ${activePack.order} sent to printer.`);
     } catch (err) {
-      toast.error("Failed to update label status");
+      toast.error(t.common?.error || "Failed to update label status");
     }
   }
 
   async function handleWeigh() {
     if (!activePack) return;
     const w = parseFloat(weight);
-    if (isNaN(w) || w <= 0) { toast.error("Enter a valid weight."); return; }
+    if (isNaN(w) || w <= 0) { toast.error(t.common?.error || "Enter a valid weight."); return; }
     try {
       await packingService.update(activePack._id, { weight: w });
       setWeighed(true);
       toast.success(`Package weighed: ${weight} kg.`);
     } catch (err) {
-      toast.error("Failed to update weight");
+      toast.error(t.common?.error || "Failed to update weight");
     }
   }
 
   async function handleCompleteShip() {
     if (!activePack) return;
-    if (!labelPrinted) { toast.error("Print shipping label before completing."); return; }
-    if (!allVerified) { toast.error("All items must be verified before shipping."); return; }
+    if (!labelPrinted) { toast.error(t.common?.error || "Print shipping label before completing."); return; }
+    if (!allVerified) { toast.error(t.common?.error || "All items must be verified before shipping."); return; }
     try {
       await packingService.update(activePack._id, { status: "completed" });
       toast.success(`${activePack.order} packed and queued for shipping!`);
@@ -120,11 +120,11 @@ export function Packing() {
       setLabelPrinted(false);
       setWeighed(false);
       reload();
-    } catch (err) { toast.error("Failed to complete packing"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to complete packing"); }
   }
 
   async function handleAddPack() {
-    if (!manualForm.order || !manualForm.customer) { toast.error("Order and customer are required."); return; }
+    if (!manualForm.order || !manualForm.customer) { toast.error(t.common?.error || "Order and customer are required."); return; }
     const id = `PCK-${String(queue.length + 80).padStart(4, "0")}`;
     try {
       await packingService.create({ ...manualForm, packId: id, status: "ready", picked: manualForm.items });
@@ -132,7 +132,7 @@ export function Packing() {
       setShowAdd(false);
       setManualForm({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" });
       reload();
-    } catch (err) { toast.error("Failed to create packing task"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to create packing task"); }
   }
 
   return (
@@ -243,10 +243,10 @@ export function Packing() {
                   <div>
                     <label className="text-xs text-muted-foreground block mb-1">{t.packing.boxType}</label>
                     <select value={boxType} onChange={(e) => setBoxType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none text-sm">
-                      <option>Box S (20×15×10)</option>
-                      <option>Box M (30×25×20)</option>
-                      <option>Box L (40×35×30)</option>
-                      <option>Box XL (60×50×40)</option>
+                      <option>{t.common?.boxS201510 || "Box S (20×15×10)"}</option>
+                      <option>{t.common?.boxM302520 || "Box M (30×25×20)"}</option>
+                      <option>{t.common?.boxL403530 || "Box L (40×35×30)"}</option>
+                      <option>{t.common?.boxXL605040 || "Box XL (60×50×40)"}</option>
                     </select>
                   </div>
                   <div>
@@ -258,10 +258,10 @@ export function Packing() {
                   <div>
                     <label className="text-xs text-muted-foreground block mb-1">{t.packing.material}</label>
                     <select value={material} onChange={(e) => setMaterial(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none text-sm">
-                      <option>Bubble wrap</option>
-                      <option>Foam padding</option>
-                      <option>Air cushions</option>
-                      <option>Paper fill</option>
+                      <option>{t.common?.bubbleWrap || "Bubble wrap"}</option>
+                      <option>{t.common?.foamPadding || "Foam padding"}</option>
+                      <option>{t.common?.airCushions || "Air cushions"}</option>
+                      <option>{t.common?.paperFill || "Paper fill"}</option>
                     </select>
                   </div>
                 </div>
@@ -313,17 +313,17 @@ export function Packing() {
         </div>
       </div>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="New Pack Task" subtitle="Manually add an order to the packing queue" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddPack}>Add Task</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.common?.newPackTask || "New Pack Task"} subtitle={t.common?.manuallyAddAnOrderToThePackingQueue || "Manually add an order to the packing queue"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddPack}>Add Task</ModalSubmit></>}>
         <Row>
-          <Field label="Order Number" required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder="ORD-XXXXX" /></Field>
-          <Field label="Customer" required><Input value={manualForm.customer} onChange={(e) => setManualForm({ ...manualForm, customer: e.target.value })} placeholder="Customer Name" /></Field>
+          <Field label={t.common?.orderNumber || "Order Number"} required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder={t.common?.oRDXXXXX || "ORD-XXXXX"} /></Field>
+          <Field label={t.common?.customer || "Customer"} required><Input value={manualForm.customer} onChange={(e) => setManualForm({ ...manualForm, customer: e.target.value })} placeholder={t.common?.customerName || "Customer Name"} /></Field>
         </Row>
         <Row>
-          <Field label="No. of items"><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
-          <Field label="Station"><Input value={manualForm.station} onChange={(e) => setManualForm({ ...manualForm, station: e.target.value })} placeholder="Pack-01" /></Field>
+          <Field label={t.common?.noOfItems || "No. of items"}><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
+          <Field label={t.common?.station || "Station"}><Input value={manualForm.station} onChange={(e) => setManualForm({ ...manualForm, station: e.target.value })} placeholder={t.common?.pack01 || "Pack-01"} /></Field>
         </Row>
-        <Field label="Priority"><Select value={manualForm.priority} onChange={(e) => setManualForm({ ...manualForm, priority: e.target.value })}>
-          <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
+        <Field label={t.common?.priority || "Priority"}><Select value={manualForm.priority} onChange={(e) => setManualForm({ ...manualForm, priority: e.target.value })}>
+          <option value="high">{t.common?.high || "High"}</option><option value="normal">{t.common?.normal || "Normal"}</option><option value="low">{t.common?.low || "Low"}</option>
         </Select></Field>
       </Modal>
     </div>

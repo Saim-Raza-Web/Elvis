@@ -71,7 +71,7 @@ export function StockCount() {
       const whs = await warehousesService.getAll();
       setWarehouses(whs);
     } catch (err) {
-      toast.error("Failed to load warehouses");
+      toast.error(t.common?.error || "Failed to load warehouses");
     }
   }
 
@@ -82,7 +82,7 @@ export function StockCount() {
   async function handleCreate() {
     try {
       await stockCountsService.create(form);
-      toast.success("Stock count session created");
+      toast.success(t.common?.operationSuccess || "Stock count session created");
       setShowAdd(false);
       setForm(blankCount());
       reload();
@@ -94,37 +94,37 @@ export function StockCount() {
   async function handleStartCount(id: string) {
     try {
       await stockCountsService.update(id, { status: "in_progress" });
-      toast.success("Count session started");
+      toast.success(t.common?.operationSuccess || "Count session started");
       loadData();
     } catch (err) {
-      toast.error("Failed to start count");
+      toast.error(t.common?.error || "Failed to start count");
     }
   }
 
   async function handleCompleteCount(id: string) {
     try {
       await stockCountsService.update(id, { status: "review" });
-      toast.success("Count session submitted for review");
+      toast.success(t.common?.operationSuccess || "Count session submitted for review");
       setActiveSession(null);
       loadData();
     } catch (err) {
-      toast.error("Failed to submit count");
+      toast.error(t.common?.error || "Failed to submit count");
     }
   }
 
   async function handleResolveCount(id: string) {
     try {
       await stockCountsService.update(id, { status: "completed" });
-      toast.success("Count session resolved and completed");
+      toast.success(t.common?.operationSuccess || "Count session resolved and completed");
       loadData();
     } catch (err) {
-      toast.error("Failed to resolve count");
+      toast.error(t.common?.error || "Failed to resolve count");
     }
   }
 
   async function handleScan() {
     if (!activeSession) return;
-    if (!scanSku.trim()) { toast.error("Please enter a SKU"); return; }
+    if (!scanSku.trim()) { toast.error(t.common?.error || "Please enter a SKU"); return; }
 
     const updatedItems = activeSession.items.map(item => {
       if (item.sku.toLowerCase() === scanSku.trim().toLowerCase()) {
@@ -150,7 +150,7 @@ export function StockCount() {
       setActiveSession({ ...activeSession, items: updatedItems as any });
       
     } catch (err) {
-      toast.error("Failed to record scan");
+      toast.error(t.common?.error || "Failed to record scan");
     }
   }
 
@@ -179,7 +179,7 @@ export function StockCount() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search counts…"
+            placeholder={`${t.common?.search || "Search"}  counts…`}
             className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors"
             style={{ fontSize: "0.875rem" }}
           />
@@ -192,12 +192,12 @@ export function StockCount() {
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
             <tr>
               <th className="text-left px-4 py-3">Session ID</th>
-              <th className="text-left px-4 py-3">Type</th>
+              <th className="text-left px-4 py-3">{t.common?.type || "Type"}</th>
               <th className="text-left px-4 py-3 hidden md:table-cell">Warehouse</th>
               <th className="text-left px-4 py-3 hidden sm:table-cell">Assigned To</th>
               <th className="text-center px-4 py-3">Items</th>
               <th className="text-right px-4 py-3 hidden lg:table-cell">Discrepancy</th>
-              <th className="text-center px-4 py-3">Status</th>
+              <th className="text-center px-4 py-3">{t.common?.status || "Status"}</th>
               <th className="text-right px-4 py-3"></th>
             </tr>
           </thead>
@@ -225,7 +225,7 @@ export function StockCount() {
                     <PrimaryButton onClick={() => setActiveSession(c)} icon={ScanLine}>Resume</PrimaryButton>
                   )}
                   {c.status === "in_progress" && activeSession?._id === c._id && (
-                    <button onClick={() => setActiveSession(null)} className="px-3 py-1.5 border border-border rounded-lg text-xs hover:bg-secondary">Close</button>
+                    <button onClick={() => setActiveSession(null)} className="px-3 py-1.5 border border-border rounded-lg text-xs hover:bg-secondary">{t.common?.close || "Close"}</button>
                   )}
                   {c.status === "review" && (
                     <PrimaryButton onClick={() => handleResolveCount(c._id)} icon={CheckCircle2}>Resolve</PrimaryButton>
@@ -255,10 +255,10 @@ export function StockCount() {
           </div>
           
           <div className="p-6 border-b border-border bg-secondary/10 flex items-end gap-3">
-            <Field label="Scan Barcode / SKU" required className="flex-1">
-              <Input value={scanSku} onChange={(e) => setScanSku(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScan()} placeholder="Scan here..." autoFocus />
+            <Field label={t.common?.scanBarcodeSKU || "Scan Barcode / SKU"} required className="flex-1">
+              <Input value={scanSku} onChange={(e) => setScanSku(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleScan()} placeholder={t.common?.scanHere || "Scan here..."} autoFocus />
             </Field>
-            <Field label="Qty" required className="w-24">
+            <Field label={t.common?.qty || "Qty"} required className="w-24">
               <Input type="number" value={scanQty} onChange={(e) => setScanQty(Number(e.target.value))} />
             </Field>
             <PrimaryButton onClick={handleScan} className="mb-1" icon={ArrowRight}>Record</PrimaryButton>
@@ -272,7 +272,7 @@ export function StockCount() {
                   <th className="text-center px-4 py-2">Expected</th>
                   <th className="text-center px-4 py-2">Counted</th>
                   <th className="text-center px-4 py-2">Variance</th>
-                  <th className="text-center px-4 py-2">Status</th>
+                  <th className="text-center px-4 py-2">{t.common?.status || "Status"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -302,32 +302,32 @@ export function StockCount() {
         </div>
       )}
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Schedule Stock Count" subtitle="Create a new physical inventory session" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>Schedule Session</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.common?.scheduleStockCount || "Schedule Stock Count"} subtitle={t.common?.createANewPhysicalInventorySession || "Create a new physical inventory session"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>Schedule Session</ModalSubmit></>}>
         <Row>
-          <Field label="Count Type">
+          <Field label={t.common?.countType || "Count Type"}>
             <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })}>
-              <option value="cycle">Cycle Count</option>
-              <option value="spot">Spot Check</option>
-              <option value="full">Full Inventory</option>
+              <option value="cycle">{t.common?.cycleCount || "Cycle Count"}</option>
+              <option value="spot">{t.common?.spotCheck || "Spot Check"}</option>
+              <option value="full">{t.common?.fullInventory || "Full Inventory"}</option>
             </Select>
           </Field>
-          <Field label="Warehouse">
+          <Field label={t.common?.warehouse || "Warehouse"}>
             <Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
               {warehouses.map(w => <option key={w.code} value={w.code}>{w.code}</option>)}
-              {warehouses.length === 0 && <option value="MIA">MIA</option>}
+              {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
             </Select>
           </Field>
         </Row>
         <Row>
-          <Field label="Assign To" required>
-            <Input value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })} placeholder="Worker name" />
+          <Field label={t.common?.assignTo || "Assign To"} required>
+            <Input value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })} placeholder={t.common?.workerName || "Worker name"} />
           </Field>
-          <Field label="Date" required>
+          <Field label={t.common?.date || "Date"} required>
             <Input type="date" value={form.scheduled_date} onChange={(e) => setForm({ ...form, scheduled_date: e.target.value })} />
           </Field>
         </Row>
-        <Field label="Notes / Instructions">
-          <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Focus on electronics aisle..." />
+        <Field label={t.common?.notesInstructions || "Notes / Instructions"}>
+          <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder={t.common?.focusOnElectronicsAisle || "Focus on electronics aisle..."} />
         </Field>
       </Modal>
     </div>

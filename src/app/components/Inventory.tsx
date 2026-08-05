@@ -63,7 +63,7 @@ export function Inventory() {
       setReplenishment(alerts || []);
       reload();
     } catch (err) {
-      toast.error("Failed to load inventory");
+      toast.error(t.common?.error || "Failed to load inventory");
     }
   }
 
@@ -81,7 +81,7 @@ export function Inventory() {
   function openAdd() { setForm(blankProduct()); setShowAdd(true); }
   function openEdit(p: Product) { setEditTarget(p); setForm({ ...p }); }
   async function handleSave() {
-    if (!form.sku || !form.name) { toast.error("SKU and name are required."); return; }
+    if (!form.sku || !form.name) { toast.error(t.common?.error || "SKU and name are required."); return; }
     try {
       if (showAdd) {
         await inventoryService.create({ ...form, status: form.qty_available <= 20 ? "low" : "ok" });
@@ -94,7 +94,7 @@ export function Inventory() {
       }
       reload();
     } catch (err) {
-      toast.error("Failed to save product");
+      toast.error(t.common?.error || "Failed to save product");
     }
   }
 
@@ -106,7 +106,7 @@ export function Inventory() {
       setDeleteTarget(null);
       reload();
     } catch (err) {
-      toast.error("Failed to delete product");
+      toast.error(t.common?.error || "Failed to delete product");
     }
   }
 
@@ -196,7 +196,7 @@ export function Inventory() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SKU or product…" className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`${t.common?.search || "Search"}  SKU or product…`} className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
         </div>
         <div className="flex gap-1.5 overflow-x-auto">
           {categories.map((c) => (
@@ -285,7 +285,7 @@ export function Inventory() {
                 <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-1">
-                    <button onClick={() => setBarcodeTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title="Print Barcode"><Printer className="size-3.5" /></button>
+                    <button onClick={() => setBarcodeTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={t.common?.printBarcode || "Print Barcode"}><Printer className="size-3.5" /></button>
                     <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={t.common.edit}><Edit3 className="size-3.5" /></button>
                     <button onClick={() => setDeleteTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={t.common.delete}><AlertTriangle className="size-3.5" /></button>
                   </div>
@@ -302,51 +302,51 @@ export function Inventory() {
       {/* Add/Edit Modal */}
       {[{ open: showAdd, onClose: () => setShowAdd(false), title: t.inventory.addProduct, cta: t.inventory.addProduct }, { open: !!editTarget, onClose: () => setEditTarget(null), title: t.inventory.editProduct, cta: t.common.save }].map((m) => (
         <Modal key={m.title} open={m.open} onClose={m.onClose} title={m.title} width="lg" footer={<><ModalCancel onClose={m.onClose} /><ModalSubmit onClick={handleSave}>{m.cta}</ModalSubmit></>}>
-          <Row><Field label={t.inventory.sku} required hint={t.inventory.skuHint}><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder="SKU-XXXX" /></Field>
+          <Row><Field label={t.inventory.sku} required hint={t.inventory.skuHint}><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
             <Field label={t.inventory.category}><Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
               {["Widgets","Hardware","Electronics","Industrial","Accessories","Packaging"].map((c) => <option key={c}>{c}</option>)}
             </Select></Field>
           </Row>
-          <Field label={t.inventory.productName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full product name" /></Field>
+          <Field label={t.inventory.productName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.fullProductName || "Full product name"} /></Field>
           <Row>
-            <Field label="Manufacturer"><Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="e.g. Sony" /></Field>
-            <Field label="Brand"><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="e.g. PlayStation" /></Field>
+            <Field label={t.common?.manufacturer || "Manufacturer"}><Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder={t.common?.eGSony || "e.g. Sony"} /></Field>
+            <Field label={t.common?.brand || "Brand"}><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder={t.common?.eGPlayStation || "e.g. PlayStation"} /></Field>
           </Row>
           <Row>
             <Field label={t.inventory.price}><Input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></Field>
             <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
               {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-              {warehouses.length === 0 && <option value="MIA">MIA</option>}
+              {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
             </Select></Field>
           </Row>
           <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Stock & Replenishment</div>
           <Row>
-            <Field label="Qty available"><Input type="number" value={form.qty_available} onChange={(e) => setForm({ ...form, qty_available: Number(e.target.value) })} /></Field>
-            <Field label="Reorder Point"><Input type="number" value={form.reorder_point} onChange={(e) => setForm({ ...form, reorder_point: Number(e.target.value) })} /></Field>
+            <Field label={t.common?.qtyAvailable || "Qty available"}><Input type="number" value={form.qty_available} onChange={(e) => setForm({ ...form, qty_available: Number(e.target.value) })} /></Field>
+            <Field label={t.common?.reorderPoint || "Reorder Point"}><Input type="number" value={form.reorder_point} onChange={(e) => setForm({ ...form, reorder_point: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
-            <Field label="Max Stock (Ideal)"><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} /></Field>
-            <Field label="Lead Time (Days)"><Input type="number" value={form.supplier_lead_time_days} onChange={(e) => setForm({ ...form, supplier_lead_time_days: Number(e.target.value) })} /></Field>
+            <Field label={t.common?.maxStockIdeal || "Max Stock (Ideal)"}><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} /></Field>
+            <Field label={t.common?.leadTimeDays || "Lead Time (Days)"}><Input type="number" value={form.supplier_lead_time_days} onChange={(e) => setForm({ ...form, supplier_lead_time_days: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
-            <Field label="Qty reserved"><Input type="number" value={form.qty_reserved} onChange={(e) => setForm({ ...form, qty_reserved: Number(e.target.value) })} /></Field>
+            <Field label={t.common?.qtyReserved || "Qty reserved"}><Input type="number" value={form.qty_reserved} onChange={(e) => setForm({ ...form, qty_reserved: Number(e.target.value) })} /></Field>
             <Field label={t.inventory.blocked}><Input type="number" value={form.qty_blocked} onChange={(e) => setForm({ ...form, qty_blocked: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
             <Field label={t.inventory.owner}><Select value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })}>
-              <option value="internal">Internal</option><option value="customer">{t.inventory.customerOwned}</option><option value="mixed">Mixed</option>
+              <option value="internal">{t.common?.internal || "Internal"}</option><option value="customer">{t.inventory.customerOwned}</option><option value="mixed">{t.common?.mixed || "Mixed"}</option>
             </Select></Field>
           </Row>
         </Modal>
       ))}
 
       {/* Delete confirmation */}
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Product" width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={t.common?.deleteProduct || "Delete Product"} width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
         <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone.</p>
       </Modal>
 
       {/* Barcode Modal */}
-      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title="Print SKU Barcode" size="sm">
+      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title={t.common?.printSKUBarcode || "Print SKU Barcode"} size="sm">
         {barcodeTarget && (
           <div className="p-4">
             <p className="text-sm text-muted-foreground mb-4 text-center">

@@ -55,7 +55,7 @@ export function Shipping() {
   );
 
   useEffect(() => {
-    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error("Failed to load warehouses"));
+    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
   }, []);
 
   // Listen for header button CustomEvent
@@ -66,7 +66,7 @@ export function Shipping() {
   }, []);
 
   async function handleCreate() {
-    if (!form.order || !form.destination) { toast.error("Order and destination are required."); return; }
+    if (!form.order || !form.destination) { toast.error(t.common?.error || "Order and destination are required."); return; }
     const id = `SHP-${String(allItems.length + 431).padStart(4, "0")}`;
     const tracking = Math.random().toString().slice(2, 20);
     try {
@@ -75,7 +75,7 @@ export function Shipping() {
       setShowAdd(false);
       setForm(blankShipment());
       reload();
-    } catch (err) { toast.error("Failed to create shipment"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to create shipment"); }
   }
 
   async function handleStatusUpdate(s: Shipment) {
@@ -85,7 +85,7 @@ export function Shipping() {
       toast.success(`Shipment ${s.id} is now ${newStatus.replace("_", " ")}.`);
       reload();
     } catch (err) {
-      toast.error("Failed to update shipment status");
+      toast.error(t.common?.error || "Failed to update shipment status");
     }
   }
 
@@ -194,28 +194,28 @@ export function Shipping() {
       </div>
       <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.shipping.newShipment} subtitle="Create a shipment and assign carrier" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.common.create}</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.shipping.newShipment} subtitle={t.common?.createAShipmentAndAssignCarrier || "Create a shipment and assign carrier"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.common.create}</ModalSubmit></>}>
         <Row>
-          <Field label={t.shipping.trackingNo} required><Input value={form.order} onChange={(e) => setForm({ ...form, order: e.target.value })} placeholder="ORD-XXXXX" /></Field>
-          <Field label={t.orders.customer}><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Customer name" /></Field>
+          <Field label={t.shipping.trackingNo} required><Input value={form.order} onChange={(e) => setForm({ ...form, order: e.target.value })} placeholder={t.common?.oRDXXXXX || "ORD-XXXXX"} /></Field>
+          <Field label={t.orders.customer}><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder={t.common?.customerName || "Customer name"} /></Field>
         </Row>
         <Row>
           <Field label={t.common.warehouse} required><Select value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">MIA</option>}
+            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
           </Select></Field>
           <Field label={t.common.type}><Select value={form.carrier} onChange={(e) => setForm({ ...form, carrier: e.target.value })}>
             {["FedEx","UPS","DHL","USPS","LTL Freight"].map((c) => <option key={c}>{c}</option>)}
           </Select></Field>
         </Row>
-        <Field label={t.shipping.destination} required><Input value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder="City, State / Country" /></Field>
+        <Field label={t.shipping.destination} required><Input value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} placeholder={t.common?.cityStateCountry || "City, State / Country"} /></Field>
         <Row>
-          <Field label="Shipment Mode"><Select value={form.shipment_type} onChange={(e) => setForm({ ...form, shipment_type: e.target.value })}>
-            <option value="Parcel">Parcel (B2C)</option>
-            <option value="Pallet">LTL Pallet (B2B)</option>
+          <Field label={t.common?.shipmentMode || "Shipment Mode"}><Select value={form.shipment_type} onChange={(e) => setForm({ ...form, shipment_type: e.target.value })}>
+            <option value="Parcel">{t.common?.parcelB2C || "Parcel (B2C)"}</option>
+            <option value="Pallet">{t.common?.lTLPalletB2B || "LTL Pallet (B2B)"}</option>
           </Select></Field>
           {form.shipment_type === 'Pallet' && (
-            <Field label="Pallets Count"><Input type="number" value={form.pallets_count} onChange={(e) => setForm({ ...form, pallets_count: Number(e.target.value) })} /></Field>
+            <Field label={t.common?.palletsCount || "Pallets Count"}><Input type="number" value={form.pallets_count} onChange={(e) => setForm({ ...form, pallets_count: Number(e.target.value) })} /></Field>
           )}
         </Row>
         <Row>

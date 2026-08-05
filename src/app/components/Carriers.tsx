@@ -44,7 +44,7 @@ export function Carriers() {
       const ruleData = await carrierRulesService.getAll();
       setCarrierRules(ruleData.map((d: any) => ({ ...d, id: d._id })));
     } catch (err) {
-      toast.error("Failed to load rules");
+      toast.error(t.common?.error || "Failed to load rules");
     }
   }
 
@@ -59,10 +59,10 @@ export function Carriers() {
   }, []);
 
   async function handleSaveCarrier() {
-    if (!form.name || !form.account) { toast.error("Carrier name and account are required."); return; }
+    if (!form.name || !form.account) { toast.error(t.common?.error || "Carrier name and account are required."); return; }
     try {
       let parsedBrackets = [];
-      try { parsedBrackets = JSON.parse(form.weight_brackets_str); } catch (e) { toast.error("Invalid JSON for weight brackets"); return; }
+      try { parsedBrackets = JSON.parse(form.weight_brackets_str); } catch (e) { toast.error(t.common?.error || "Invalid JSON for weight brackets"); return; }
       
       const payload = { 
         name: form.name, type: form.type, status: form.status, account: form.account, 
@@ -82,7 +82,7 @@ export function Carriers() {
       }
       setShowAdd(false);
       reload();
-    } catch (err) { toast.error("Failed to save carrier"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to save carrier"); }
   }
 
   function openEditCarrier(c: Carrier) {
@@ -98,7 +98,7 @@ export function Carriers() {
   }
 
   async function handleSaveRule() {
-    if (!ruleForm.name || !ruleForm.condition) { toast.error("Name and condition are required."); return; }
+    if (!ruleForm.name || !ruleForm.condition) { toast.error(t.common?.error || "Name and condition are required."); return; }
     try {
       if (editMode === "add") {
         await carrierRulesService.create(ruleForm);
@@ -109,16 +109,16 @@ export function Carriers() {
       }
       setShowRuleModal(false);
       loadData();
-    } catch (err) { toast.error("Failed to save rule"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to save rule"); }
   }
 
   async function handleDeleteRule(id: string) {
     if (!confirm("Delete this rule?")) return;
     try {
       await carrierRulesService.delete(id);
-      toast.success("Rule deleted.");
+      toast.success(t.common?.operationSuccess || "Rule deleted.");
       loadData();
-    } catch (err) { toast.error("Failed to delete rule"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to delete rule"); }
   }
 
   function openAddRule() {
@@ -256,17 +256,17 @@ export function Carriers() {
       )}
 
       {/* Carrier Modal */}
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editMode === "add" ? t.carriers.addCarrier : "Edit Carrier"} subtitle="Connect a shipping carrier" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSaveCarrier}>{editMode === "add" ? t.carriers.addCarrier : "Save Changes"}</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editMode === "add" ? t.carriers.addCarrier : "Edit Carrier"} subtitle={t.common?.connectAShippingCarrier || "Connect a shipping carrier"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSaveCarrier}>{editMode === "add" ? t.carriers.addCarrier : "Save Changes"}</ModalSubmit></>}>
         <Row>
-          <Field label={t.carriers.carrierName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="FedEx, DHL…" /></Field>
+          <Field label={t.carriers.carrierName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.fedExDHL || "FedEx, DHL…"} /></Field>
           <Field label={t.common.type}><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-            <option value="international">International</option><option value="domestic">Domestic</option><option value="regional">Regional</option>
+            <option value="international">{t.common?.international || "International"}</option><option value="domestic">{t.common?.domestic || "Domestic"}</option><option value="regional">{t.common?.regional || "Regional"}</option>
           </Select></Field>
         </Row>
         <Row>
-          <Field label={t.carriers.accountNo} required><Input value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })} placeholder="ACC-XXXXXX" /></Field>
+          <Field label={t.carriers.accountNo} required><Input value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })} placeholder={t.common?.aCCXXXXXX || "ACC-XXXXXX"} /></Field>
           <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="active">Active</option><option value="inactive">Inactive</option>
+            <option value="active">{t.common?.active || "Active"}</option><option value="inactive">{t.common?.inactive || "Inactive"}</option>
           </Select></Field>
         </Row>
         <Row>
@@ -274,10 +274,10 @@ export function Carriers() {
           <Field label={t.carriers.onTimeRate}><Input type="number" value={form.on_time} onChange={(e) => setForm({ ...form, on_time: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={t.carriers.regions} hint={t.carriers.regionsHint}><Input value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder="US, EU" /></Field>
-          <Field label="Shipping Zones"><Input value={form.zones} onChange={(e) => setForm({ ...form, zones: e.target.value })} placeholder="Zone 1, Zone 2..." /></Field>
+          <Field label={t.carriers.regions} hint={t.carriers.regionsHint}><Input value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} placeholder={t.common?.uSEU || "US, EU"} /></Field>
+          <Field label={t.common?.shippingZones || "Shipping Zones"}><Input value={form.zones} onChange={(e) => setForm({ ...form, zones: e.target.value })} placeholder={t.common?.zone1Zone2 || "Zone 1, Zone 2..."} /></Field>
         </Row>
-        <Field label="Weight Brackets (JSON)">
+        <Field label={t.common?.weightBracketsJSON || "Weight Brackets (JSON)"}>
           <textarea 
             value={form.weight_brackets_str} 
             onChange={(e) => setForm({ ...form, weight_brackets_str: e.target.value })}
@@ -288,13 +288,13 @@ export function Carriers() {
       </Modal>
 
       {/* Rule Modal */}
-      <Modal open={showRuleModal} onClose={() => setShowRuleModal(false)} title={editMode === "add" ? "Add Rule" : "Edit Rule"} subtitle="Automate carrier assignment" footer={<><ModalCancel onClose={() => setShowRuleModal(false)} /><ModalSubmit onClick={handleSaveRule}>{editMode === "add" ? "Create Rule" : "Save Changes"}</ModalSubmit></>}>
-        <Field label="Rule Name" required><Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="e.g., Heavy items to UPS" /></Field>
-        <Field label="Condition" required><Input value={ruleForm.condition} onChange={(e) => setRuleForm({ ...ruleForm, condition: e.target.value })} placeholder="e.g., Weight > 50 lbs" /></Field>
+      <Modal open={showRuleModal} onClose={() => setShowRuleModal(false)} title={editMode === "add" ? "Add Rule" : "Edit Rule"} subtitle={t.common?.automateCarrierAssignment || "Automate carrier assignment"} footer={<><ModalCancel onClose={() => setShowRuleModal(false)} /><ModalSubmit onClick={handleSaveRule}>{editMode === "add" ? "Create Rule" : "Save Changes"}</ModalSubmit></>}>
+        <Field label={t.common?.ruleName || "Rule Name"} required><Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder={t.common?.eGHeavyItemsToUPS || "e.g., Heavy items to UPS"} /></Field>
+        <Field label={t.common?.condition || "Condition"} required><Input value={ruleForm.condition} onChange={(e) => setRuleForm({ ...ruleForm, condition: e.target.value })} placeholder={t.common?.eGWeight50Lbs || "e.g., Weight > 50 lbs"} /></Field>
         <Row>
-          <Field label="Assigned Carrier"><Input value={ruleForm.carrier} onChange={(e) => setRuleForm({ ...ruleForm, carrier: e.target.value })} placeholder="e.g., UPS Ground" /></Field>
-          <Field label="Active Status"><Select value={ruleForm.active ? "true" : "false"} onChange={(e) => setRuleForm({ ...ruleForm, active: e.target.value === "true" })}>
-            <option value="true">Active</option><option value="false">Inactive</option>
+          <Field label={t.common?.assignedCarrier || "Assigned Carrier"}><Input value={ruleForm.carrier} onChange={(e) => setRuleForm({ ...ruleForm, carrier: e.target.value })} placeholder={t.common?.eGUPSGround || "e.g., UPS Ground"} /></Field>
+          <Field label={t.common?.activeStatus || "Active Status"}><Select value={ruleForm.active ? "true" : "false"} onChange={(e) => setRuleForm({ ...ruleForm, active: e.target.value === "true" })}>
+            <option value="true">{t.common?.active || "Active"}</option><option value="false">{t.common?.inactive || "Inactive"}</option>
           </Select></Field>
         </Row>
       </Modal>

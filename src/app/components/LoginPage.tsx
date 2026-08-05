@@ -188,7 +188,7 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
                   type="text"
                   value={name}
                   onChange={e => { setName(e.target.value); setError(""); }}
-                  placeholder="John Doe"
+                  placeholder={t.common?.johnDoe || "John Doe"}
                   required
                   className={`w-full px-4 py-3 rounded-xl border bg-card outline-none text-sm transition-all focus:ring-2 focus:ring-primary/30 ${error ? "border-destructive" : "border-border focus:border-primary/60"}`}
                 />
@@ -202,7 +202,7 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
                 type="email"
                 value={email}
                 onChange={e => { setEmail(e.target.value); setError(""); }}
-                placeholder="you@company.com"
+                placeholder={t.common?.youCompanyCom || "you@company.com"}
                 required
                 className={`w-full px-4 py-3 rounded-xl border bg-card outline-none text-sm transition-all focus:ring-2 focus:ring-primary/30 ${error ? "border-destructive" : "border-border focus:border-primary/60"}`}
               />

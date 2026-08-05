@@ -111,9 +111,7 @@ export function Row({ children }: { children: ReactNode }) {
 
 export function ModalCancel({ onClose }: { onClose: () => void }) {
   return (
-    <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">
-      Cancel
-    </button>
+    <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">{t.common?.cancel || "Cancel"}</button>
   );
 }
 

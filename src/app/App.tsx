@@ -148,10 +148,10 @@ function AppInner({
     carriers: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-carrier'))} icon={Plus}>{t.carriers.addCarrier}</PrimaryButton>,
     returns: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-create-return'))} icon={Plus}>{t.returns.createReturn}</PrimaryButton>,
     crm: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-customer'))} icon={Plus}>{t.crm.addCustomer}</PrimaryButton>,
-    picking: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pick'))} icon={Plus}>Start Pick</PrimaryButton>,
-    packing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pack'))} icon={Plus}>Start Pack</PrimaryButton>,
-    billing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-invoice'))} icon={Plus}>New Invoice</PrimaryButton>,
-    "stock-counts": <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-count'))} icon={Plus}>New Session</PrimaryButton>,
+    picking: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pick'))} icon={Plus}>{t.picking?.startPick || "Start Pick"}</PrimaryButton>,
+    packing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pack'))} icon={Plus}>{t.packing?.startPack || "Start Pack"}</PrimaryButton>,
+    billing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-invoice'))} icon={Plus}>{t.billing?.newInvoice || "New Invoice"}</PrimaryButton>,
+    "stock-counts": <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-count'))} icon={Plus}>{t.inventory?.newCount || "New Session"}</PrimaryButton>,
   };
 
   function renderPage() {

@@ -58,7 +58,7 @@ export function Picking() {
       const tasksData = await pickingService.getAll();
       setTasks(tasksData.map((d: any) => ({ ...d, id: d.taskId || d._id })));
     } catch (err) {
-      toast.error("Failed to load pick tasks");
+      toast.error(t.common?.error || "Failed to load pick tasks");
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +75,7 @@ export function Picking() {
   }, []);
 
   async function handleScanStart() {
-    if (!scanValue.trim()) { toast.error("No barcode detected. Enter or scan a barcode."); return; }
+    if (!scanValue.trim()) { toast.error(t.common?.error || "No barcode detected. Enter or scan a barcode."); return; }
     
     const task = tasks.find(t => t.id.toLowerCase() === scanValue.trim().toLowerCase());
     if (!task) {
@@ -96,7 +96,7 @@ export function Picking() {
       setScanValue("");
       loadData();
     } catch (err) {
-      toast.error("Failed to update task via scan.");
+      toast.error(t.common?.error || "Failed to update task via scan.");
     }
   }
 
@@ -108,12 +108,12 @@ export function Picking() {
       toast.success(`Task ${task.id} is now ${newStatus.replace("_", " ")}.`);
       loadData();
     } catch (err) {
-      toast.error("Failed to update task status.");
+      toast.error(t.common?.error || "Failed to update task status.");
     }
   }
 
   async function handleManualPick() {
-    if (!manualForm.order) { toast.error("Order number is required."); return; }
+    if (!manualForm.order) { toast.error(t.common?.error || "Order number is required."); return; }
     const id = `T${String(tasks.length + 1).padStart(3, "0")}`;
     try {
       await pickingService.create({ ...manualForm, taskId: id, status: "pending", picked: 0, started: "—" });
@@ -121,7 +121,7 @@ export function Picking() {
       setShowManual(false);
       setManualForm({ order: "", zone: "", assignee: "", priority: "normal", items: 1 });
       loadData();
-    } catch (err) { toast.error("Failed to create manual pick task"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to create manual pick task"); }
   }
 
   const TaskCard = ({ task }: { task: PickTask }) => (
@@ -206,7 +206,7 @@ export function Picking() {
           <input
             value={scanValue}
             onChange={(e) => setScanValue(e.target.value)}
-            placeholder="Scan barcode…"
+            placeholder={t.common?.scanBarcode || "Scan barcode…"}
             onKeyDown={(e) => e.key === "Enter" && handleScanStart()}
             className="flex-1 px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm"
             style={{ fontFamily: "JetBrains Mono, monospace" }}
@@ -276,16 +276,16 @@ export function Picking() {
       )}
 
       {/* Manual Pick Modal */}
-      <Modal open={showManual} onClose={() => setShowManual(false)} title={t.picking.startManualPick} subtitle="Create a pick task without scanning" footer={<><ModalCancel onClose={() => setShowManual(false)} /><ModalSubmit onClick={handleManualPick}>{t.picking.taskCreated}</ModalSubmit></>}>
-        <Field label={t.picking.order} required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder="ORD-XXXXX" /></Field>
+      <Modal open={showManual} onClose={() => setShowManual(false)} title={t.picking.startManualPick} subtitle={t.common?.createAPickTaskWithoutScanning || "Create a pick task without scanning"} footer={<><ModalCancel onClose={() => setShowManual(false)} /><ModalSubmit onClick={handleManualPick}>{t.picking.taskCreated}</ModalSubmit></>}>
+        <Field label={t.picking.order} required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder={t.common?.oRDXXXXX || "ORD-XXXXX"} /></Field>
         <Row>
-          <Field label={t.picking.zone}><Input value={manualForm.zone} onChange={(e) => setManualForm({ ...manualForm, zone: e.target.value })} placeholder="A-12" /></Field>
-          <Field label="No. of items"><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
+          <Field label={t.picking.zone}><Input value={manualForm.zone} onChange={(e) => setManualForm({ ...manualForm, zone: e.target.value })} placeholder={t.common?.a12 || "A-12"} /></Field>
+          <Field label={t.common?.noOfItems || "No. of items"}><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={t.picking.assignee}><Input value={manualForm.assignee} onChange={(e) => setManualForm({ ...manualForm, assignee: e.target.value })} placeholder="Staff name" /></Field>
+          <Field label={t.picking.assignee}><Input value={manualForm.assignee} onChange={(e) => setManualForm({ ...manualForm, assignee: e.target.value })} placeholder={t.common?.staffName || "Staff name"} /></Field>
           <Field label={t.picking.priority}><Select value={manualForm.priority} onChange={(e) => setManualForm({ ...manualForm, priority: e.target.value })}>
-            <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
+            <option value="high">{t.common?.high || "High"}</option><option value="normal">{t.common?.normal || "Normal"}</option><option value="low">{t.common?.low || "Low"}</option>
           </Select></Field>
         </Row>
       </Modal>

@@ -94,7 +94,7 @@ export function Subscription() {
       setCurrentPlan(planName);
       toast.success(`Successfully upgraded to ${planName} plan!`);
     } catch (err) {
-      toast.error("Failed to upgrade plan.");
+      toast.error(t.common?.error || "Failed to upgrade plan.");
     }
   }
 

@@ -89,6 +89,7 @@ function calcTotals(lines: ProductLine[]) {
 //   Product Lines Editor
 // ─────────────────────────────────────────────────────────────
 function ProductLinesEditor({ lines, onChange }: { lines: ProductLine[]; onChange: (l: ProductLine[]) => void }) {
+  const { t } = useLang();
   function update(i: number, field: keyof ProductLine, value: string | number) {
     const next = lines.map((l, idx) => {
       if (idx !== i) return l;
@@ -109,20 +110,20 @@ function ProductLinesEditor({ lines, onChange }: { lines: ProductLine[]; onChang
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Product Lines</span>
+        <span className="text-sm font-semibold">{t.orders?.productLines || "Product Lines"}</span>
         <button type="button" onClick={addLine} className="flex items-center gap-1 text-xs text-primary hover:underline font-semibold">
-          <Plus className="size-3.5" /> Add Line
+          <Plus className="size-3.5" /> {t.common?.addLine || "Add Line"}
         </button>
       </div>
       <div className="rounded-lg border border-border overflow-hidden">
         <table className="w-full text-xs">
           <thead className="bg-secondary/60 text-muted-foreground">
             <tr>
-              <th className="text-left px-2 py-2 w-24">SKU *</th>
-              <th className="text-left px-2 py-2">Product Name *</th>
-              <th className="text-center px-2 py-2 w-16">Qty *</th>
-              <th className="text-right px-2 py-2 w-24">Unit Price *</th>
-              <th className="text-right px-2 py-2 w-24">Line Total</th>
+              <th className="text-left px-2 py-2 w-24">{t.common?.sku || "SKU"} *</th>
+              <th className="text-left px-2 py-2">{t.common?.productName || "Product Name"} *</th>
+              <th className="text-center px-2 py-2 w-16">{t.common?.qty || "Qty"} *</th>
+              <th className="text-right px-2 py-2 w-24">{t.common?.unitPrice || "Unit Price"} *</th>
+              <th className="text-right px-2 py-2 w-24">{t.common?.lineTotal || "Line Total"}</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -131,11 +132,11 @@ function ProductLinesEditor({ lines, onChange }: { lines: ProductLine[]; onChang
               <tr key={i} className="border-t border-border">
                 <td className="px-1 py-1">
                   <input value={l.sku} onChange={e => update(i, "sku", e.target.value)}
-                    className="w-full px-2 py-1.5 rounded border border-border bg-secondary/30 outline-none focus:border-primary/50 text-xs" placeholder="SKU-001" />
+                    className="w-full px-2 py-1.5 rounded border border-border bg-secondary/30 outline-none focus:border-primary/50 text-xs" placeholder={t.common?.sKU001 || "SKU-001"} />
                 </td>
                 <td className="px-1 py-1">
                   <input value={l.product_name} onChange={e => update(i, "product_name", e.target.value)}
-                    className="w-full px-2 py-1.5 rounded border border-border bg-secondary/30 outline-none focus:border-primary/50 text-xs" placeholder="Product description" />
+                    className="w-full px-2 py-1.5 rounded border border-border bg-secondary/30 outline-none focus:border-primary/50 text-xs" placeholder={t.common?.productDescription || "Product description"} />
                 </td>
                 <td className="px-1 py-1">
                   <input type="number" min={1} value={l.qty} onChange={e => update(i, "qty", Number(e.target.value))}
@@ -163,7 +164,7 @@ function ProductLinesEditor({ lines, onChange }: { lines: ProductLine[]; onChang
       {/* Totals */}
       <div className="flex flex-col items-end gap-1 pr-2 text-sm">
         <div className="flex gap-8 text-muted-foreground">
-          <span>Subtotal</span>
+          <span>{t.common?.subtotal || "Subtotal"}</span>
           <span className="font-medium text-foreground w-24 text-right">€{subtotal.toFixed(2)}</span>
         </div>
         <div className="flex gap-8 text-muted-foreground">
@@ -171,7 +172,7 @@ function ProductLinesEditor({ lines, onChange }: { lines: ProductLine[]; onChang
           <span className="font-medium text-foreground w-24 text-right">€{vat_amount.toFixed(2)}</span>
         </div>
         <div className="flex gap-8 border-t border-border pt-1 font-bold text-foreground">
-          <span>Grand Total</span>
+          <span>{t.common?.total || "Grand Total"}</span>
           <span className="w-24 text-right">€{total.toFixed(2)}</span>
         </div>
       </div>
@@ -183,22 +184,23 @@ function ProductLinesEditor({ lines, onChange }: { lines: ProductLine[]; onChang
 //   Delivery Address Editor
 // ─────────────────────────────────────────────────────────────
 function DeliveryAddressEditor({ addr, onChange }: { addr: DeliveryAddress; onChange: (a: DeliveryAddress) => void }) {
+  const { t } = useLang();
   function f(k: keyof DeliveryAddress) {
     return (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...addr, [k]: e.target.value });
   }
   return (
     <div className="space-y-3">
       <Row>
-        <Field label="Street *"><Input value={addr.street} onChange={f("street")} placeholder="Calle Mayor" /></Field>
-        <Field label="Number *"><Input value={addr.number} onChange={f("number")} placeholder="42" /></Field>
+        <Field label={t.common?.street || "Street *"}><Input value={addr.street} onChange={f("street")} placeholder={t.common?.calleMayor || "Calle Mayor"} /></Field>
+        <Field label={t.common?.number || "Number *"}><Input value={addr.number} onChange={f("number")} placeholder="42" /></Field>
       </Row>
       <Row>
-        <Field label="Postcode *"><Input value={addr.postcode} onChange={f("postcode")} placeholder="28001" /></Field>
-        <Field label="City *"><Input value={addr.city} onChange={f("city")} placeholder="Madrid" /></Field>
+        <Field label={t.common?.postcode || "Postcode *"}><Input value={addr.postcode} onChange={f("postcode")} placeholder="28001" /></Field>
+        <Field label={t.common?.city || "City *"}><Input value={addr.city} onChange={f("city")} placeholder={t.common?.madrid || "Madrid"} /></Field>
       </Row>
       <Row>
-        <Field label="Region"><Input value={addr.region} onChange={f("region")} placeholder="Comunidad de Madrid" /></Field>
-        <Field label="Country *"><Input value={addr.country} onChange={f("country")} placeholder="Spain" /></Field>
+        <Field label={t.common?.region || "Region"}><Input value={addr.region} onChange={f("region")} placeholder={t.common?.comunidadDeMadrid || "Comunidad de Madrid"} /></Field>
+        <Field label={t.common?.country || "Country *"}><Input value={addr.country} onChange={f("country")} placeholder={t.common?.spain || "Spain"} /></Field>
       </Row>
     </div>
   );
@@ -285,6 +287,7 @@ function OrderFormContent({
   setForm: (f: OrderForm | ((prev: OrderForm) => OrderForm)) => void;
   warehouses: any[]; stores: any[]; isB2B: boolean;
 }) {
+  const { t } = useLang();
   function f<K extends keyof OrderForm>(k: K) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm(prev => ({ ...prev, [k]: e.target.value }));
@@ -303,24 +306,24 @@ function OrderFormContent({
                 : "text-muted-foreground hover:text-foreground"
               }`}
           >
-            {type === "B2C" ? " B2C — E-commerce" : " B2B — Wholesale / Pallets"}
+            {type === "B2C" ? t.common?.b2cEcommerce || " B2C — E-commerce" : t.common?.b2bWholesale || " B2B — Wholesale / Pallets"}
           </button>
         ))}
       </div>
 
       {/* ── Core ── */}
       <Row>
-        <Field label="Customer Name" required>
-          <Input value={form.customer} onChange={f("customer")} placeholder="John Doe / Acme Ltd" />
+        <Field label={t.common?.customerName || "Customer Name"} required>
+          <Input value={form.customer} onChange={f("customer")} placeholder={t.common?.johnDoeAcmeLtd || "John Doe / Acme Ltd"} />
         </Field>
         {!isB2B && (
-          <Field label="Email" required>
-            <Input type="email" value={form.email} onChange={f("email")} placeholder="orders@company.com" />
+          <Field label={t.common?.email || "Email"} required>
+            <Input type="email" value={form.email} onChange={f("email")} placeholder={t.common?.ordersCompanyCom || "orders@company.com"} />
           </Field>
         )}
         {isB2B && (
-          <Field label="PO Reference" required>
-            <Input value={form.po_reference} onChange={f("po_reference")} placeholder="PO-2025-001" />
+          <Field label={t.common?.poReference || "PO Reference"} required>
+            <Input value={form.po_reference} onChange={f("po_reference")} placeholder={t.common?.pO2025001 || "PO-2025-001"} />
           </Field>
         )}
       </Row>
@@ -329,21 +332,21 @@ function OrderFormContent({
       {isB2B && (
         <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/30 dark:bg-blue-950/20 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-700 dark:text-blue-300">
-            <Building2 className="size-4" /> Company Information
+            <Building2 className="size-4" /> {t.common?.companyInfo || "Company Information"}
           </div>
           <Row>
-            <Field label="Company Name" required>
-              <Input value={form.company_name} onChange={f("company_name")} placeholder="Acme Corporation S.L." />
+            <Field label={t.common?.companyName || "Company Name"} required>
+              <Input value={form.company_name} onChange={f("company_name")} placeholder={t.common?.acmeCorporationSL || "Acme Corporation S.L."} />
             </Field>
-            <Field label="VAT Number (CIF/NIF)" required>
-              <Input value={form.vat_number} onChange={f("vat_number")} placeholder="B-12345678" />
+            <Field label={t.common?.vatNumber || "VAT Number (CIF/NIF)"} required>
+              <Input value={form.vat_number} onChange={f("vat_number")} placeholder={t.common?.b12345678 || "B-12345678"} />
             </Field>
           </Row>
           <Row>
-            <Field label="Contact Person" required>
-              <Input value={form.contact_person} onChange={f("contact_person")} placeholder="Maria García" />
+            <Field label={t.common?.contactPerson || "Contact Person"} required>
+              <Input value={form.contact_person} onChange={f("contact_person")} placeholder={t.common?.mariaGarcA || "Maria García"} />
             </Field>
-            <Field label="Contact Phone">
+            <Field label={t.common?.contactPhone || "Contact Phone"}>
               <Input value={form.contact_phone} onChange={f("contact_phone")} placeholder="+34 600 000 000" />
             </Field>
           </Row>
@@ -354,7 +357,7 @@ function OrderFormContent({
       <div className="rounded-xl border border-border bg-secondary/10 p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <MapPin className="size-4 text-primary" />
-          {isB2B ? "Warehouse Delivery Address" : "Customer Delivery Address"} <span className="text-destructive">*</span>
+          {isB2B ? t.common?.warehouseDeliveryAddress || "Warehouse Delivery Address" : t.common?.customerDeliveryAddress || "Customer Delivery Address"} <span className="text-destructive">*</span>
         </div>
         <DeliveryAddressEditor
           addr={form.delivery_address}
@@ -374,24 +377,24 @@ function OrderFormContent({
       {isB2B && (
         <div className="rounded-xl border border-orange-200 dark:border-orange-900 bg-orange-50/30 dark:bg-orange-950/20 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-orange-700 dark:text-orange-300">
-            <Truck className="size-4" /> Shipment Information
+            <Truck className="size-4" /> {t.common?.shipmentInfo || "Shipment Information"}
           </div>
           <Row>
-            <Field label="Number of Pallets" required>
+            <Field label={t.common?.numberOfPallets || "Number of Pallets"} required>
               <Input type="number" min={1} value={form.pallet_count} onChange={f("pallet_count")} placeholder="4" />
             </Field>
-            <Field label="Total Shipment Weight" required>
+            <Field label={t.common?.totalShipmentWeight || "Total Shipment Weight"} required>
               <Input value={form.shipment_weight} onChange={f("shipment_weight")} placeholder="1500 kg" />
             </Field>
           </Row>
           <Row>
-            <Field label="Delivery Terms (Optional)">
+            <Field label={t.common?.deliveryTerms || "Delivery Terms (Optional)"}>
               <Select value={form.delivery_terms} onChange={f("delivery_terms")}>
-                <option value="">— Select Delivery Terms —</option>
+                <option value="">— {t.common?.selectDeliveryTerms || "Select Delivery Terms"} —</option>
                 {DELIVERY_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
               </Select>
             </Field>
-            <Field label="Agreed Delivery Date">
+            <Field label={t.common?.agreedDeliveryDate || "Agreed Delivery Date"}>
               <Input type="date" value={form.agreed_delivery_date} onChange={f("agreed_delivery_date")} />
             </Field>
           </Row>
@@ -402,17 +405,17 @@ function OrderFormContent({
       {!isB2B && (
         <div className="rounded-xl border border-border bg-secondary/10 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <Package className="size-4 text-primary" /> Shipping Information (Optional)
+            <Package className="size-4 text-primary" /> {t.common?.shippingInformationOptional || "Shipping Information (Optional)"}
           </div>
           <Row>
-            <Field label="Tracking Number">
+            <Field label={t.common?.trackingNumber || "Tracking Number"}>
               <Input value={form.tracking_number} onChange={f("tracking_number")} placeholder="1Z999AA1012345678" />
             </Field>
-            <Field label="Package Weight">
+            <Field label={t.common?.packageWeight || "Package Weight"}>
               <Input value={form.package_weight} onChange={f("package_weight")} placeholder="2.5 kg" />
             </Field>
           </Row>
-          <Field label="Package Dimensions">
+          <Field label={t.common?.packageDimensions || "Package Dimensions"}>
             <Input value={form.package_dimensions} onChange={f("package_dimensions")} placeholder="30×25×15 cm" />
           </Field>
         </div>
@@ -421,17 +424,17 @@ function OrderFormContent({
       {/* ── B2C Channel / Store ── */}
       {!isB2B && (
         <Row>
-          <Field label="Channel">
+          <Field label={t.common?.channel || "Channel"}>
             <Select value={form.channel} onChange={f("channel")}>
-              <option value="web">Web</option>
-              <option value="api">API</option>
-              <option value="mobile">Mobile</option>
-              <option value="phone">Phone</option>
+              <option value="web">{t.common?.web || "Web"}</option>
+              <option value="api">{t.common?.aPI || "API"}</option>
+              <option value="mobile">{t.common?.mobile || "Mobile"}</option>
+              <option value="phone">{t.common?.phone || "Phone"}</option>
             </Select>
           </Field>
-          <Field label="eCommerce Store (Optional)">
+          <Field label={t.common?.eCommerceStoreOptional || "eCommerce Store (Optional)"}>
             <Select value={form.store_id} onChange={f("store_id")}>
-              <option value="">— None —</option>
+              <option value="">— {t.common?.none || "None"} —</option>
               {stores.map(s => <option key={s._id} value={s._id}>{s.name} ({s.platform})</option>)}
             </Select>
           </Field>
@@ -439,16 +442,16 @@ function OrderFormContent({
       )}
 
       {/* Warehouse */}
-      <Field label="Fulfillment Warehouse">
+      <Field label={t.common?.fulfillmentWarehouse || "Fulfillment Warehouse"}>
         <Select value={form.warehouse} onChange={f("warehouse")}>
           {warehouses.map(w => <option key={w.code} value={w.code}>{w.code}</option>)}
-          {warehouses.length === 0 && <option value="MIA">MIA</option>}
+          {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
         </Select>
       </Field>
 
       {/* Notes */}
-      <Field label="Notes / Special Instructions">
-        <Input value={form.notes} onChange={f("notes")} placeholder="Handle with care, requires cold chain…" />
+      <Field label={t.common?.notesSpecialInstructions || "Notes / Special Instructions"}>
+        <Input value={form.notes} onChange={f("notes")} placeholder={t.common?.handleWithCareRequiresColdChain || "Handle with care, requires cold chain…"} />
       </Field>
     </div>
   );
@@ -492,7 +495,7 @@ export function Orders() {
         setWarehouses(whs);
         setStores(ecom);
       } catch {
-        toast.error("Failed to load order metadata");
+        toast.error(t.common?.error || "Failed to load order metadata");
       }
     }
     loadMeta();
@@ -556,11 +559,11 @@ export function Orders() {
     if (!deleteTarget) return;
     try {
       await ordersService.delete(deleteTarget._id);
-      toast.success("Order deleted.");
+      toast.success(t.common?.operationSuccess || "Order deleted.");
       setDeleteTarget(null);
       reload();
     } catch {
-      toast.error("Failed to delete order");
+      toast.error(t.common?.error || "Failed to delete order");
     }
   }
 
@@ -720,7 +723,7 @@ export function Orders() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-1">
-                    <button title="View / Edit" onClick={() => openEdit(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
+                    <button title={t.common?.viewEdit || "View / Edit"} onClick={() => openEdit(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
                       <Eye className="size-3.5" />
                     </button>
                     <button
@@ -733,7 +736,7 @@ export function Orders() {
                         ? <span className="size-3.5 block rounded-full border-2 border-primary border-t-transparent animate-spin" />
                         : <FileText className="size-3.5" />}
                     </button>
-                    <button title="Delete" onClick={() => setDeleteTarget(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-red-500">
+                    <button title={t.common?.delete || "Delete"} onClick={() => setDeleteTarget(o)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-red-500">
                       <Trash2 className="size-3.5" />
                     </button>
                   </div>
@@ -752,7 +755,7 @@ export function Orders() {
       <Modal
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        title="New Order"
+        title={t.orders?.newOrder || "New Order"}
         subtitle={`${form.order_type} Order`}
         width="xl"
         footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>Create Order</ModalSubmit></>}
@@ -815,7 +818,7 @@ export function Orders() {
       <Modal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        title="Delete Order"
+        title={t.common?.deleteOrder || "Delete Order"}
         width="sm"
         footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>Delete</ModalSubmit></>}
       >

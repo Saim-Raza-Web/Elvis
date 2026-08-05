@@ -125,7 +125,7 @@ export function QCWorkspace() {
     try {
       setIsSubmitting(true);
       const result = await qcService.passInspection(inspectTarget._id, form.notes);
-      toast.success(`QC PASSED! ${inspectTarget.qty} units released to Available Inventory. Putaway Task ${result.putawayTask?.taskId} created.`);
+      toast.success(`${t.qc?.passSuccess || "QC PASSED!"} ${inspectTarget.qty} units released. Task ${result.putawayTask?.taskId} created.`);
       setInspectTarget(null);
       reload();
     } catch (err: any) {
@@ -141,7 +141,7 @@ export function QCWorkspace() {
     try {
       setIsSubmitting(true);
       await qcService.failInspection(failTarget._id, failReason);
-      toast.error(`QC FAILED for SKU ${failTarget.sku}. Stock remains quarantined.`);
+      toast.error(`${t.qc?.failSuccess || "QC FAILED for SKU"} ${failTarget.sku}.`);
       setFailTarget(null);
       setInspectTarget(null);
       reload();
@@ -162,7 +162,7 @@ export function QCWorkspace() {
         rtvAuthNumber,
         rtvCarrier
       });
-      toast.success(`Return To Vendor (RTV) executed for ${rtvTarget.sku}. RTV Auth: ${rtvAuthNumber}.`);
+      toast.success(`${t.qc?.rtvSuccess || "Return To Vendor (RTV) executed for"} ${rtvTarget.sku}. RTV Auth: ${rtvAuthNumber}.`);
       setRtvTarget(null);
       setInspectTarget(null);
       reload();
@@ -205,7 +205,7 @@ export function QCWorkspace() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`${t.common.search} by SKU, ASN #, Lot #, Batch #...`}
+              placeholder={`${t.common.search} by SKU, ASN...`}
               className="w-full pl-9 pr-4 py-2 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary/50 text-sm"
             />
           </div>
@@ -382,16 +382,16 @@ export function QCWorkspace() {
               <Row>
                 <Field label={t.qc.pkgCondition}>
                   <Select value={form.packagingCondition} onChange={(e) => setForm(p => ({ ...p, packagingCondition: e.target.value }))}>
-                    <option value="Good">Good / Intact</option>
-                    <option value="Minor Damage">Minor Box Damage</option>
-                    <option value="Severely Damaged">Severely Damaged</option>
+                    <option value="Good">{t.common?.goodIntact || "Good / Intact"}</option>
+                    <option value="Minor Damage">{t.common?.minorBoxDamage || "Minor Box Damage"}</option>
+                    <option value="Severely Damaged">{t.common?.severelyDamaged || "Severely Damaged"}</option>
                   </Select>
                 </Field>
                 <Field label={t.qc.prodCondition}>
                   <Select value={form.productCondition} onChange={(e) => setForm(p => ({ ...p, productCondition: e.target.value }))}>
-                    <option value="Pass">Pass / Pristine</option>
-                    <option value="Scratched">Scratched / Cosmetic Fault</option>
-                    <option value="Defective">Defective / Non-functional</option>
+                    <option value="Pass">{t.common?.passPristine || "Pass / Pristine"}</option>
+                    <option value="Scratched">{t.common?.scratchedCosmeticFault || "Scratched / Cosmetic Fault"}</option>
+                    <option value="Defective">{t.common?.defectiveNonFunctional || "Defective / Non-functional"}</option>
                   </Select>
                 </Field>
               </Row>
@@ -406,15 +406,15 @@ export function QCWorkspace() {
               <Row>
                 <Field label={t.qc.visualResult}>
                   <Select value={form.visualInspection} onChange={(e) => setForm(p => ({ ...p, visualInspection: e.target.value }))}>
-                    <option value="Pass">Pass</option>
-                    <option value="Fail">Fail</option>
+                    <option value="Pass">{t.common?.pass || "Pass"}</option>
+                    <option value="Fail">{t.common?.fail || "Fail"}</option>
                   </Select>
                 </Field>
                 <Field label={t.qc.functionalResult}>
                   <Select value={form.functionalTest} onChange={(e) => setForm(p => ({ ...p, functionalTest: e.target.value }))}>
-                    <option value="Pass">Pass</option>
-                    <option value="Fail">Fail</option>
-                    <option value="N/A">N/A (Not Required)</option>
+                    <option value="Pass">{t.common?.pass || "Pass"}</option>
+                    <option value="Fail">{t.common?.fail || "Fail"}</option>
+                    <option value="N/A">{t.common?.nANotRequired || "N/A (Not Required)"}</option>
                   </Select>
                 </Field>
               </Row>
@@ -450,11 +450,11 @@ export function QCWorkspace() {
           <div className="space-y-3 text-xs">
             <Field label={`${t.qc.reasonForFailure} *`} required>
               <Select value={failReason} onChange={(e) => setFailReason(e.target.value)}>
-                <option value="Damaged Packaging & Visual Failure">Damaged Packaging & Visual Failure</option>
-                <option value="Expired or Invalid Expiry Date">Expired or Invalid Expiry Date</option>
-                <option value="Temperature Excursion Failure">Temperature Excursion Failure</option>
-                <option value="Missing Component Labels">Missing Component Labels</option>
-                <option value="Functional Test Defect">Functional Test Defect</option>
+                <option value="Damaged Packaging & Visual Failure">{t.common?.damagedPackagingVisualFailure || "Damaged Packaging & Visual Failure"}</option>
+                <option value="Expired or Invalid Expiry Date">{t.common?.expiredOrInvalidExpiryDate || "Expired or Invalid Expiry Date"}</option>
+                <option value="Temperature Excursion Failure">{t.common?.temperatureExcursionFailure || "Temperature Excursion Failure"}</option>
+                <option value="Missing Component Labels">{t.common?.missingComponentLabels || "Missing Component Labels"}</option>
+                <option value="Functional Test Defect">{t.common?.functionalTestDefect || "Functional Test Defect"}</option>
               </Select>
             </Field>
           </div>

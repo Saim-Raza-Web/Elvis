@@ -38,7 +38,7 @@ export function Accounting() {
       const data = await accountingService.getAll();
       setAccounts(data.accounts || []);
     } catch (err) {
-      toast.error("Failed to load accounts");
+      toast.error(t.common?.error || "Failed to load accounts");
     }
   }
 

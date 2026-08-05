@@ -137,7 +137,7 @@ export function PutawayQueue() {
 
     const targetBin = scannedBinBarcode.trim() || selectedBin.trim() || selectedTask.toLocation;
     if (!targetBin) {
-      toast.error("Please scan or select a destination bin");
+      toast.error(t.common?.error || "Please scan or select a destination bin");
       return;
     }
 
@@ -209,7 +209,7 @@ export function PutawayQueue() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`${t.common.search} by Task ID, SKU, ASN #, QC #...`}
+              placeholder={`${t.common.search} by Task ID, SKU...`}
               className="w-full pl-9 pr-4 py-2 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary/50 text-sm"
             />
           </div>
@@ -233,10 +233,10 @@ export function PutawayQueue() {
             onChange={(e) => setPriorityFilter(e.target.value)}
             className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-xs font-medium outline-none focus:border-primary/50"
           >
-            <option value="All">All Priorities</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
+            <option value="All">{t.common.all}</option>
+            <option value="normal">{t.common.status ? "Normal" : "Normal"}</option>
+            <option value="high">{t.common.status ? "High" : "High"}</option>
+            <option value="urgent">{t.common.status ? "Urgent" : "Urgent"}</option>
           </select>
 
           <button
@@ -374,7 +374,7 @@ export function PutawayQueue() {
                   type="text"
                   value={assignOperatorEmail}
                   onChange={(e) => setAssignOperatorEmail(e.target.value)}
-                  placeholder="e.g. operator@warehouse.com"
+                  placeholder={t.common?.eGOperatorWarehouseCom || "e.g. operator@warehouse.com"}
                   className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-xs"
                 />
               </div>
@@ -457,7 +457,7 @@ export function PutawayQueue() {
                   type="text"
                   value={scannedBinBarcode || selectedBin}
                   onChange={(e) => { setScannedBinBarcode(e.target.value); setSelectedBin(e.target.value); }}
-                  placeholder="Scan or enter destination bin (e.g. Z1-A1-R1-S1-B1)"
+                  placeholder={t.common?.scanOrEnterDestinationBinEGZ1A1R1S1B1 || "Scan or enter destination bin (e.g. Z1-A1-R1-S1-B1)"}
                   className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-xs font-mono mb-2"
                 />
 

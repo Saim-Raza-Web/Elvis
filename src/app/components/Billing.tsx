@@ -57,7 +57,7 @@ export function Billing() {
   }, []);
 
   async function handleCreate() {
-    if (!form.customer || !form.amount) { toast.error("Customer and amount required."); return; }
+    if (!form.customer || !form.amount) { toast.error(t.common?.error || "Customer and amount required."); return; }
     const id = `INV-${String(allItems.length + 88).padStart(4, "0")}`;
     try {
       await billingService.create({ invoiceId: id, customer: form.customer, amount: Number(form.amount), status: "draft", issued: form.issued, due: form.due || form.issued, items: Number(form.items) });
@@ -65,7 +65,7 @@ export function Billing() {
       setShowAdd(false);
       setForm(blankInvoice());
       reload();
-    } catch (err) { toast.error("Failed to create invoice"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to create invoice"); }
   }
 
   async function handleSend(inv: Invoice) {
@@ -73,7 +73,7 @@ export function Billing() {
       await billingService.update(inv._id, { status: "unpaid" });
       toast.success(t.billing.invoiceSent.replace("{id}", inv.id).replace("{customer}", inv.customer));
       reload();
-    } catch (err) { toast.error("Failed to send invoice"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to send invoice"); }
   }
 
   const filters = ["All", "draft", "unpaid", "paid", "overdue"];
@@ -139,7 +139,7 @@ export function Billing() {
                 <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{inv.amount.toFixed(2)}</td>
                 <td className="px-4 py-3 text-right">
                   {inv.status !== "paid" && (
-                    <button onClick={() => handleSend(inv)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary" title="Send invoice">
+                    <button onClick={() => handleSend(inv)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary" title={t.common?.sendInvoice || "Send invoice"}>
                       <Send className="size-3.5" />
                     </button>
                   )}
@@ -151,8 +151,8 @@ export function Billing() {
         <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.billing.newInvoice} subtitle="Create an invoice for a customer" footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.billing.newInvoice}</ModalSubmit></>}>
-        <Field label={t.common.company} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder="Company name" /></Field>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.billing.newInvoice} subtitle={t.common?.createAnInvoiceForACustomer || "Create an invoice for a customer"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.billing.newInvoice}</ModalSubmit></>}>
+        <Field label={t.common.company} required><Input value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} placeholder={t.common?.companyName || "Company name"} /></Field>
         <Row>
           <Field label={t.common.amount + " (€)"} required><Input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} /></Field>
           <Field label={t.billing.noOfLineItems}><Input type="number" value={form.items} onChange={(e) => setForm({ ...form, items: Number(e.target.value) })} /></Field>

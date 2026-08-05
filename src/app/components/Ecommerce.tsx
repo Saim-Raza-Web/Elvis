@@ -62,7 +62,7 @@ export function Ecommerce() {
         }));
       setRecentOrders(channelOrders);
     } catch (err) {
-      toast.error("Failed to load recent orders");
+      toast.error(t.common?.error || "Failed to load recent orders");
     }
   }
 
@@ -78,7 +78,7 @@ export function Ecommerce() {
   }, []);
 
   async function handleConnect() {
-    if (!connectForm.name || !connectForm.url) { toast.error("Channel name and URL required."); return; }
+    if (!connectForm.name || !connectForm.url) { toast.error(t.common?.error || "Channel name and URL required."); return; }
     try {
       if (editMode === "connect") {
         await ecommerceService.create({ ...connectForm, status: "connected", orders_today: 0, products: 0, pending_sync: 0, synced_at: new Date().toISOString() });
@@ -90,7 +90,7 @@ export function Ecommerce() {
       setShowConnect(false);
       setConnectForm({ name: "", platform: "Shopify", url: "", apiKey: "" });
       reload();
-    } catch (err) { toast.error("Failed to save channel"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to save channel"); }
   }
 
   function handleQuickConnect(platform: string) {
@@ -110,9 +110,9 @@ export function Ecommerce() {
     if (!confirm("Remove this channel?")) return;
     try {
       await ecommerceService.delete(id);
-      toast.success("Channel removed.");
+      toast.success(t.common?.operationSuccess || "Channel removed.");
       reload();
-    } catch (err) { toast.error("Failed to delete channel"); }
+    } catch (err) { toast.error(t.common?.error || "Failed to delete channel"); }
   }
 
   async function handleSync(id: string, name: string) {
@@ -122,7 +122,7 @@ export function Ecommerce() {
       toast.success(`${name} ${t.ecommerce.syncCompleted}.`);
       reload();
     } catch (err) {
-      toast.error("Sync failed.");
+      toast.error(t.common?.error || "Sync failed.");
     }
   }
 
@@ -250,15 +250,15 @@ export function Ecommerce() {
       </div>
 
       {/* Connect channel modal */}
-      <Modal open={showConnect} onClose={() => setShowConnect(false)} title={editMode === "connect" ? t.ecommerce.connectChannel : "Edit Channel"} subtitle="Integrate a new sales channel" footer={<><ModalCancel onClose={() => setShowConnect(false)} /><ModalSubmit onClick={handleConnect}>{editMode === "connect" ? t.common.connect : "Save Changes"}</ModalSubmit></>}>
+      <Modal open={showConnect} onClose={() => setShowConnect(false)} title={editMode === "connect" ? t.ecommerce.connectChannel : "Edit Channel"} subtitle={t.common?.integrateANewSalesChannel || "Integrate a new sales channel"} footer={<><ModalCancel onClose={() => setShowConnect(false)} /><ModalSubmit onClick={handleConnect}>{editMode === "connect" ? t.common.connect : "Save Changes"}</ModalSubmit></>}>
         <Row>
           <Field label={t.ecommerce.platform}><Select value={connectForm.platform} onChange={(e) => setConnectForm({ ...connectForm, platform: e.target.value })}>
             {["Shopify","Amazon","WooCommerce","eBay","Mirakl","Zalando","PrestaShop","Magento"].map((p) => <option key={p}>{p}</option>)}
           </Select></Field>
-          <Field label={t.ecommerce.displayName} required><Input value={connectForm.name} onChange={(e) => setConnectForm({ ...connectForm, name: e.target.value })} placeholder="My Shopify Store" /></Field>
+          <Field label={t.ecommerce.displayName} required><Input value={connectForm.name} onChange={(e) => setConnectForm({ ...connectForm, name: e.target.value })} placeholder={t.common?.myShopifyStore || "My Shopify Store"} /></Field>
         </Row>
-        <Field label={t.ecommerce.storeUrl} required><Input value={connectForm.url} onChange={(e) => setConnectForm({ ...connectForm, url: e.target.value })} placeholder="store.myshopify.com" /></Field>
-        <Field label={t.ecommerce.apiKey} hint="Will be stored encrypted"><Input type="password" value={connectForm.apiKey} onChange={(e) => setConnectForm({ ...connectForm, apiKey: e.target.value })} placeholder="sk_live_..." /></Field>
+        <Field label={t.ecommerce.storeUrl} required><Input value={connectForm.url} onChange={(e) => setConnectForm({ ...connectForm, url: e.target.value })} placeholder={t.common?.storeMyshopifyCom || "store.myshopify.com"} /></Field>
+        <Field label={t.ecommerce.apiKey} hint="Will be stored encrypted"><Input type="password" value={connectForm.apiKey} onChange={(e) => setConnectForm({ ...connectForm, apiKey: e.target.value })} placeholder={t.common?.sklive || "sk_live_..."} /></Field>
       </Modal>
     </div>
   );
