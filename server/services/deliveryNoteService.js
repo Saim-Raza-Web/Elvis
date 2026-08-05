@@ -1,19 +1,12 @@
-import fs from 'fs';
-import path from 'path';
 import Counter from '../models/Counter.js';
 import Document from '../models/Document.js';
 import ASN from '../models/ASN.js';
 import Discrepancy from '../models/Discrepancy.js';
 import ActivityLog from '../models/ActivityLog.js';
 
-const DOCS_DIR = path.resolve('public', 'documents');
-
-if (!fs.existsSync(DOCS_DIR)) {
-  fs.mkdirSync(DOCS_DIR, { recursive: true });
-}
-
 /**
- * Generate sequential Inbound Delivery Note (DN-2026-000001) for an ASN upon completion
+ * Generate sequential Inbound Delivery Note (DN-2026-000001) for an ASN upon completion.
+ * Zero filesystem dependencies (Vercel Serverless read-only safe).
  */
 export async function generateInboundDeliveryNote(asn, companyId, operator = 'system', session = null) {
   if (!asn) return null;
@@ -184,14 +177,9 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
     </html>
   `;
 
-  // 4. Save HTML Document to Disk
-  const fileName = `${dnNumber}.html`;
-  const filePath = path.join(DOCS_DIR, fileName);
-  fs.writeFileSync(filePath, htmlContent, 'utf8');
+  const fileUrl = `/api/v1/documents/dn/${dnNumber}`;
 
-  const fileUrl = `/documents/${fileName}`;
-
-  // 5. Create Document Record in Database
+  // 4. Create Document Record in MongoDB (stored 100% in database, serverless safe)
   const docCreateOpts = session ? { session } : {};
   const [docRecord] = await Document.create([{
     documentNumber: dnNumber,
@@ -216,14 +204,14 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
       lotNumber: i.lotNumber || 'DEFAULT-LOT',
       status: i.received_qty >= i.expected_qty ? 'RECEIVED' : 'PARTIAL'
     })),
-    pdfPath: filePath,
+    pdfPath: '',
     pdfUrl: fileUrl,
     htmlContent,
     generatedBy: operator,
     company: companyId
   }], docCreateOpts);
 
-  // 6. Update ASN with Delivery Note reference
+  // 5. Update ASN with Delivery Note reference
   asn.deliveryNoteNumber = dnNumber;
   asn.deliveryNoteId = docRecord._id;
   asn.deliveryNoteUrl = fileUrl;
