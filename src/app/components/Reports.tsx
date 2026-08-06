@@ -40,6 +40,15 @@ export function Reports() {
   const [warehouseKPIs, setWarehouseKPIs] = useState({ avgPickingTime: 0, avgPackingTime: 0, errorRate: 0, throughput: 0 });
   const [isLoading, setIsLoading] = useState(true);
 
+  /** Coerce potentially-null chart field values to safe numbers so Recharts never receives undefined */
+  function sanitizeChartData(arr: any[], ...numericKeys: string[]): any[] {
+    return (Array.isArray(arr) ? arr : []).map(row => {
+      const safe: any = { ...row };
+      numericKeys.forEach(k => { safe[k] = Number(safe[k]) || 0; });
+      return safe;
+    });
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -47,12 +56,12 @@ export function Reports() {
           reportsService.getDashboardStats(),
           reportsService.getWarehouseKPIs()
         ]);
-        setRevenueData(data.revenueData || []);
-        setOrderStatusData(data.orderStatusData || []);
-        setCategoryData(data.categoryData || []);
-        setShippingData(data.shippingData || []);
-        setWarehousePerf(data.warehousePerf || []);
-        setChannelData(data.channelData || []);
+        setRevenueData(sanitizeChartData(data.revenueData || [], 'revenue', 'orders'));
+        setOrderStatusData(sanitizeChartData(data.orderStatusData || [], 'value'));
+        setCategoryData(sanitizeChartData(data.categoryData || [], 'value', 'units'));
+        setShippingData(sanitizeChartData(data.shippingData || [], 'onTime', 'late'));
+        setWarehousePerf(sanitizeChartData(data.warehousePerf || [], 'picks', 'errors', 'utilization'));
+        setChannelData(sanitizeChartData(data.channelData || [], 'orders', 'revenue'));
         if (data.headerStats) setHeaderStats(data.headerStats);
         if (kpis) setWarehouseKPIs(kpis);
       } catch (err) {
@@ -138,7 +147,7 @@ export function Reports() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number, name: string) => name === "revenue" ? [`€${v.toLocaleString()}`, "Revenue"] : [v, "Orders"]} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => { const n = Number(v) || 0; return name === "revenue" ? [`€${n.toLocaleString()}`, "Revenue"] : [n, "Orders"]; }} />
                 <Area type="monotone" dataKey="revenue" stroke="#4f46e5" strokeWidth={2} fill="url(#revGrad)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -170,7 +179,7 @@ export function Reports() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                   <YAxis type="category" dataKey="carrier" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number, name: string) => [`${v}%`, name === "onTime" ? "On-time" : "Late"]} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => { const n = Number(v) || 0; return [`${n}%`, name === "onTime" ? "On-time" : "Late"]; }} />
                   <Bar dataKey="onTime" fill="#22c55e" radius={[0, 4, 4, 0]} />
                   <Bar dataKey="late" fill="#ef4444" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -189,7 +198,7 @@ export function Reports() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="category" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`€${v.toLocaleString()}`, "Value"]} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`€${(Number(v) || 0).toLocaleString()}`, "Value"]} />
                 <Bar dataKey="value" fill="#4f46e5" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -299,7 +308,7 @@ export function Reports() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="channel" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`€${v.toLocaleString()}`, "Revenue"]} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`€${(Number(v) || 0).toLocaleString()}`, "Revenue"]} />
                 <Bar dataKey="revenue" fill="#22d3ee" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

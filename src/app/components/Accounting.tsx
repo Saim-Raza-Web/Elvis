@@ -89,11 +89,11 @@ export function Accounting() {
                 <div className="flex-1 min-w-0 mr-3">
                   <div className="text-sm truncate">{acc.name}</div>
                   <div className={`text-[10px] font-semibold ${acc.change >= 0 ? "text-success" : "text-destructive"}`}>
-                    {acc.change >= 0 ? "+" : ""}€{acc.change.toLocaleString()}
+                  {(acc.change ?? 0) >= 0 ? "+" : ""}€{(Number(acc.change) || 0).toLocaleString()}
                   </div>
                 </div>
                 <div className={`font-bold text-sm shrink-0 ${acc.balance < 0 ? "text-destructive" : ""}`} style={{ fontFamily: "JetBrains Mono, monospace" }}>
-                  {acc.balance < 0 ? "-" : ""}€{Math.abs(acc.balance).toLocaleString()}
+                  {(acc.balance ?? 0) < 0 ? "-" : ""}€{Math.abs(Number(acc.balance) || 0).toLocaleString()}
                 </div>
               </div>
             ))}
@@ -128,7 +128,7 @@ export function Accounting() {
                   </td>
                   <td className="px-4 py-2.5 hidden sm:table-cell text-xs text-muted-foreground">{t.date}</td>
                   <td className={`px-4 py-2.5 text-right font-bold ${t.type === "credit" ? "text-success" : "text-destructive"}`} style={{ fontFamily: "JetBrains Mono, monospace" }}>
-                    {t.type === "credit" ? "+" : "-"}€{t.amount.toFixed(2)}
+                    {t.type === "credit" ? "+" : "-"}€{(Number(t.amount) || 0).toFixed(2)}
                   </td>
                 </tr>
               ))}
