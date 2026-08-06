@@ -537,7 +537,30 @@ router.get('/inbound-delivery-note/:asnId', async (req, res, next) => {
 });
 
 // ───────────────────────────────────────────────────────────────
-//   GET /dn/:dnNumber — Lookup Delivery Note by DN Number
+//   GET /dn/:dnNumber/pdf — Stream binary PDF for Delivery Note
+// ───────────────────────────────────────────────────────────────
+router.get('/dn/:dnNumber/pdf', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+
+    const docRecord = await Document.findOne({ documentNumber: req.params.dnNumber, company: req.user.company });
+    if (!docRecord) return res.status(404).json({ message: `Delivery Note ${req.params.dnNumber} not found.` });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${docRecord.documentNumber}.pdf"`);
+
+    if (docRecord.pdfDataUri && docRecord.pdfDataUri.includes('base64,')) {
+      const base64Data = docRecord.pdfDataUri.split('base64,')[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+      return res.send(buffer);
+    }
+
+    res.status(404).json({ message: 'PDF binary stream data not found for this document.' });
+  } catch (err) { next(err); }
+});
+
+// ───────────────────────────────────────────────────────────────
+//   GET /dn/:dnNumber — Lookup Delivery Note by DN Number (HTML or PDF via ?format=pdf)
 // ───────────────────────────────────────────────────────────────
 router.get('/dn/:dnNumber', async (req, res, next) => {
   try {
@@ -545,6 +568,14 @@ router.get('/dn/:dnNumber', async (req, res, next) => {
 
     const docRecord = await Document.findOne({ documentNumber: req.params.dnNumber, company: req.user.company });
     if (!docRecord) return res.status(404).json({ message: `Delivery Note ${req.params.dnNumber} not found.` });
+
+    if (req.query.format === 'pdf' && docRecord.pdfDataUri) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${docRecord.documentNumber}.pdf"`);
+      const base64Data = docRecord.pdfDataUri.split('base64,')[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+      return res.send(buffer);
+    }
 
     res.setHeader('Content-Type', 'text/html');
     res.send(docRecord.htmlContent);

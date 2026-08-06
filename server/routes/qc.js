@@ -11,6 +11,7 @@ import Counter from '../models/Counter.js';
 import Notification from '../models/Notification.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Product from '../models/Product.js';
+import { proposeDestinationLocation } from '../services/locationProposalService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -307,7 +308,19 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       );
     }
 
-    // 4. AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001) - ONLY ON QC PASS!
+    // 4. DYNAMIC LOCATION PROPOSAL & AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001)
+    const proposed = await proposeDestinationLocation({
+      company: req.user.company,
+      warehouse,
+      sku: qItem.sku,
+      qty,
+      lotNumber: qItem.lotNumber,
+      session
+    });
+
+    const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
+    const toBinCode = proposed.proposedBin;
+
     const putawayId = await nextPutawayNumber(req.user.company, session);
     const putawayTask = await PutawayTask.create([{
       taskId: putawayId,
@@ -320,8 +333,9 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       qty,
       lotNumber: qItem.lotNumber,
       batchNumber: qItem.batchNumber,
-      fromLocation: qItem.bin || 'BIN-01',
-      toLocation: 'RECEIVING-BUFFER',
+      fromLocation: fromBinCode,
+      toLocation: toBinCode,
+      destinationBin: toBinCode,
       priority: 'normal',
       status: 'pending',
       createdBy: operator,

@@ -40,6 +40,8 @@
     "@radix-ui/react-toggle": "1.1.2",
     "@radix-ui/react-toggle-group": "1.1.2",
     "@radix-ui/react-tooltip": "1.1.8",
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "axios": "^1.18.1",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "1.9.4",

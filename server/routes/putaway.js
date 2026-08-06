@@ -266,15 +266,18 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: `SKU barcode mismatch: Scanned '${scannedSkuBarcode}', Expected '${task.sku}'.` });
     }
 
-    const targetBinCode = (destinationBin || scannedBinBarcode || task.toLocation || 'RECEIVING-BUFFER').trim();
-    if (scannedBinBarcode && scannedBinBarcode.trim() !== targetBinCode) {
+    const proposedLocation = (task.destinationBin || task.toLocation || '').trim();
+    const targetBinCode = (scannedBinBarcode || destinationBin || proposedLocation).trim();
+
+    if (scannedBinBarcode && proposedLocation && scannedBinBarcode.trim() !== proposedLocation && !req.body.allowMisbinOverride) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json({ message: `Destination bin barcode mismatch: Scanned '${scannedBinBarcode}', Destination '${targetBinCode}'.` });
+      return res.status(400).json({ message: `Location Verification Failed: Scanned shelf/bin barcode '${scannedBinBarcode.trim()}' does not match proposed location '${proposedLocation}'. Incorrect location rejected.` });
     }
 
     const warehouse = task.warehouse || 'MIA';
     const qty = task.qty;
+    const sourceBinCode = task.fromLocation || `${warehouse}-RCV-DOCK1`;
 
     // Point 1 & Point 2 & Point 3: Bin Existence, Status, Compatibility, & Atomic Concurrent Capacity Validation
     if (targetBinCode !== 'RECEIVING-BUFFER' && targetBinCode !== 'Z-RECEIVING') {
@@ -339,21 +342,21 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       warehouse,
       sku: task.sku,
       lotNumber: task.lotNumber || 'DEFAULT-LOT',
-      bin: task.fromLocation || 'BIN-01'
+      bin: sourceBinCode
     }).session(session);
 
     const availableToPutaway = sourceBalance ? (sourceBalance.qtyAwaitingPutaway || 0) : 0;
     if (availableToPutaway < qty) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json({ message: `Inventory Invariant Violation: Insufficient stock awaiting putaway at '${task.fromLocation}'. Available: ${availableToPutaway}, Required: ${qty}.` });
+      return res.status(400).json({ message: `Inventory Invariant Violation: Insufficient stock awaiting putaway at '${sourceBinCode}'. Available: ${availableToPutaway}, Required: ${qty}.` });
     }
 
     const operator = req.user.email || req.user.name || 'system';
 
     // 3. Deduct qtyAwaitingPutaway from Source Location in InventoryBalance
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: task.sku, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: task.fromLocation || 'BIN-01' },
+      { company: req.user.company, warehouse, sku: task.sku, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: sourceBinCode },
       { $inc: { qtyAwaitingPutaway: -qty } },
       { upsert: true, new: true, session }
     );

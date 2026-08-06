@@ -10,6 +10,7 @@ import InventoryBalance from '../models/InventoryBalance.js';
 import InventoryTransaction from '../models/InventoryTransaction.js';
 import ReceivingHistory from '../models/ReceivingHistory.js';
 import Discrepancy from '../models/Discrepancy.js';
+import Incident from '../models/Incident.js';
 import QuarantineInventory from '../models/QuarantineInventory.js';
 import Product from '../models/Product.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
@@ -303,10 +304,56 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
 
       const matchLine = asn.items.find(i => i.sku === sku);
       if (!matchLine) {
-        // Strict Barcode Non-ASN Rejection
-        await session.abortTransaction();
+        // Automatically create Discrepancy, Incident, ActivityLog, and Notification for Unexpected SKU
+        const discId = 'DISC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+        const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+
+        await Discrepancy.create([{
+          discrepancyId: discId,
+          asnId: asn.asnId || asn.asnNumber,
+          asnNumber: asn.asnId || asn.asnNumber,
+          sku,
+          type: 'unexpected_sku',
+          expectedQty: 0,
+          receivedQty: 0,
+          damagedQty: 0,
+          difference: 0,
+          notes: `Unexpected SKU '${sku}' scanned on ASN ${asn.asnId}`,
+          user: operator,
+          company: req.user.company
+        }], { session });
+
+        await Incident.create([{
+          incidentId: incId,
+          type: 'Discrepancy',
+          sku,
+          location: asn.receivingDock || 'Dock 1',
+          reported_by: operator,
+          status: 'open',
+          description: `Unexpected SKU '${sku}' scanned during receiving on ASN ${asn.asnId}`,
+          company: req.user.company
+        }], { session });
+
+        Notification.create([{
+          company: req.user.company,
+          kind: 'alert',
+          title: 'Unexpected SKU Detected',
+          body: `SKU '${sku}' not found in ASN ${asn.asnId}. Discrepancy ${discId} and Incident ${incId} generated.`,
+        }], { session }).catch(() => {});
+
+        await logActivity(req, 'DISCREPANCY_DETECTED', 'ASN', `Unexpected SKU '${sku}' scanned on ASN ${asn.asnId}. Discrepancy ${discId} and Incident ${incId} created.`, session);
+
+        asn.status = 'completed_with_discrepancies';
+        await asn.save({ session });
+
+        await session.commitTransaction();
         session.endSession();
-        return res.status(400).json({ message: `SKU '${sku}' does not belong to this ASN. Non-ASN barcodes cannot be received.` });
+
+        return res.status(400).json({
+          message: `REJECTED: SKU '${sku}' does not belong to ASN ${asn.asnId}. Discrepancy (${discId}) & Incident (${incId}) automatically created.`,
+          discrepancyId: discId,
+          incidentId: incId
+        });
       }
 
       const currentReceived = matchLine.received_qty || 0;
@@ -476,7 +523,83 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       }
     }
 
-    // 5. AUTOMATIC ASN STATUS TRANSITION
+    // 5. AUTOMATIC DISCREPANCY & INCIDENT DETECTION & STATUS TRANSITION
+    for (const item of asn.items) {
+      const exp = Number(item.expected_qty) || 0;
+      const rec = Number(item.received_qty) || 0;
+
+      if (rec > exp) {
+        hasDiscrepancyInSession = true;
+        const diff = rec - exp;
+        const existingDisc = await Discrepancy.findOne({ asnId: asn.asnId || asn.asnNumber, sku: item.sku, type: 'over_receiving', company: req.user.company }).session(session);
+        if (!existingDisc) {
+          const discId = 'DISC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          await Discrepancy.create([{
+            discrepancyId: discId,
+            asnId: asn.asnId || asn.asnNumber,
+            asnNumber: asn.asnId || asn.asnNumber,
+            sku: item.sku,
+            type: 'over_receiving',
+            expectedQty: exp,
+            receivedQty: rec,
+            difference: diff,
+            notes: `Over receiving of +${diff} units for SKU ${item.sku}`,
+            user: operator,
+            company: req.user.company
+          }], { session });
+
+          await Incident.create([{
+            incidentId: incId,
+            type: 'Discrepancy',
+            sku: item.sku,
+            location: asn.receivingDock || 'Dock 1',
+            reported_by: operator,
+            status: 'open',
+            description: `Over receiving of +${diff} units for SKU ${item.sku} on ASN ${asn.asnId}`,
+            company: req.user.company
+          }], { session });
+
+          await logActivity(req, 'DISCREPANCY_DETECTED', 'ASN', `Over-receiving detected for SKU ${item.sku} (+${diff} units). Discrepancy ${discId} & Incident ${incId} created.`, session);
+        }
+      } else if (rec < exp && (req.body.isFinalize || rec > 0)) {
+        // Track shortage if finalize requested or partial receiving recorded
+        const diff = exp - rec;
+        const existingDisc = await Discrepancy.findOne({ asnId: asn.asnId || asn.asnNumber, sku: item.sku, type: 'under_receiving', company: req.user.company }).session(session);
+        if (!existingDisc) {
+          hasDiscrepancyInSession = true;
+          const discId = 'DISC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          await Discrepancy.create([{
+            discrepancyId: discId,
+            asnId: asn.asnId || asn.asnNumber,
+            asnNumber: asn.asnId || asn.asnNumber,
+            sku: item.sku,
+            type: 'under_receiving',
+            expectedQty: exp,
+            receivedQty: rec,
+            difference: diff,
+            notes: `Shortage of ${diff} units for SKU ${item.sku}`,
+            user: operator,
+            company: req.user.company
+          }], { session });
+
+          await Incident.create([{
+            incidentId: incId,
+            type: 'Discrepancy',
+            sku: item.sku,
+            location: asn.receivingDock || 'Dock 1',
+            reported_by: operator,
+            status: 'open',
+            description: `Shortage of ${diff} units for SKU ${item.sku} on ASN ${asn.asnId}`,
+            company: req.user.company
+          }], { session });
+
+          await logActivity(req, 'DISCREPANCY_DETECTED', 'ASN', `Shortage detected for SKU ${item.sku} (${diff} units missing). Discrepancy ${discId} & Incident ${incId} created.`, session);
+        }
+      }
+    }
+
     const totalExpectedUnits = asn.items.reduce((s, i) => s + (Number(i.expected_qty) || 0), 0);
     const totalReceivedUnits = asn.items.reduce((s, i) => s + (Number(i.received_qty) || 0), 0);
 
@@ -488,7 +611,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
     const oldStatus = asn.status;
     let newStatus = oldStatus;
 
-    if (totalReceivedUnits >= totalExpectedUnits) {
+    if (totalReceivedUnits >= totalExpectedUnits || req.body.isFinalize) {
       if (existingDiscrepanciesCount > 0 || hasDiscrepancyInSession) {
         newStatus = 'completed_with_discrepancies';
       } else {

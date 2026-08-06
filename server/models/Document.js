@@ -29,6 +29,7 @@ const documentSchema = new mongoose.Schema({
   }],
   pdfPath: { type: String, default: '' },
   pdfUrl: { type: String, default: '' },
+  pdfDataUri: { type: String, default: '' },
   htmlContent: { type: String, default: '' },
   generatedBy: { type: String, default: 'system' },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }

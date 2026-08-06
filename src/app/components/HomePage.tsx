@@ -393,7 +393,7 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
                 <div className="text-sm font-semibold mb-3">{section}</div>
                 <ul className="space-y-2">
                   {["Features", "Pricing", "Changelog", "Roadmap"].map(l => (
-                    <li key={l}><button className="text-sm text-muted-foreground hover:text-foreground transition-colors">{l}</button></li>
+                    <li key={l}><button className="text-sm text-muted-foreground hover:text-foreground transition-colors">{l === "All" || l === "all" ? (t.common?.all || "All") : (t.status?.[l] || l)}</button></li>
                   ))}
                 </ul>
               </div>

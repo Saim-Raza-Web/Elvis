@@ -204,7 +204,7 @@ export function Inventory() {
           ))}
         </div>
         <SecondaryButton icon={Filter} onClick={() => setFilterLow(!filterLow)}>{filterLow ? t.common.all : t.inventory.lowStock}</SecondaryButton>
-        <SecondaryButton icon={Download} onClick={handleExportCSV}>Export CSV</SecondaryButton>
+        <SecondaryButton icon={Download} onClick={handleExportCSV}>{t.common?.export || "Export"} CSV</SecondaryButton>
         <PrimaryButton icon={Plus} onClick={openAdd}>{t.inventory.addProduct}</PrimaryButton>
       </div>
 

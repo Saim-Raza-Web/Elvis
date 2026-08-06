@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Package, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock, 
   Trash2, Copy, Eye, Pencil, Calendar, Anchor, FileText, ArrowUpDown, RefreshCw, Layers,
-  ScanLine, Check, AlertOctagon, History, ShieldAlert, CheckSquare, Play
+  ScanLine, Check, AlertOctagon, History, ShieldAlert, CheckSquare, Play, Camera
 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
@@ -10,7 +10,9 @@ import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Mo
 import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 import { receivingService } from "../../services/receiving.service";
+import { locationsService } from "../../services/locations.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -329,9 +331,11 @@ export function Receiving() {
     setReceiveLines(initialLines);
   };
 
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+
   // Barcode Scan Handler (Strict Non-ASN Barcode Rejection)
-  const handleBarcodeScanSubmit = () => {
-    const term = scannedBarcode.trim().toUpperCase();
+  const handleBarcodeScanSubmit = (scannedVal?: string) => {
+    const term = (scannedVal !== undefined ? scannedVal : scannedBarcode).trim().toUpperCase();
     if (!term) return;
 
     const matchIdx = receiveLines.findIndex(l => l.sku.toUpperCase() === term || l.name.toUpperCase().includes(term));
@@ -698,13 +702,32 @@ export function Receiving() {
                 />
                 <button
                   type="button"
-                  onClick={handleBarcodeScanSubmit}
+                  onClick={() => handleBarcodeScanSubmit()}
                   className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-lg hover:opacity-90 transition-all"
                 >
                   Scan SKU
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCameraScanner(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-bold rounded-lg transition-all border border-border"
+                  title="Scan using Webcam / Mobile Camera"
+                >
+                  <Camera className="size-3.5" /> Camera Scanner
+                </button>
               </div>
             </div>
+
+            {/* Camera Barcode Scanner Modal */}
+            <CameraBarcodeScanner
+              open={showCameraScanner}
+              onClose={() => setShowCameraScanner(false)}
+              onScan={(scannedVal) => {
+                setScannedBarcode(scannedVal);
+                handleBarcodeScanSubmit(scannedVal);
+              }}
+              title={`Scan SKU for ASN ${receiveTarget.asnId || receiveTarget.asnNumber}`}
+            />
 
             {/* Line Items Receiving Table */}
             <div className="border border-border rounded-xl overflow-hidden text-xs space-y-0">

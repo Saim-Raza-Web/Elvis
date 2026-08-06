@@ -3,6 +3,90 @@ import Document from '../models/Document.js';
 import ASN from '../models/ASN.js';
 import Discrepancy from '../models/Discrepancy.js';
 import ActivityLog from '../models/ActivityLog.js';
+import PDFDocument from 'pdfkit';
+
+/** Helper to render a binary PDF Buffer in memory using PDFKit */
+async function generatePDFBuffer(asn, dnNumber, discrepancies, companyId, operator) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const buffers = [];
+      doc.on('data', b => buffers.push(b));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+      const totalExpected = asn.items.reduce((s, i) => s + (Number(i.expected_qty) || 0), 0);
+      const totalReceived = asn.items.reduce((s, i) => s + (Number(i.received_qty) || 0), 0);
+      const hasDiscrepancies = asn.status === 'completed_with_discrepancies' || (discrepancies && discrepancies.length > 0);
+
+      // Header Banner
+      doc.fontSize(22).font('Helvetica-Bold').fillColor('#0f172a').text('INBOUND DELIVERY NOTE', { align: 'left' });
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0284c7').text('OFFICIAL RECEIVING MANIFEST', { align: 'left' });
+      doc.moveDown(0.5);
+
+      // Metadata Block
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155');
+      doc.text(`Document No: ${dnNumber}`);
+      doc.font('Helvetica');
+      doc.text(`ASN Number: ${asn.asnId || asn.asnNumber}`);
+      doc.text(`PO Reference: ${asn.poNumber || asn.po || 'N/A'}`);
+      doc.text(`Supplier: ${asn.supplier}`);
+      doc.text(`Warehouse: ${asn.warehouse || 'MIA'}`);
+      doc.text(`Receiving Dock: ${asn.receivingDock || 'Dock 1'}`);
+      doc.text(`Receiving Operator: ${operator}`);
+      doc.text(`Receiving Date: ${new Date().toLocaleString()}`);
+      doc.moveDown(0.5);
+
+      // Status Pill
+      doc.fontSize(12).font('Helvetica-Bold').fillColor(hasDiscrepancies ? '#b91c1c' : '#15803d');
+      doc.text(`STATUS: ${hasDiscrepancies ? 'COMPLETED WITH DISCREPANCIES' : 'COMPLETED'}`);
+      doc.moveDown();
+
+      // Product Summary Header
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0f172a').text('Received Product Line Items Summary:');
+      doc.moveDown(0.3);
+
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#1e293b');
+      doc.text('#   SKU           Description                    Expected   Received   Lot #         Status');
+      doc.text('-----------------------------------------------------------------------------------------');
+
+      doc.font('Helvetica').fillColor('#334155');
+      asn.items.forEach((item, idx) => {
+        const skuStr = (item.sku || '').padEnd(14, ' ');
+        const nameStr = (item.name || '').slice(0, 24).padEnd(26, ' ');
+        const expStr = String(item.expected_qty || 0).padEnd(10, ' ');
+        const recStr = String(item.received_qty || 0).padEnd(10, ' ');
+        const lotStr = (item.lotNumber || 'DEFAULT').padEnd(12, ' ');
+        const statusStr = item.received_qty >= item.expected_qty ? 'RECEIVED' : 'PARTIAL';
+        doc.text(`${String(idx + 1).padEnd(3, ' ')}${skuStr}${nameStr}${expStr}${recStr}${lotStr}${statusStr}`);
+      });
+      doc.moveDown();
+
+      // Discrepancies Table
+      if (discrepancies && discrepancies.length > 0) {
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#9f1239').text('Discrepancy Exception Report:');
+        doc.moveDown(0.3);
+        doc.fontSize(9).font('Helvetica').fillColor('#881337');
+        discrepancies.forEach((d, i) => {
+          doc.text(`${i + 1}. SKU: ${d.sku} | Type: ${d.type.toUpperCase()} | Expected: ${d.expectedQty} | Received: ${d.receivedQty} | Diff: ${d.difference} | Notes: ${d.notes || 'N/A'}`);
+        });
+        doc.moveDown();
+      }
+
+      // Totals & Signature Block
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#0f172a');
+      doc.text(`TOTAL EXPECTED UNITS: ${totalExpected} ${asn.items[0]?.uom || 'pcs'}`);
+      doc.text(`TOTAL RECEIVED UNITS: ${totalReceived} ${asn.items[0]?.uom || 'pcs'}`);
+      doc.moveDown();
+
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#0284c7').text('RECEIVING INSPECTOR SIGNATURE: Verified & Sealed');
+      doc.fontSize(9).font('Helvetica-Oblique').fillColor('#64748b').text(`Enterprise WMS Inbound Logistics Manifest • ${dnNumber} • Company ID: ${companyId}`);
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
 
 /**
  * Generate sequential Inbound Delivery Note (DN-2026-000001) for an ASN upon completion.
@@ -179,7 +263,16 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
 
   const fileUrl = `/api/v1/documents/dn/${dnNumber}`;
 
-  // 4. Create Document Record in MongoDB (stored 100% in database, serverless safe)
+  // 4. Generate In-Memory Binary PDF Stream
+  let pdfDataUri = '';
+  try {
+    const pdfBuf = await generatePDFBuffer(asn, dnNumber, discrepancies, companyId, operator);
+    pdfDataUri = `data:application/pdf;base64,${pdfBuf.toString('base64')}`;
+  } catch (pdfErr) {
+    console.error('Failed to render PDF buffer:', pdfErr);
+  }
+
+  // 5. Create Document Record in MongoDB (stored 100% in database, serverless safe)
   const docCreateOpts = session ? { session } : {};
   const [docRecord] = await Document.create([{
     documentNumber: dnNumber,
@@ -206,6 +299,7 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
     })),
     pdfPath: '',
     pdfUrl: fileUrl,
+    pdfDataUri,
     htmlContent,
     generatedBy: operator,
     company: companyId

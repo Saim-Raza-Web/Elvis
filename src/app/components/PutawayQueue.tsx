@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { 
   Truck, Search, Filter, RefreshCw, Layers, ArrowRight, Package, Clock, CheckCircle2,
-  Scan, UserPlus, MapPin, Building2, AlertTriangle, ShieldCheck, Check, X, QrCode
+  Scan, UserPlus, MapPin, Building2, AlertTriangle, ShieldCheck, Check, X, QrCode, Camera
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
@@ -10,6 +10,7 @@ import { putawayService } from "../../services/putaway.service";
 import { locationsService } from "../../services/locations.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { useLang } from "../LangContext";
+import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
 
 type PutawayTask = {
   _id: string;
@@ -418,6 +419,17 @@ export function PutawayQueue() {
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* Dynamic Location Proposal Banner */}
+              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Dynamically Proposed Location:</span>
+                  <span className="font-mono font-extrabold text-sm text-emerald-600 dark:text-emerald-400 bg-card px-2 py-0.5 border border-emerald-500/30 rounded">
+                    {selectedTask.toLocation || selectedTask.destinationBin || "MIA-Z1-A1-S1-B1"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">Calculated based on Storage Rules, Zone, Temp/Hazmat, Weight & Capacity.</p>
+              </div>
+
               {/* Task Details Banner */}
               <div className="p-3 bg-secondary/40 border border-border rounded-lg space-y-1">
                 <div className="flex justify-between">
@@ -448,16 +460,25 @@ export function PutawayQueue() {
                 />
               </div>
 
-              {/* Step 2: Scan Destination Bin / Select from Hierarchy */}
+              {/* Step 2: Scan Shelf / Bin Barcode */}
               <div>
-                <label className="block font-semibold mb-1 flex items-center gap-1">
-                  <MapPin className="size-4 text-emerald-600" /> {t.putaway.destBinCode}
+                <label className="block font-semibold mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <MapPin className="size-4 text-emerald-600" /> Verify Shelf / Bin Barcode
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCameraScanner(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-primary text-primary-foreground text-[11px] font-bold rounded hover:opacity-90 transition-all"
+                  >
+                    <Camera className="size-3" /> Camera Scan Bin
+                  </button>
                 </label>
                 <input
                   type="text"
                   value={scannedBinBarcode || selectedBin}
                   onChange={(e) => { setScannedBinBarcode(e.target.value); setSelectedBin(e.target.value); }}
-                  placeholder={t.common?.scanOrEnterDestinationBinEGZ1A1R1S1B1 || "Scan or enter destination bin (e.g. Z1-A1-R1-S1-B1)"}
+                  placeholder={`Scan shelf barcode (must match ${selectedTask.toLocation || selectedTask.destinationBin})`}
                   className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-xs font-mono mb-2"
                 />
 
@@ -467,12 +488,12 @@ export function PutawayQueue() {
                     <select
                       value={selectedBin}
                       onChange={(e) => { setSelectedBin(e.target.value); setScannedBinBarcode(e.target.value); }}
-                      className="w-full p-2 bg-secondary/50 border border-border rounded-lg outline-none text-xs"
+                      className="w-full p-2 bg-secondary/50 border border-border rounded-lg text-xs"
                     >
                       <option value="">{t.putaway.selectDestBinOption}</option>
-                      {locations.map((loc: any) => (
-                        <option key={loc._id} value={loc.code || loc.name}>
-                          {loc.code || loc.name} ({loc.zone || 'Zone'} - {loc.type || 'Bin'})
+                      {locations.map((loc) => (
+                        <option key={loc._id || loc.code} value={loc.code}>
+                          {loc.code} ({loc.zone || "Zone"} - {loc.status || "ACTIVE"})
                         </option>
                       ))}
                     </select>
@@ -480,6 +501,18 @@ export function PutawayQueue() {
                 )}
               </div>
             </div>
+
+            {/* Camera Barcode Scanner Modal */}
+            <CameraBarcodeScanner
+              open={showCameraScanner}
+              onClose={() => setShowCameraScanner(false)}
+              onScan={(scannedVal) => {
+                setScannedBinBarcode(scannedVal);
+                setSelectedBin(scannedVal);
+                toast.success(`Scanned shelf/bin barcode: ${scannedVal}`);
+              }}
+              title={`Scan Shelf/Bin Barcode for Task #${selectedTask.taskId}`}
+            />
 
             <div className="flex justify-end gap-2 pt-3 border-t border-border">
               <button
