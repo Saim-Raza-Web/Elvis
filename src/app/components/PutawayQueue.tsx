@@ -69,6 +69,7 @@ export function PutawayQueue() {
   const [scannedTaskBarcode, setScannedTaskBarcode] = useState("");
   const [scannedBinBarcode, setScannedBinBarcode] = useState("");
   const [selectedBin, setSelectedBin] = useState("");
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [locations, setLocations] = useState<any[]>([]);
 
@@ -96,10 +97,11 @@ export function PutawayQueue() {
   const stats = useMemo(() => {
     const total = tasks.length;
     const pending = tasks.filter(t => t.status === "pending").length;
-    const assigned = tasks.filter(t => t.status === "assigned" || t.status === "in_progress").length;
+    const assigned = tasks.filter(t => t.status === "assigned").length;
+    const inProgress = tasks.filter(t => t.status === "in_progress").length;
     const completed = tasks.filter(t => t.status === "completed").length;
     const totalUnits = tasks.reduce((s, t) => s + (Number(t.qty) || 0), 0);
-    return { total, pending, assigned, completed, totalUnits };
+    return { total, pending, assigned, inProgress, completed, totalUnits };
   }, [tasks]);
 
   // Handle Assign Operator
@@ -375,7 +377,7 @@ export function PutawayQueue() {
                   type="text"
                   value={assignOperatorEmail}
                   onChange={(e) => setAssignOperatorEmail(e.target.value)}
-                  placeholder={t.common?.eGOperatorWarehouseCom || "e.g. operator@warehouse.com"}
+                  placeholder={(t.common as any)?.eGOperatorWarehouseCom || "e.g. operator@warehouse.com"}
                   className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-xs"
                 />
               </div>

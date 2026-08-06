@@ -9,6 +9,7 @@ import Location from '../models/Location.js';
 import Product from '../models/Product.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Notification from '../models/Notification.js';
+import { proposeDestinationLocation } from '../services/locationProposalService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -49,6 +50,24 @@ async function logActivity(req, action, module, detail, session) {
     }], opts);
   } catch (_) {}
 }
+
+// ── GET /api/v1/putaway/propose-location — Dynamic Location Proposal Engine ──
+// Must be defined BEFORE /:id routes to avoid route collision
+router.get('/propose-location', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const { sku, warehouse, qty = 1 } = req.query;
+    if (!sku) return res.status(400).json({ message: 'sku query parameter is required' });
+
+    const proposal = await proposeDestinationLocation({
+      company: req.user.company,
+      warehouse: String(warehouse || 'DEFAULT'),
+      sku: String(sku),
+      qty: Number(qty) || 1
+    });
+    res.json(proposal);
+  } catch (err) { next(err); }
+});
 
 // ── GET /api/v1/putaway — List Putaway Queue Tasks ──
 router.get('/', async (req, res, next) => {

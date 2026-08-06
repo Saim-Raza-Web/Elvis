@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { 
-  Package, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock, 
+import {
+  Package, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock,
   Trash2, Copy, Eye, Pencil, Calendar, Anchor, FileText, ArrowUpDown, RefreshCw, Layers,
   ScanLine, Check, AlertOctagon, History, ShieldAlert, CheckSquare, Play, Camera
 } from "lucide-react";
@@ -66,6 +66,8 @@ type ReceiveLineState = {
   batchNumber: string;
   expiryDate: string;
   bin: string;
+  zone?: string;
+  ruleApplied?: string;
   qcRequired: boolean;
 };
 
@@ -112,7 +114,7 @@ const asnListService: ListService<ASN> = {
 const CARRIERS = ["DHL", "FedEx", "UPS", "USPS", "GLS", "TNT", "Kuehne+Nagel", "DB Schenker"];
 const DOCKS = ["Dock 1", "Dock 2", "Dock 3", "Dock 4 (Cold Chain)", "Dock 5 (Heavy Freight)"];
 const UOMS = ["pcs", "box", "pallet", "kg", "units", "carton", "pack", "meter"];
-const BINS = ["BIN-01", "BIN-02", "BIN-03", "Z-RECEIVING-A1", "Z-COLD-B1", "BULK-RACK-01"];
+
 const STATUS_OPTIONS = [
   { value: "All", label: "All Statuses" },
   { value: "pending", label: "Pending" },
@@ -124,6 +126,8 @@ const STATUS_OPTIONS = [
 
 export function Receiving() {
   const { t } = useLang();
+  const tc = t.common as any;
+  const tr = t.receiving as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [supplierFilter, setSupplierFilter] = useState("");
@@ -144,14 +148,14 @@ export function Receiving() {
   const [asnHistory, setAsnHistory] = useState<any[]>([]);
   const [asnDiscrepancies, setAsnDiscrepancies] = useState<any[]>([]);
 
-  // Form state
   const [form, setForm] = useState(blankASN());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [proposeLoading, setProposeLoading] = useState(false);
 
   const { items: pagedAsns, allItems: asns, pagination, page, setPage, reload, isLoading } = usePaginatedList<ASN>(
     asnListService,
     {
-      apiParams: { 
+      apiParams: {
         search: search.trim().toLowerCase(),
         status: statusFilter !== "All" ? statusFilter : undefined,
         supplier: supplierFilter.trim() || undefined
@@ -214,7 +218,7 @@ export function Receiving() {
 
   const removeLine = (index: number) => {
     if (form.items.length <= 1) {
-      toast.error(t.common?.error || "An ASN must contain at least one product line.");
+      toast.error(tc?.error || "An ASN must contain at least one product line.");
       return;
     }
     setForm(prev => ({
@@ -229,7 +233,7 @@ export function Receiving() {
       ...prev,
       items: [...prev.items, { ...lineToCopy }]
     }));
-    toast.success(t.common?.operationSuccess || "Product line duplicated.");
+    toast.success(tc?.operationSuccess || "Product line duplicated.");
   };
 
   const updateLine = (index: number, key: keyof ProductLine, value: any) => {
@@ -298,11 +302,11 @@ export function Receiving() {
       ]);
       setAsnHistory(hist || []);
       setAsnDiscrepancies(disc || []);
-    } catch (_) {}
+    } catch (_) { }
   };
 
   // Open Phase 2 Receiving Workspace Modal
-  const handleOpenReceivingWorkspace = (asn: ASN) => {
+  const handleOpenReceivingWorkspace = async (asn: ASN) => {
     setReceiveTarget(asn);
     setScannedBarcode("");
     setHighlightedSku(null);
@@ -323,12 +327,34 @@ export function Receiving() {
         lotNumber: item.lotNumber || "",
         batchNumber: item.batchNumber || "",
         expiryDate: item.expiryDate ? new Date(item.expiryDate).toISOString().split("T")[0] : "",
-        bin: "BIN-01",
+        bin: "",        // will be filled by location proposal
         qcRequired: Boolean(item.qcRequired)
       };
     });
 
     setReceiveLines(initialLines);
+
+    // Fetch dynamic proposed bin for each SKU
+    const warehouse = asn.warehouse || "MIA";
+    setProposeLoading(true);
+    const updatedLines = await Promise.all(
+      initialLines.map(async (line) => {
+        try {
+          const token = localStorage.getItem("jwt_token");
+          const r = await fetch(
+            `/api/v1/putaway/propose-location?sku=${encodeURIComponent(line.sku)}&warehouse=${encodeURIComponent(warehouse)}&qty=${line.remaining || 1}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (r.ok) {
+            const proposal = await r.json();
+            return { ...line, bin: proposal.proposedBin || "", zone: proposal.zone || "Z-RECEIVING", ruleApplied: proposal.ruleApplied || "" };
+          }
+        } catch (_) { }
+        return { ...line, bin: `${warehouse}-RCV-DOCK1`, zone: "Z-RECEIVING" };
+      })
+    );
+    setProposeLoading(false);
+    setReceiveLines(updatedLines);
   };
 
   const [showCameraScanner, setShowCameraScanner] = useState(false);
@@ -368,7 +394,7 @@ export function Receiving() {
     const activeToReceive = receiveLines.filter(l => Number(l.qtyToReceive) > 0 || Number(l.damagedQty) > 0);
 
     if (activeToReceive.length === 0) {
-      toast.error(t.common?.error || "Please enter a receive quantity greater than 0 for at least one item.");
+      toast.error(tc?.error || "Please enter a receive quantity greater than 0 for at least one item.");
       return;
     }
 
@@ -395,7 +421,7 @@ export function Receiving() {
           batchNumber: l.batchNumber,
           expiryDate: l.expiryDate,
           bin: l.bin,
-          zone: "Z-RECEIVING"
+          zone: l.zone || "Z-RECEIVING"
         })),
         __v: receiveTarget.__v
       };
@@ -533,7 +559,7 @@ export function Receiving() {
               type="button"
               onClick={() => reload()}
               className="p-2 border border-border rounded-lg text-muted-foreground hover:bg-secondary transition-colors"
-              title={t.common?.refreshASNs || "Refresh ASNs"}
+              title={tc?.refreshASNs || "Refresh ASNs"}
             >
               <RefreshCw className="size-4" />
             </button>
@@ -626,7 +652,7 @@ export function Receiving() {
                       type="button"
                       onClick={() => handleOpenView(asn)}
                       className="flex items-center gap-1 px-3 py-1.5 border border-border rounded-lg text-xs font-semibold hover:bg-secondary transition-colors"
-                      title={t.common?.viewDetailsHistory || "View Details & History"}
+                      title={tc?.viewDetailsHistory || "View Details & History"}
                     >
                       <Eye className="size-3.5" /> {t.common.view}
                     </button>
@@ -635,7 +661,7 @@ export function Receiving() {
                         type="button"
                         onClick={() => handleOpenEdit(asn)}
                         className="flex items-center gap-1 px-3 py-1.5 border border-border rounded-lg text-xs font-semibold hover:bg-secondary transition-colors"
-                        title={t.common?.editASN || "Edit ASN"}
+                        title={tc?.editASN || "Edit ASN"}
                       >
                         <Pencil className="size-3.5" /> {t.common.edit}
                       </button>
@@ -644,7 +670,7 @@ export function Receiving() {
                       type="button"
                       onClick={() => setDeleteTarget(asn)}
                       className="p-1.5 border border-border rounded-lg text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
-                      title={t.common?.softDeleteCancelASN || "Soft Delete / Cancel ASN"}
+                      title={tc?.softDeleteCancelASN || "Soft Delete / Cancel ASN"}
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -697,7 +723,7 @@ export function Receiving() {
                   value={scannedBarcode}
                   onChange={(e) => setScannedBarcode(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleBarcodeScanSubmit()}
-                  placeholder={t.common?.scanProductBarcodeOrTypeSKUAndPressEnter || "Scan product barcode or type SKU and press Enter..."}
+                  placeholder={tc?.scanProductBarcodeOrTypeSKUAndPressEnter || "Scan product barcode or type SKU and press Enter..."}
                   className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-card text-xs font-mono outline-none focus:border-primary/50"
                 />
                 <button
@@ -787,21 +813,25 @@ export function Receiving() {
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">Bin Location</label>
-                          <select
+                          <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">
+                            {tc?.proposedBin || "Proposed Bin"}
+                            {proposeLoading && <span className="ml-1 text-primary animate-pulse">…</span>}
+                          </label>
+                          <input
                             value={line.bin}
                             onChange={(e) => updateReceiveLine(idx, "bin", e.target.value)}
-                            className="w-full px-2 py-1.5 rounded-lg border border-border bg-card text-xs"
-                          >
-                            {BINS.map(b => <option key={b} value={b}>{b}</option>)}
-                          </select>
+                            placeholder={proposeLoading ? "Proposing..." : "Auto-proposed"}
+                            title={(line as any).ruleApplied ? `Rule: ${(line as any).ruleApplied}` : "Dynamic location proposal"}
+                            className={`w-full px-2.5 py-1.5 rounded-lg border bg-emerald-500/5 text-xs font-mono font-bold focus:border-emerald-500/50 ${line.bin ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400" : "border-border text-muted-foreground"
+                              }`}
+                          />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">Lot #</label>
                           <input
                             value={line.lotNumber}
                             onChange={(e) => updateReceiveLine(idx, "lotNumber", e.target.value)}
-                            placeholder={t.common?.lOT101 || "LOT-101"}
+                            placeholder={tc?.lOT101 || "LOT-101"}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-mono"
                           />
                         </div>
@@ -810,7 +840,7 @@ export function Receiving() {
                           <input
                             value={line.batchNumber}
                             onChange={(e) => updateReceiveLine(idx, "batchNumber", e.target.value)}
-                            placeholder={t.common?.bATCHA || "BATCH-A"}
+                            placeholder={tc?.bATCHA || "BATCH-A"}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-mono"
                           />
                         </div>
@@ -835,7 +865,7 @@ export function Receiving() {
         open={showAdd}
         onClose={() => { if (!isSubmitting) { setShowAdd(false); setEditTarget(null); } }}
         title={editTarget ? `Edit ASN (${editTarget.asnId || editTarget.asnNumber})` : "Create New Inbound ASN"}
-        subtitle={t.common?.registerIncomingShippingNoticeAndProductLineItems || "Register incoming shipping notice and product line items"}
+        subtitle={tc?.registerIncomingShippingNoticeAndProductLineItems || "Register incoming shipping notice and product line items"}
         width="xl"
         footer={
           <div className="flex items-center justify-between w-full">
@@ -856,54 +886,54 @@ export function Receiving() {
           <div className="bg-secondary/20 p-4 rounded-xl border border-border space-y-4">
             <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Shipment Header Information</h4>
             <Row>
-              <Field label={t.common?.supplierName || "Supplier Name *"} required>
+              <Field label={tc?.supplierName || "Supplier Name *"} required>
                 <Input
                   value={form.supplier}
                   onChange={(e) => updateFormHeader("supplier", e.target.value)}
-                  placeholder={t.common?.eGAcmeIndustrialCorp || "e.g. Acme Industrial Corp"}
+                  placeholder={tc?.eGAcmeIndustrialCorp || "e.g. Acme Industrial Corp"}
                 />
               </Field>
-              <Field label={t.common?.purchaseOrder || "Purchase Order # *"} required>
+              <Field label={tc?.purchaseOrder || "Purchase Order # *"} required>
                 <Input
                   value={form.poNumber}
                   onChange={(e) => updateFormHeader("poNumber", e.target.value)}
-                  placeholder={t.common?.eGPO998877 || "e.g. PO-998877"}
+                  placeholder={tc?.eGPO998877 || "e.g. PO-998877"}
                 />
               </Field>
             </Row>
             <Row>
-              <Field label={t.common?.originAddress || "Origin / Address"}>
+              <Field label={tc?.originAddress || "Origin / Address"}>
                 <Input
                   value={form.origin}
                   onChange={(e) => updateFormHeader("origin", e.target.value)}
-                  placeholder={t.common?.eGHamburgGermany || "e.g. Hamburg, Germany"}
+                  placeholder={tc?.eGHamburgGermany || "e.g. Hamburg, Germany"}
                 />
               </Field>
-              <Field label={t.common?.carrier || "Carrier"}>
+              <Field label={tc?.carrier || "Carrier"}>
                 <Select value={form.carrier} onChange={(e) => updateFormHeader("carrier", e.target.value)}>
                   {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
             </Row>
             <Row>
-              <Field label={t.common?.expectedArrivalDate || "Expected Arrival Date *"} required>
+              <Field label={tc?.expectedArrivalDate || "Expected Arrival Date *"} required>
                 <Input
                   type="date"
                   value={form.expectedDate}
                   onChange={(e) => updateFormHeader("expectedDate", e.target.value)}
                 />
               </Field>
-              <Field label={t.common?.receivingDock || "Receiving Dock *"} required>
+              <Field label={tc?.receivingDock || "Receiving Dock *"} required>
                 <Select value={form.receivingDock} onChange={(e) => updateFormHeader("receivingDock", e.target.value)}>
                   {DOCKS.map(d => <option key={d} value={d}>{d}</option>)}
                 </Select>
               </Field>
             </Row>
-            <Field label={t.common?.notesSpecialInstructions || "Notes / Special Instructions"}>
+            <Field label={tc?.notesSpecialInstructions || "Notes / Special Instructions"}>
               <Input
                 value={form.notes}
                 onChange={(e) => updateFormHeader("notes", e.target.value)}
-                placeholder={t.common?.fragileFreightRequiresForkliftHandling || "Fragile freight, requires forklift handling..."}
+                placeholder={tc?.fragileFreightRequiresForkliftHandling || "Fragile freight, requires forklift handling..."}
               />
             </Field>
           </div>
@@ -931,7 +961,7 @@ export function Receiving() {
                         type="button"
                         onClick={() => duplicateLine(idx)}
                         className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11px]"
-                        title={t.common?.duplicateLine || "Duplicate line"}
+                        title={tc?.duplicateLine || "Duplicate line"}
                       >
                         <Copy className="size-3" /> Duplicate
                       </button>
@@ -940,7 +970,7 @@ export function Receiving() {
                           type="button"
                           onClick={() => removeLine(idx)}
                           className="text-destructive hover:underline flex items-center gap-1 text-[11px]"
-                          title={t.common?.removeLine || "Remove line"}
+                          title={tc?.removeLine || "Remove line"}
                         >
                           <Trash2 className="size-3" /> Remove
                         </button>
@@ -954,7 +984,7 @@ export function Receiving() {
                       <Input
                         value={line.sku}
                         onChange={(e) => updateLine(idx, "sku", e.target.value)}
-                        placeholder={t.common?.sKU1001 || "SKU-1001"}
+                        placeholder={tc?.sKU1001 || "SKU-1001"}
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -962,7 +992,7 @@ export function Receiving() {
                       <Input
                         value={line.name}
                         onChange={(e) => updateLine(idx, "name", e.target.value)}
-                        placeholder={t.common?.lithiumBatteryPack || "Lithium Battery Pack"}
+                        placeholder={tc?.lithiumBatteryPack || "Lithium Battery Pack"}
                       />
                     </div>
                     <div>
@@ -970,7 +1000,7 @@ export function Receiving() {
                       <Input
                         value={line.description}
                         onChange={(e) => updateLine(idx, "description", e.target.value)}
-                        placeholder={t.common?.modelX || "Model X"}
+                        placeholder={tc?.modelX || "Model X"}
                       />
                     </div>
                   </div>
@@ -996,7 +1026,7 @@ export function Receiving() {
                       <Input
                         value={line.lotNumber}
                         onChange={(e) => updateLine(idx, "lotNumber", e.target.value)}
-                        placeholder={t.common?.lOT2026A || "LOT-2026-A"}
+                        placeholder={tc?.lOT2026A || "LOT-2026-A"}
                       />
                     </div>
                     <div>
@@ -1004,7 +1034,7 @@ export function Receiving() {
                       <Input
                         value={line.batchNumber}
                         onChange={(e) => updateLine(idx, "batchNumber", e.target.value)}
-                        placeholder={t.common?.bATCH09 || "BATCH-09"}
+                        placeholder={tc?.bATCH09 || "BATCH-09"}
                       />
                     </div>
                     <div>
@@ -1178,7 +1208,7 @@ export function Receiving() {
         <Modal
           open={true}
           onClose={() => setDeleteTarget(null)}
-          title={t.common?.cancelArchiveASNSoftDelete || "Cancel & Archive ASN (Soft Delete)"}
+          title={tc?.cancelArchiveASNSoftDelete || "Cancel & Archive ASN (Soft Delete)"}
           subtitle={`Are you sure you want to cancel ${deleteTarget.asnId || deleteTarget.asnNumber}? The document will be soft-deleted and archived for audit compliance.`}
           footer={
             <div className="flex gap-2 justify-end w-full">

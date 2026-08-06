@@ -293,7 +293,11 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
 
     // Loop through submitted lines
     for (const rItem of receiveItems) {
-      const { sku, qtyToReceive, damagedQty = 0, lotNumber, batchNumber, expiryDate, bin = 'BIN-01', zone = 'Z-RECEIVING' } = rItem;
+      const { sku, qtyToReceive, damagedQty = 0, lotNumber, batchNumber, expiryDate, bin = null, zone = null } = rItem;
+      // Use the bin/zone sent by the client (from location proposal). Fall back to warehouse-specific receiving zone.
+      const receivingBin = bin || `${warehouse}-RCV-DOCK1`;
+      const receivingZone = zone || 'Z-RECEIVING';
+
 
       const qtyNum = Number(qtyToReceive);
       if (isNaN(qtyNum) || qtyNum <= 0) {
@@ -386,10 +390,10 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       if (isQcRequired) {
         // Move into Quarantine Inventory using Atomic $inc Row Lock
         await InventoryBalance.findOneAndUpdate(
-          { company: req.user.company, warehouse, sku, lotNumber: lotToSave, bin },
+          { company: req.user.company, warehouse, sku, lotNumber: lotToSave, bin: receivingBin },
           { 
             $inc: { qtyQuarantine: qtyNum },
-            $set: { zone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
+            $set: { zone: receivingZone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
           },
           { upsert: true, new: true, session }
         );
@@ -401,7 +405,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           sku,
           productName: matchLine.name,
           warehouse,
-          bin,
+          bin: receivingBin,
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,
@@ -416,8 +420,8 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           type: 'QUARANTINE_HOLD',
           sku,
           warehouse,
-          zone,
-          bin,
+          zone: receivingZone,
+          bin: receivingBin,
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,
@@ -440,10 +444,10 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       } else {
         // Immediate Available Inventory Update using Atomic $inc Row Lock
         await InventoryBalance.findOneAndUpdate(
-          { company: req.user.company, warehouse, sku, lotNumber: lotToSave, bin },
+          { company: req.user.company, warehouse, sku, lotNumber: lotToSave, bin: receivingBin },
           { 
             $inc: { qtyAvailable: qtyNum },
-            $set: { zone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
+            $set: { zone: receivingZone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
           },
           { upsert: true, new: true, session }
         );
@@ -460,8 +464,8 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           type: 'RECEIVING',
           sku,
           warehouse,
-          zone,
-          bin,
+          zone: receivingZone,
+          bin: receivingBin,
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,

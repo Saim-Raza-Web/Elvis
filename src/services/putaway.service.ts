@@ -19,5 +19,9 @@ export const putawayService = {
   complete: async (id: string, payload: { destinationBin?: string; scannedTaskBarcode?: string; scannedBinBarcode?: string; __v?: number }) => {
     const response = await api.post(`/putaway/${id}/complete`, payload);
     return response.data;
+  },
+  proposeLocation: async (params: { sku: string; warehouse?: string; qty?: number }) => {
+    const response = await api.get('/putaway/propose-location', { params });
+    return response.data;
   }
 };

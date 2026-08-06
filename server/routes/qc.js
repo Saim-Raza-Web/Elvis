@@ -275,7 +275,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
 
     // 1. Pipeline Refinement: Move stock from qtyQuarantine -> qtyAwaitingPutaway
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || 'BIN-01' },
+      { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
       { $inc: { qtyQuarantine: -qty, qtyAwaitingPutaway: qty } },
       { upsert: true, new: true, session }
     );
@@ -508,7 +508,7 @@ router.post('/:id/return', requireOpsRole, async (req, res, next) => {
 
     // Remove from Quarantine Balance
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || 'BIN-01' },
+      { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
       { $inc: { qtyQuarantine: -qty } },
       { upsert: true, new: true, session }
     );
