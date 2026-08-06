@@ -53,17 +53,25 @@ export function Inventory() {
 
   async function loadData() {
     try {
-      const [whs, alerts] = await Promise.all([
-        warehousesService.getAll(),
-        fetch(`/api/v1/inventory/alerts/low-stock`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token")}` }
-        }).then(r => r.json())
-      ]);
+      const whs = await warehousesService.getAll();
       setWarehouses(whs);
-      setReplenishment(alerts || []);
-      reload();
     } catch (err) {
-      toast.error(t.common?.error || "Failed to load inventory");
+      toast.error(t.common?.error || "Failed to load warehouses");
+    }
+    // Load replenishment alerts separately so a failure here doesn't break the rest of the page
+    try {
+      const res = await fetch(`/api/v1/inventory/alerts/low-stock`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token")}` }
+      });
+      if (res.ok) {
+        const body = await res.json();
+        // Guard: handle both plain array and paginated envelope { data: [] }
+        const alertList = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
+        setReplenishment(alertList);
+      }
+    } catch {
+      // Non-fatal: replenishment tab will just show empty
+      setReplenishment([]);
     }
   }
 
@@ -228,7 +236,7 @@ export function Inventory() {
               </tr>
             </thead>
             <tbody>
-              {replenishment.map((p, i) => (
+              {(Array.isArray(replenishment) ? replenishment : []).map((p, i) => (
                 <tr key={p._id} className="border-t border-border hover:bg-secondary/30 animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                   <td className="px-4 py-3 text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{p.sku}</td>
                   <td className="px-4 py-3 font-medium">{p.name}</td>
