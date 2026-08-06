@@ -8,6 +8,8 @@ import { stockCountsService } from "../../services/stock_counts.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 
+import { useLang } from "../LangContext";
+
 const stockCountsListService: ListService<StockCount> = {
   getAll: async (params) => (await stockCountsService.getAll(params)) as StockCount[],
   getPage: async (params) => {
@@ -49,6 +51,7 @@ const blankCount = (): Omit<StockCount, "_id" | "countId" | "status" | "items" |
 });
 
 export function StockCount() {
+  const { t } = useLang();
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -208,7 +211,7 @@ export function StockCount() {
                 <td className="px-4 py-3 uppercase text-xs">{c.type}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground text-xs">{c.warehouse}</td>
                 <td className="px-4 py-3 hidden sm:table-cell font-medium">{c.assigned_to}</td>
-                <td className="px-4 py-3 text-center">{c.items.length}</td>
+                <td className="px-4 py-3 text-center">{c.items?.length || 0}</td>
                 <td className="px-4 py-3 text-right hidden lg:table-cell">
                   {c.total_discrepancy_items > 0 ? (
                     <span className="text-destructive font-bold">{c.total_discrepancy_items} items</span>
@@ -276,7 +279,7 @@ export function StockCount() {
                 </tr>
               </thead>
               <tbody>
-                {activeSession.items.map((item, i) => (
+                {(activeSession.items || []).map((item, i) => (
                   <tr key={i} className={`border-t border-border ${item.status === 'discrepancy' ? 'bg-destructive/5' : item.status === 'counted' ? 'bg-success/5' : ''}`}>
                     <td className="px-4 py-2 font-medium" style={{ fontFamily: "JetBrains Mono, monospace" }}>{item.sku}</td>
                     <td className="px-4 py-2 text-center text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{item.expected_qty}</td>

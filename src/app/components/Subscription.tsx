@@ -68,6 +68,7 @@ const plans = [
 ];
 
 export function Subscription() {
+  const { t } = useLang();
   const [currentPlan, setCurrentPlan] = useState("professional");
   const [usage, setUsage] = useState({ warehouses: 0, orders: 0, team: 0 });
 

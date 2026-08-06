@@ -75,7 +75,10 @@ export function Picking() {
   }, []);
 
   async function handleScanStart() {
-    if (!scanValue.trim()) { toast.error(t.common?.error || "No barcode detected. Enter or scan a barcode."); return; }
+    if (!scanValue.trim()) {
+      toast.error("No barcode detected. Please enter or scan a barcode.");
+      return;
+    }
     
     const task = tasks.find(t => t.id.toLowerCase() === scanValue.trim().toLowerCase());
     if (!task) {

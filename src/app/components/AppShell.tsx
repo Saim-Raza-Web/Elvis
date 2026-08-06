@@ -446,6 +446,9 @@ export function StatCard({ label, value, icon: Icon, color, delay = 0, sub }: {
 
 export function StatusBadge({ status }: { status: string }) {
   const { t } = useLang();
+  if (!status || typeof status !== "string") {
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-muted text-muted-foreground">—</span>;
+  }
   const map: Record<string, string> = {
     pending: "bg-warning/15 text-warning",
     processing: "bg-info/15 text-info",
