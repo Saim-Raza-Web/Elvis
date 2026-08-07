@@ -28,13 +28,13 @@ if (!cachedDb) {
 
 async function connectToDatabase() {
   if (cachedDb.conn) return cachedDb.conn;
-  
+
   if (!cachedDb.promise) {
     cachedDb.promise = mongoose.connect(MONGO_URI, {
       serverSelectionTimeoutMS: 5000
     }).then((mongoose) => mongoose);
   }
-  
+
   cachedDb.conn = await cachedDb.promise;
   return cachedDb.conn;
 }
@@ -137,7 +137,7 @@ app.get('/', (req, res) => {
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  
+
   if (err.name === 'ValidationError') {
     return res.status(400).json({ message: Object.values(err.errors).map(e => e.message).join(', ') });
   }

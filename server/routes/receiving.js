@@ -13,7 +13,9 @@ import Discrepancy from '../models/Discrepancy.js';
 import Incident from '../models/Incident.js';
 import QuarantineInventory from '../models/QuarantineInventory.js';
 import Product from '../models/Product.js';
+import PutawayTask from '../models/PutawayTask.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
+import { proposeDestinationLocation } from '../services/locationProposalService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -36,6 +38,18 @@ async function nextAsnNumber(company, session) {
     opts
   );
   return `ASN-${String(counter.seq).padStart(6, '0')}`;
+}
+
+/** Atomic Sequential Putaway Number: PUT-000001, PUT-000002... */
+async function nextPutawayNumber(company, session) {
+  const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
+  if (session) opts.session = session;
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'putaway', company },
+    { $inc: { seq: 1 } },
+    opts
+  );
+  return `PUT-${String(counter.seq).padStart(6, '0')}`;
 }
 
 /** Log activity */
@@ -331,8 +345,20 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           incidentId: incId,
           type: 'Discrepancy',
           sku,
+          expectedSKU: 'N/A',
+          scannedBarcode: sku,
           location: asn.receivingDock || 'Dock 1',
+          warehouse,
+          asnReference: asn.poNumber || asn.po || asn.asnId,
+          asnId: asn.asnId || asn.asnNumber,
+          supplier: asn.supplier,
+          owner: asn.owner || 'Default Owner',
+          operator,
+          user: operator,
           reported_by: operator,
+          reason: 'Unexpected SKU',
+          module: 'Receiving',
+          timestamp: new Date(),
           status: 'open',
           description: `Unexpected SKU '${sku}' scanned during receiving on ASN ${asn.asnId}`,
           company: req.user.company
@@ -442,11 +468,12 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
         await logActivity(req, 'QC_HOLD', 'ASN', `Placed ${qtyNum} units of ${sku} on Quarantine Hold (ASN ${asn.asnId})`, session);
 
       } else {
-        // Immediate Available Inventory Update using Atomic $inc Row Lock
+        const itemOwner = asn.owner || 'Default Owner';
+        // Immediate Available Inventory Update & Putaway queueing using Atomic $inc Row Lock
         await InventoryBalance.findOneAndUpdate(
-          { company: req.user.company, warehouse, sku, lotNumber: lotToSave, bin: receivingBin },
+          { company: req.user.company, warehouse, sku, owner: itemOwner, lotNumber: lotToSave, bin: receivingBin },
           { 
-            $inc: { qtyAvailable: qtyNum },
+            $inc: { qtyAwaitingPutaway: qtyNum },
             $set: { zone: receivingZone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
           },
           { upsert: true, new: true, session }
@@ -463,6 +490,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
           type: 'RECEIVING',
           sku,
+          owner: itemOwner,
           warehouse,
           zone: receivingZone,
           bin: receivingBin,
@@ -475,7 +503,39 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           company: req.user.company
         }], { session });
 
-        await logActivity(req, 'INVENTORY_UPDATE', 'ASN', `Increased available inventory for SKU ${sku} by +${qtyNum} units (ASN ${asn.asnId})`, session);
+        // Propose destination location & generate Putaway Task immediately
+        const proposed = await proposeDestinationLocation({
+          company: req.user.company,
+          warehouse,
+          sku,
+          qty: qtyNum,
+          lotNumber: lotToSave,
+          session
+        });
+
+        const putawayId = await nextPutawayNumber(req.user.company, session);
+        await PutawayTask.create([{
+          taskId: putawayId,
+          asnId: asn.asnId || asn.asnNumber,
+          asnNumber: asn.asnId || asn.asnNumber,
+          supplier: asn.supplier,
+          owner: itemOwner,
+          sku,
+          productName: matchLine.name,
+          warehouse,
+          qty: qtyNum,
+          lotNumber: lotToSave,
+          batchNumber: batchToSave,
+          fromLocation: receivingBin,
+          toLocation: proposed.proposedBin,
+          destinationBin: proposed.proposedBin,
+          priority: 'normal',
+          status: 'pending',
+          createdBy: operator,
+          company: req.user.company
+        }], { session });
+
+        await logActivity(req, 'INVENTORY_UPDATE', 'ASN', `Received SKU ${sku} (+${qtyNum} units, Owner: ${itemOwner}). Generated Putaway Task ${putawayId} to ${proposed.proposedBin}`, session);
       }
 
       // 3. Record Receiving History

@@ -30,6 +30,7 @@ async function generatePDFBuffer(asn, dnNumber, discrepancies, companyId, operat
       doc.text(`ASN Number: ${asn.asnId || asn.asnNumber}`);
       doc.text(`PO Reference: ${asn.poNumber || asn.po || 'N/A'}`);
       doc.text(`Supplier: ${asn.supplier}`);
+      doc.text(`Owner (3PL): ${asn.owner || 'Default Owner'}`);
       doc.text(`Warehouse: ${asn.warehouse || 'MIA'}`);
       doc.text(`Receiving Dock: ${asn.receivingDock || 'Dock 1'}`);
       doc.text(`Receiving Operator: ${operator}`);
@@ -216,6 +217,7 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
           <div class="meta-item"><label>ASN Number</label><span>${asn.asnId || asn.asnNumber}</span></div>
           <div class="meta-item"><label>PO Reference</label><span>${asn.poNumber || asn.po || 'N/A'}</span></div>
           <div class="meta-item"><label>Supplier</label><span>${asn.supplier}</span></div>
+          <div class="meta-item"><label>Owner (3PL)</label><span>${asn.owner || 'Default Owner'}</span></div>
           <div class="meta-item"><label>Warehouse</label><span>${asn.warehouse || 'MIA'}</span></div>
           <div class="meta-item"><label>Receiving Dock</label><span>${asn.receivingDock || 'Dock 1'}</span></div>
           <div class="meta-item"><label>Receiving Operator</label><span>${operator}</span></div>
@@ -280,6 +282,7 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
     asnId: asn.asnId || asn.asnNumber,
     asnNumber: asn.asnId || asn.asnNumber,
     supplier: asn.supplier,
+    owner: asn.owner || 'Default Owner',
     poNumber: asn.poNumber || asn.po || 'N/A',
     warehouse: asn.warehouse || 'MIA',
     receivingDock: asn.receivingDock || 'Dock 1',

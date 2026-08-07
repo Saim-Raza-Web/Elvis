@@ -8,6 +8,7 @@ const inventoryTransactionSchema = new mongoose.Schema({
     required: true
   },
   sku: { type: String, required: true },
+  owner: { type: String, default: 'Default Owner' },
   warehouse: { type: String, required: true, default: 'MIA' },
   zone: { type: String, default: 'Z-RECEIVING' },
   aisle: { type: String, default: 'A-1' },

@@ -2,12 +2,23 @@ import mongoose from 'mongoose';
 
 const incidentSchema = new mongoose.Schema({
   incidentId: { type: String, required: true },
-  type: { type: String, required: true, enum: ['Discrepancy', 'Damage', 'Incorrect Item', 'QC Rejected', 'QC Partial'] },
+  type: { type: String, required: true, default: 'Discrepancy' },
   sku: String,
+  expectedSKU: String,
+  scannedBarcode: String,
   location: String,
+  warehouse: String,
+  asnReference: String,
+  asnId: String,
+  supplier: String,
   owner: String,
+  operator: String,
+  user: String,
   reported_by: String,
-  status: { type: String, enum: ['open', 'under review', 'resolved'], default: 'open' },
+  reason: String,
+  module: { type: String, default: 'Receiving' },
+  timestamp: { type: Date, default: Date.now },
+  status: { type: String, default: 'open' },
   description: String,
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });

@@ -9,12 +9,26 @@ import Location from '../models/Location.js';
 import Product from '../models/Product.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Notification from '../models/Notification.js';
+import ASN from '../models/ASN.js';
+import Counter from '../models/Counter.js';
 import { proposeDestinationLocation } from '../services/locationProposalService.js';
 
 const router = express.Router();
 router.use(protect);
 
 const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
+
+/** Atomic Sequential Putaway Number: PUT-000001, PUT-000002... */
+async function nextPutawayNumber(company, session) {
+  const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
+  if (session) opts.session = session;
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'putaway', company },
+    { $inc: { seq: 1 } },
+    opts
+  );
+  return `PUT-${String(counter.seq).padStart(6, '0')}`;
+}
 
 /** State Machine Transition Validator for Putaway Task */
 function isValidPutawayTransition(currentStatus, targetStatus, isOverrideAdmin = false) {
@@ -295,7 +309,12 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     }
 
     const warehouse = task.warehouse || 'MIA';
-    const qty = task.qty;
+    const taskOwner = task.owner || 'Default Owner';
+    const requestedQty = Number(req.body.executedQty || req.body.qty || task.qty);
+    const qty = (requestedQty > 0 && requestedQty <= task.qty) ? requestedQty : task.qty;
+    const isPartial = qty < task.qty;
+    const remainingQty = task.qty - qty;
+
     const sourceBinCode = task.fromLocation || `${warehouse}-RCV-DOCK1`;
 
     // Point 1 & Point 2 & Point 3: Bin Existence, Status, Compatibility, & Atomic Concurrent Capacity Validation
@@ -360,6 +379,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       company: req.user.company,
       warehouse,
       sku: task.sku,
+      owner: taskOwner,
       lotNumber: task.lotNumber || 'DEFAULT-LOT',
       bin: sourceBinCode
     }).session(session);
@@ -375,14 +395,14 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
 
     // 3. Deduct qtyAwaitingPutaway from Source Location in InventoryBalance
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: task.sku, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: sourceBinCode },
+      { company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: sourceBinCode },
       { $inc: { qtyAwaitingPutaway: -qty } },
       { upsert: true, new: true, session }
     );
 
     // 4. Add EXACT qtyAvailable to Destination Location in InventoryBalance
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: task.sku, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: targetBinCode },
+      { company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: targetBinCode },
       { $inc: { qtyAvailable: qty } },
       { upsert: true, new: true, session }
     );
@@ -393,6 +413,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       transactionId: txnId,
       type: 'PUTAWAY_COMPLETE',
       sku: task.sku,
+      owner: taskOwner,
       warehouse,
       qty,
       lotNumber: task.lotNumber,
@@ -410,6 +431,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       { _id: task._id, status: { $ne: 'completed' }, __v: task.__v },
       {
         $set: {
+          qty,
           status: 'completed',
           toLocation: targetBinCode,
           destinationBin: targetBinCode,
@@ -426,6 +448,52 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       await session.abortTransaction();
       session.endSession();
       return res.status(409).json({ message: `Conflict: Concurrent update race condition detected on Putaway Task ${task.taskId}. Execution aborted.` });
+    }
+
+    // 7. Handle Partial Putaway Spawning Second Pending Task
+    let remainingTask = null;
+    if (isPartial && remainingQty > 0) {
+      const remainingTaskId = await nextPutawayNumber(req.user.company, session);
+      const newTasks = await PutawayTask.create([{
+        taskId: remainingTaskId,
+        qcId: task.qcId,
+        asnId: task.asnId,
+        asnNumber: task.asnNumber,
+        supplier: task.supplier,
+        owner: taskOwner,
+        sku: task.sku,
+        productName: task.productName,
+        warehouse: task.warehouse,
+        qty: remainingQty,
+        lotNumber: task.lotNumber,
+        batchNumber: task.batchNumber,
+        fromLocation: task.fromLocation,
+        toLocation: task.toLocation,
+        destinationBin: task.destinationBin,
+        priority: task.priority,
+        status: 'pending',
+        createdBy: `${operator} (partial putaway split)`,
+        company: req.user.company
+      }], { session });
+      remainingTask = newTasks[0];
+    }
+
+    // 8. Check if all Putaway Tasks for source ASN are completed
+    if (task.asnId || task.asnNumber) {
+      const targetAsnId = task.asnId || task.asnNumber;
+      const pendingAsnTasks = await PutawayTask.countDocuments({
+        $or: [{ asnId: targetAsnId }, { asnNumber: targetAsnId }],
+        status: { $ne: 'completed' },
+        company: req.user.company
+      }).session(session);
+
+      if (pendingAsnTasks === 0) {
+        await ASN.findOneAndUpdate(
+          { $or: [{ asnId: targetAsnId }, { asnNumber: targetAsnId }], company: req.user.company },
+          { status: 'completed' },
+          { session }
+        );
+      }
     }
 
     // Point 5: Rich Audit Trail in ActivityLog

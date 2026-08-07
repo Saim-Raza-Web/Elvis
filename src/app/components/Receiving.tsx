@@ -34,6 +34,7 @@ type ASN = {
   asnId: string;
   asnNumber?: string;
   supplier: string;
+  owner?: string;
   poNumber: string;
   po?: string;
   origin: string;
@@ -86,6 +87,7 @@ const blankLine = (): ProductLine => ({
 
 const blankASN = () => ({
   supplier: "",
+  owner: "Default Owner",
   poNumber: "",
   origin: "",
   carrier: "DHL",
@@ -247,6 +249,7 @@ export function Receiving() {
   // Validate form before save
   const validateForm = () => {
     if (!form.supplier.trim()) return "Supplier is required.";
+    if (!form.owner.trim()) return "Inventory Owner (3PL) is required.";
     if (!form.poNumber.trim()) return "Purchase Order number is required.";
     if (!form.expectedDate) return "Expected arrival date is required.";
     if (!form.receivingDock.trim()) return "Receiving dock is required.";
@@ -617,7 +620,7 @@ export function Receiving() {
                         <StatusBadge status={asn.status} />
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        Supplier: <strong className="text-foreground">{asn.supplier}</strong> · PO: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>{displayPo}</span>
+                        Supplier: <strong className="text-foreground">{asn.supplier}</strong> · Owner: <strong className="text-primary font-semibold">{asn.owner || 'Default Owner'}</strong> · PO: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>{displayPo}</span>
                       </div>
                     </div>
                   </div>
@@ -893,6 +896,15 @@ export function Receiving() {
                   placeholder={tc?.eGAcmeIndustrialCorp || "e.g. Acme Industrial Corp"}
                 />
               </Field>
+              <Field label="Inventory Owner * (3PL)" required>
+                <Input
+                  value={form.owner}
+                  onChange={(e) => updateFormHeader("owner", e.target.value)}
+                  placeholder="e.g. Apple Distribution"
+                />
+              </Field>
+            </Row>
+            <Row>
               <Field label={tc?.purchaseOrder || "Purchase Order # *"} required>
                 <Input
                   value={form.poNumber}
@@ -900,8 +912,6 @@ export function Receiving() {
                   placeholder={tc?.eGPO998877 || "e.g. PO-998877"}
                 />
               </Field>
-            </Row>
-            <Row>
               <Field label={tc?.originAddress || "Origin / Address"}>
                 <Input
                   value={form.origin}
@@ -909,9 +919,16 @@ export function Receiving() {
                   placeholder={tc?.eGHamburgGermany || "e.g. Hamburg, Germany"}
                 />
               </Field>
+            </Row>
+            <Row>
               <Field label={tc?.carrier || "Carrier"}>
                 <Select value={form.carrier} onChange={(e) => updateFormHeader("carrier", e.target.value)}>
                   {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                </Select>
+              </Field>
+              <Field label={tc?.receivingDock || "Receiving Dock *"} required>
+                <Select value={form.receivingDock} onChange={(e) => updateFormHeader("receivingDock", e.target.value)}>
+                  {DOCKS.map(d => <option key={d} value={d}>{d}</option>)}
                 </Select>
               </Field>
             </Row>
@@ -923,19 +940,14 @@ export function Receiving() {
                   onChange={(e) => updateFormHeader("expectedDate", e.target.value)}
                 />
               </Field>
-              <Field label={tc?.receivingDock || "Receiving Dock *"} required>
-                <Select value={form.receivingDock} onChange={(e) => updateFormHeader("receivingDock", e.target.value)}>
-                  {DOCKS.map(d => <option key={d} value={d}>{d}</option>)}
-                </Select>
+              <Field label={tc?.notesSpecialInstructions || "Notes / Special Instructions"}>
+                <Input
+                  value={form.notes}
+                  onChange={(e) => updateFormHeader("notes", e.target.value)}
+                  placeholder={tc?.fragileFreightRequiresForkliftHandling || "Fragile freight, requires forklift handling..."}
+                />
               </Field>
             </Row>
-            <Field label={tc?.notesSpecialInstructions || "Notes / Special Instructions"}>
-              <Input
-                value={form.notes}
-                onChange={(e) => updateFormHeader("notes", e.target.value)}
-                placeholder={tc?.fragileFreightRequiresForkliftHandling || "Fragile freight, requires forklift handling..."}
-              />
-            </Field>
           </div>
 
           {/* Product Line Editor */}

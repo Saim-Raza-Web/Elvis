@@ -19,6 +19,7 @@ const asnSchema = new mongoose.Schema({
   asnId: { type: String, required: true }, // ASN-000001, ASN-000002...
   asnNumber: { type: String },              // Alias for asnId
   supplier: { type: String, required: true },
+  owner: { type: String, required: true, default: 'Default Owner' },
   poNumber: { type: String, required: true },
   po: { type: String },                     // Alias for poNumber
   origin: { type: String, default: '' },

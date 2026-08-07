@@ -5,6 +5,8 @@ const putawayTaskSchema = new mongoose.Schema({
   qcId: { type: String, default: '' },
   asnId: { type: String, default: '' },
   asnNumber: { type: String, default: '' },
+  supplier: { type: String, default: '' },
+  owner: { type: String, default: 'Default Owner' },
   sku: { type: String, required: true },
   productName: { type: String, default: '' },
   warehouse: { type: String, required: true, default: 'MIA' },

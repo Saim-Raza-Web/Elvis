@@ -10,6 +10,7 @@ const documentSchema = new mongoose.Schema({
   asnId: { type: String, required: true },
   asnNumber: { type: String, required: true },
   supplier: { type: String, required: true },
+  owner: { type: String, default: 'Default Owner' },
   poNumber: { type: String, required: true },
   warehouse: { type: String, default: 'MIA' },
   receivingDock: { type: String, default: 'Dock 1' },

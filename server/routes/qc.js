@@ -321,12 +321,18 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
     const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
     const toBinCode = proposed.proposedBin;
 
+    const asnDoc = await ASN.findOne({ asnId: qItem.asnId || qItem.asnNumber, company: req.user.company }).session(session);
+    const itemOwner = asnDoc?.owner || qItem.owner || 'Default Owner';
+    const itemSupplier = asnDoc?.supplier || '';
+
     const putawayId = await nextPutawayNumber(req.user.company, session);
     const putawayTask = await PutawayTask.create([{
       taskId: putawayId,
       qcId: qItem.inspectionId || qItem.quarantineId,
       asnId: qItem.asnId,
       asnNumber: qItem.asnNumber,
+      supplier: itemSupplier,
+      owner: itemOwner,
       sku: qItem.sku,
       productName: qItem.productName,
       warehouse,
