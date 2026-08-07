@@ -672,7 +672,7 @@ export function Orders() {
             })), "orders")}
           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-secondary transition-colors"
         >
-          <Download className="size-4" /> Export CSV
+          <Download className="size-4" /> {t.orders?.exportCSV || "Export CSV"}
         </button>
         <PrimaryButton icon={Plus} onClick={() => { setForm(blankForm()); setShowAdd(true); }}>
           {t.orders.newOrder}
@@ -686,7 +686,7 @@ export function Orders() {
             <tr>
               <th className="text-left px-4 py-3">{t.orders.orderNo}</th>
               <th className="text-left px-4 py-3">{t.orders.customer}</th>
-              <th className="text-left px-4 py-3 hidden md:table-cell">Type / Channel</th>
+              <th className="text-left px-4 py-3 hidden md:table-cell">{t.orders?.typeChannel || "Type / Channel"}</th>
               <th className="text-left px-4 py-3 hidden lg:table-cell">{t.orders.warehouse}</th>
               <th className="text-left px-4 py-3 hidden sm:table-cell">{t.common.date}</th>
               <th className="text-center px-4 py-3 hidden sm:table-cell">{t.orders.noOfItems}</th>

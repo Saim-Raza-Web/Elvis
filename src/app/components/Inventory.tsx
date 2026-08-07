@@ -147,9 +147,9 @@ export function Inventory() {
     return 0;
   });
 
-  const totalValue = allItems.reduce((a: number, p: any) => a + p.qty_available * p.price, 0);
+  const totalValue = allItems.reduce((a: number, p: any) => a + (Number(p.qty_available) || 0) * (Number(p.price) || 0), 0);
   const lowCount = allItems.filter((p: any) => p.status === "low").length;
-  const totalReserved = allItems.reduce((a: number, p: any) => a + p.qty_reserved, 0);
+  const totalReserved = allItems.reduce((a: number, p: any) => a + (Number(p.qty_reserved) || 0), 0);
 
   function handleExportCSV() {
     exportToCSV(allItems.map((p: any) => ({
@@ -176,7 +176,7 @@ export function Inventory() {
         {[
           { label: t.inventory.totalSKUs, value: productList.length, icon: Boxes, color: "text-primary" },
           { label: t.inventory.lowStock, value: lowCount, icon: AlertTriangle, color: "text-destructive" },
-          { label: t.inventory.reservedUnits, value: totalReserved.toLocaleString(), icon: Lock, color: "text-warning" },
+          { label: t.inventory.reservedUnits, value: (totalReserved || 0).toLocaleString(), icon: Lock, color: "text-warning" },
           { label: t.inventory.inventoryValue, value: `€${(totalValue / 1000).toFixed(0)}k`, icon: TrendingDown, color: "text-amber-500" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
@@ -284,11 +284,11 @@ export function Inventory() {
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.owner === "customer" ? "bg-purple-500/15 text-purple-500" : p.owner === "mixed" ? "bg-amber-500/15 text-amber-500" : "bg-secondary text-muted-foreground"}`}>{p.owner}</span>
                 </td>
                 <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>
-                  <span className={p.qty_available <= 20 ? "text-destructive" : ""}>{p.qty_available.toLocaleString()}</span>
+                  <span className={(p.qty_available || 0) <= 20 ? "text-destructive" : ""}>{(p.qty_available ?? 0).toLocaleString()}</span>
                 </td>
-                <td className="px-4 py-3 text-right hidden sm:table-cell text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{p.qty_reserved > 0 ? p.qty_reserved : "—"}</td>
+                <td className="px-4 py-3 text-right hidden sm:table-cell text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{(p.qty_reserved || 0) > 0 ? (p.qty_reserved || 0).toLocaleString() : "—"}</td>
                 <td className="px-4 py-3 text-right hidden lg:table-cell" style={{ fontFamily: "JetBrains Mono, monospace" }}>
-                  {p.qty_blocked > 0 ? <span className="text-destructive">{p.qty_blocked}</span> : <span className="text-muted-foreground">—</span>}
+                  {(p.qty_blocked || 0) > 0 ? <span className="text-destructive">{(p.qty_blocked || 0).toLocaleString()}</span> : <span className="text-muted-foreground">—</span>}
                 </td>
                 <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
                 <td className="px-4 py-3 text-right">

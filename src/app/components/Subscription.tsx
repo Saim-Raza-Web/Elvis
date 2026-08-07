@@ -3,6 +3,7 @@ import { Check, Zap, Shield, Star } from "lucide-react";
 import { settingsService } from "../../services/settings.service";
 import { adminService } from "../../services/admin.service";
 import { toast } from "sonner";
+import { useLang } from "../LangContext";
 
 const plans = [
   {

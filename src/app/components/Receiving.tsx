@@ -633,7 +633,7 @@ export function Receiving() {
                       <Anchor className="size-3.5" /> {asn.receivingDock || "Dock 1"}
                     </div>
                     <div className="flex items-center gap-1">
-                      <Calendar className="size-3.5" /> ETA: <strong className="text-foreground">{displayDate}</strong>
+                      <Calendar className="size-3.5" /> {t.receiving?.eta || "ETA"}: <strong className="text-foreground">{displayDate}</strong>
                     </div>
                   </div>
 
@@ -645,7 +645,7 @@ export function Receiving() {
                         onClick={() => handleOpenReceivingWorkspace(asn)}
                         className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm active:scale-95"
                       >
-                        <Play className="size-3.5 fill-current" /> Receive Goods
+                        <Play className="size-3.5 fill-current" /> {t.receiving?.receiveGoods || "Receive Goods"}
                       </button>
                     )}
                     <button

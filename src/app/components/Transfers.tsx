@@ -103,7 +103,7 @@ export function Transfers() {
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: t.transfers.pendingTransfers, value: pending, icon: Clock, color: "text-warning" },
-          { label: "In progress", value: inProgress, icon: ArrowRightLeft, color: "text-primary" },
+          { label: t.status.in_progress, value: inProgress, icon: ArrowRightLeft, color: "text-primary" },
           { label: t.transfers.completedToday, value: completedToday, icon: CheckCircle2, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>

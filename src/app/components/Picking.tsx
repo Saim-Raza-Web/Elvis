@@ -161,7 +161,7 @@ export function Picking() {
             onClick={() => handleTaskAction(task)}
             className="w-full py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all active:scale-95"
           >
-            {task.status === "pending" ? "Start Pick" : "Complete Pick"}
+            {task.status === "pending" ? (t.picking?.startPick || "Start Pick") : (t.common?.complete || "Complete")}
           </button>
         </div>
       )}
@@ -189,8 +189,8 @@ export function Picking() {
 
       <div className="flex items-center gap-3 mb-4">
         <div className="flex rounded-lg border border-border overflow-hidden">
-          <button onClick={() => setView("tasks")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "tasks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Pick Tasks</button>
-          <button onClick={() => setView("batches")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "batches" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Pick Batches</button>
+          <button onClick={() => setView("tasks")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "tasks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.picking?.pickTasks || "Pick Tasks"}</button>
+          <button onClick={() => setView("batches")} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === "batches" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.picking?.pickBatches || "Pick Batches"}</button>
         </div>
       </div>
 
@@ -201,7 +201,7 @@ export function Picking() {
             <ScanLine className="size-5 text-primary" />
           </div>
           <div>
-            <div className="font-semibold">Quick scan</div>
+            <div className="font-semibold">{t.picking?.quickScan || "Quick scan"}</div>
             <div className="text-xs text-muted-foreground">{t.picking.scanToStart}</div>
           </div>
         </div>
@@ -215,7 +215,7 @@ export function Picking() {
             style={{ fontFamily: "JetBrains Mono, monospace" }}
           />
           <button onClick={handleScanStart} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all active:scale-95">
-            Scan
+            {t.picking?.scan || "Scan"}
           </button>
         </div>
         <button onClick={() => setShowManual(true)} className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors">

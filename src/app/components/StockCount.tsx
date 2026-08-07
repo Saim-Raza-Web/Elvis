@@ -161,10 +161,10 @@ export function StockCount() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Sessions", value: counts.length, icon: ClipboardList, color: "text-primary" },
-          { label: "In Progress", value: counts.filter(c => c.status === "in_progress").length, icon: Play, color: "text-blue-500" },
-          { label: "Needs Review", value: counts.filter(c => c.status === "review").length, icon: AlertTriangle, color: "text-warning" },
-          { label: "Completed", value: counts.filter(c => c.status === "completed").length, icon: CheckCircle2, color: "text-success" },
+          { label: t.stockCount?.totalSessions || "Total Sessions", value: counts.length, icon: ClipboardList, color: "text-primary" },
+          { label: t.stockCount?.inProgress || "In Progress", value: counts.filter(c => c.status === "in_progress").length, icon: Play, color: "text-blue-500" },
+          { label: t.stockCount?.needsReview || "Needs Review", value: counts.filter(c => c.status === "review").length, icon: AlertTriangle, color: "text-warning" },
+          { label: t.stockCount?.completed || "Completed", value: counts.filter(c => c.status === "completed").length, icon: CheckCircle2, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2">
@@ -187,19 +187,19 @@ export function StockCount() {
             style={{ fontSize: "0.875rem" }}
           />
         </div>
-        <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>New Count</PrimaryButton>
+        <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.stockCount?.newCount || "New Count"}</PrimaryButton>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
             <tr>
-              <th className="text-left px-4 py-3">Session ID</th>
+              <th className="text-left px-4 py-3">{t.stockCount?.sessionId || "Session ID"}</th>
               <th className="text-left px-4 py-3">{t.common?.type || "Type"}</th>
-              <th className="text-left px-4 py-3 hidden md:table-cell">Warehouse</th>
-              <th className="text-left px-4 py-3 hidden sm:table-cell">Assigned To</th>
-              <th className="text-center px-4 py-3">Items</th>
-              <th className="text-right px-4 py-3 hidden lg:table-cell">Discrepancy</th>
+              <th className="text-left px-4 py-3 hidden md:table-cell">{t.stockCount?.warehouse || "Warehouse"}</th>
+              <th className="text-left px-4 py-3 hidden sm:table-cell">{t.stockCount?.assignedTo || "Assigned To"}</th>
+              <th className="text-center px-4 py-3">{t.stockCount?.items || "Items"}</th>
+              <th className="text-right px-4 py-3 hidden lg:table-cell">{t.stockCount?.discrepancy || "Discrepancy"}</th>
               <th className="text-center px-4 py-3">{t.common?.status || "Status"}</th>
               <th className="text-right px-4 py-3"></th>
             </tr>

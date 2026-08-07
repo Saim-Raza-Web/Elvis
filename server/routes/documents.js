@@ -290,6 +290,30 @@ async function getNextDeliveryNoteNumber(company) {
 }
 
 // ───────────────────────────────────────────────────────────────
+//   GET /  — List all documents for the company
+// ───────────────────────────────────────────────────────────────
+router.get('/', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const skip = (page - 1) * limit;
+    const filter = { company: req.user.company };
+    if (req.query.type) filter.type = req.query.type;
+    if (req.query.status) filter.status = req.query.status;
+    const total = await Document.countDocuments(filter);
+    const data = await Document.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    res.json({ data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────
 //   GET /delivery-note/:orderId  — Generate & Download PDF
 // ───────────────────────────────────────────────────────────────
 router.get('/delivery-note/:orderId', async (req, res, next) => {

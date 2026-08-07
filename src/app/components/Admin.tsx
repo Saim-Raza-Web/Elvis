@@ -104,10 +104,10 @@ export function Admin() {
   }
 
   const tabs = [
-    { id: "companies", label: "Companies", icon: Building2 },
-    { id: "users", label: "Team", icon: Users },
-    { id: "platform", label: "Platform health", icon: Activity },
-    { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
+    { id: "companies", label: t.admin.companies, icon: Building2 },
+    { id: "users", label: t.admin?.team || "Team", icon: Users },
+    { id: "platform", label: t.admin.platform, icon: Activity },
+    { id: "subscriptions", label: t.admin.subscriptions, icon: CreditCard },
   ];
 
   const totalRevenueMRR = 299 * companies.filter((c) => c.plan === "professional").length
@@ -119,10 +119,10 @@ export function Admin() {
       {/* Platform stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total companies", value: companies.length, icon: Building2, color: "text-primary" },
-          { label: "Total users", value: companies.reduce((a, c) => a + c.users, 0), icon: Users, color: "text-blue-500" },
-          { label: "MRR", value: `€${totalRevenueMRR.toLocaleString()}`, icon: CreditCard, color: "text-success" },
-          { label: "Platform uptime", value: "99.98%", icon: Server, color: "text-success" },
+          { label: t.admin.totalCompanies, value: companies.length, icon: Building2, color: "text-primary" },
+          { label: t.admin.totalUsers, value: companies.reduce((a, c) => a + c.users, 0), icon: Users, color: "text-blue-500" },
+          { label: t.admin.mrr, value: `€${totalRevenueMRR.toLocaleString()}`, icon: CreditCard, color: "text-success" },
+          { label: t.admin.platformUptime, value: "99.98%", icon: Server, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -148,9 +148,9 @@ export function Admin() {
       {activeTab === "companies" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold">All companies</h3>
+            <h3 className="font-bold">{t.admin.allCompanies}</h3>
             <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all">
-              <Plus className="size-3.5" /> Add company
+              <Plus className="size-3.5" /> {t.admin.addCompany}
             </button>
           </div>
           <div className="rounded-xl border border-border bg-card overflow-hidden">

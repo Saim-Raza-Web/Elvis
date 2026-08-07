@@ -55,11 +55,11 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
 
   const stats = [
     { label: t.dashboard.recentOrders, value: recentOrders.length, icon: ShoppingCart, color: "text-primary", delay: 0 },
-    { label: "Pending shipments", value: pendingShipments, icon: Truck, color: "text-blue-500", delay: 40 },
-    { label: "Units in stock", value: totalStock.toLocaleString(), icon: Boxes, color: "text-purple-500", delay: 80 },
-    { label: "Low-stock SKUs", value: lowStockSKUs, icon: AlertTriangle, color: "text-destructive", delay: 120 },
-    { label: "Revenue (paid)", value: `€${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-success", delay: 160 },
-    { label: "Active warehouses", value: activeWarehouses, icon: Warehouse, color: "text-amber-500", delay: 200 },
+    { label: t.dashboard.pendingShipments, value: pendingShipments, icon: Truck, color: "text-blue-500", delay: 40 },
+    { label: t.dashboard.unitsInStock, value: totalStock.toLocaleString(), icon: Boxes, color: "text-purple-500", delay: 80 },
+    { label: t.dashboard.lowStockSKUs, value: lowStockSKUs, icon: AlertTriangle, color: "text-destructive", delay: 120 },
+    { label: t.dashboard.revenuePaid, value: `€${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-success", delay: 160 },
+    { label: t.dashboard.activeWarehouses, value: activeWarehouses, icon: Warehouse, color: "text-amber-500", delay: 200 },
   ];
 
   return (
