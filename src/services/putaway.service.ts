@@ -16,7 +16,7 @@ export const putawayService = {
     const response = await api.post(`/putaway/${id}/start`);
     return response.data;
   },
-  complete: async (id: string, payload: { destinationBin?: string; scannedTaskBarcode?: string; scannedBinBarcode?: string; __v?: number }) => {
+  complete: async (id: string, payload: { destinationBin?: string; scannedTaskBarcode?: string; scannedBinBarcode?: string; scannedSkuBarcode?: string; executedQty?: number; __v?: number }) => {
     const response = await api.post(`/putaway/${id}/complete`, payload);
     return response.data;
   },
