@@ -63,35 +63,48 @@ export function Incidents() {
               <th className="text-left px-4 py-3">{t.common?.type || "Type"}</th>
               <th className="text-left px-4 py-3">SKU</th>
               <th className="text-left px-4 py-3">Details</th>
+              <th className="text-left px-4 py-3">Date & Time</th>
               <th className="text-center px-4 py-3">{t.common?.status || "Status"}</th>
               <th className="text-right px-4 py-3">{t.common?.actions || "Actions"}</th>
             </tr>
           </thead>
           <tbody>
-            {incidents.map((inc, i) => (
-              <tr key={inc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
-                <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{inc.incidentId}</td>
-                <td className="px-4 py-3 font-semibold text-destructive">{inc.type || inc.module || "Discrepancy"}</td>
-                <td className="px-4 py-3" style={{ fontFamily: "JetBrains Mono, monospace" }}>{inc.sku || inc.expectedSKU || inc.scannedBarcode || "—"}</td>
-                <td className="px-4 py-3">
-                  <div className="text-xs max-w-sm">{inc.description || inc.reason || (inc.scannedBarcode ? `Unexpected scan: ${inc.scannedBarcode}` : "Incident Event")}</div>
-                  <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span>Reported by: <strong>{inc.reported_by || inc.operator || inc.user || "System"}</strong></span>
-                    {inc.supplier && <span>· Supplier: <strong>{inc.supplier}</strong></span>}
-                    {inc.owner && <span>· Owner: <strong className="text-primary">{inc.owner}</strong></span>}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-center"><StatusBadge status={inc.status} /></td>
-                <td className="px-4 py-3 text-right">
-                  {inc.status !== "resolved" && (
-                    <button onClick={() => resolveIncident(inc)} className="text-xs px-3 py-1.5 bg-success/20 text-success rounded font-bold hover:bg-success hover:text-success-foreground transition-colors">
-                      Resolve
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {incidents.length === 0 && !isLoading && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">No incidents found</td></tr>}
+            {incidents.map((inc, i) => {
+              const displayDate = new Date(inc.timestamp || inc.createdAt || Date.now()).toLocaleString('en-US', {
+                month: 'short',
+                day: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              return (
+                <tr key={inc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
+                  <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{inc.incidentId}</td>
+                  <td className="px-4 py-3 font-semibold text-destructive">{inc.type || inc.module || "Discrepancy"}</td>
+                  <td className="px-4 py-3" style={{ fontFamily: "JetBrains Mono, monospace" }}>{inc.sku || inc.expectedSKU || inc.scannedBarcode || "—"}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs max-w-sm">{inc.description || inc.reason || (inc.scannedBarcode ? `Unexpected scan: ${inc.scannedBarcode}` : "Incident Event")}</div>
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span>Reported by: <strong>{inc.reported_by || inc.operator || inc.user || "System"}</strong></span>
+                      {inc.supplier && <span>· Supplier: <strong>{inc.supplier}</strong></span>}
+                      {inc.owner && <span>· Owner: <strong className="text-primary">{inc.owner}</strong></span>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap" style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                    {displayDate}
+                  </td>
+                  <td className="px-4 py-3 text-center"><StatusBadge status={inc.status} /></td>
+                  <td className="px-4 py-3 text-right">
+                    {inc.status !== "resolved" && (
+                      <button onClick={() => resolveIncident(inc)} className="text-xs px-3 py-1.5 bg-success/20 text-success rounded font-bold hover:bg-success hover:text-success-foreground transition-colors">
+                        Resolve
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {incidents.length === 0 && !isLoading && <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">No incidents found</td></tr>}
           </tbody>
         </table>
         <TablePagination pagination={pagination} page={page} onPageChange={setPage} />

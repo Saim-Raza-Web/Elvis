@@ -41,7 +41,8 @@ router.get('/:id', async (req, res, next) => {
 router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const data = { ...req.body, company: req.user.company };
+    const incId = req.body.incidentId || ('INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5));
+    const data = { ...req.body, incidentId: incId, company: req.user.company };
     const item = await Model.create(data);
     
     // Log Activity

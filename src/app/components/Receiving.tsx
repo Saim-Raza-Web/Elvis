@@ -310,6 +310,29 @@ export function Receiving() {
     } catch (_) { }
   };
 
+  // Download / Preview Delivery Note Document
+  const handleDownloadDeliveryNote = async (asn: ASN) => {
+    try {
+      const asnId = asn.asnId || asn.asnNumber || asn._id;
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/v1/documents/inbound-delivery-note/${asnId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Failed to fetch delivery note");
+      }
+      const html = await response.text();
+      const win = window.open("", "_blank");
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Delivery Note not generated yet");
+    }
+  };
+
   // Open Phase 2 Receiving Workspace Modal
   const handleOpenReceivingWorkspace = async (asn: ASN) => {
     setReceiveTarget(asn);
@@ -381,8 +404,10 @@ export function Receiving() {
       toast.error(`REJECTED: Barcode/SKU '${term}' does not belong to this ASN.`);
       if (receiveTarget) {
         try {
+          const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
           await incidentsService.create({
-            type: 'Scan Rejection',
+            incidentId: incId,
+            type: 'Discrepancy',
             sku: term,
             scannedBarcode: term,
             expectedSKU: 'N/A',
@@ -390,16 +415,18 @@ export function Receiving() {
             asnId: receiveTarget.asnId || receiveTarget.asnNumber,
             supplier: receiveTarget.supplier,
             owner: receiveTarget.owner || 'Default Owner',
-            operator: 'admin@wms.com',
-            user: 'admin@wms.com',
-            reported_by: 'admin@wms.com',
+            operator: 'admin@demologistics.io',
+            user: 'admin@demologistics.io',
+            reported_by: 'admin@demologistics.io',
             reason: 'Unexpected SKU',
             module: 'Receiving',
             status: 'open',
-            description: `Unexpected barcode scan: '${term}' on ASN ${receiveTarget.asnId || receiveTarget.asnNumber}. Supplier: ${receiveTarget.supplier}, Owner: ${receiveTarget.owner || 'Default Owner'}`
+            description: `Unexpected barcode scan '${term}' on ASN ${receiveTarget.asnId || receiveTarget.asnNumber}. Supplier: ${receiveTarget.supplier}, Owner: ${receiveTarget.owner || 'Default Owner'}`
           });
           reload();
-        } catch (_) { }
+        } catch (e) {
+          console.error("Failed to create incident on rejection:", e);
+        }
       }
     }
   };
@@ -683,6 +710,16 @@ export function Receiving() {
                     >
                       <Eye className="size-3.5" /> {t.common.view}
                     </button>
+                    {(isCompleted || asn.deliveryNoteNumber) && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadDeliveryNote(asn)}
+                        className="flex items-center gap-1 px-3 py-1.5 border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs font-bold transition-all shadow-sm"
+                        title="Download / View Delivery Note Document"
+                      >
+                        <FileText className="size-3.5" /> Delivery Note
+                      </button>
+                    )}
                     {!isCompleted && (
                       <button
                         type="button"
@@ -1115,7 +1152,18 @@ export function Receiving() {
                 <span className="text-xs text-muted-foreground">Status:</span>
                 <StatusBadge status={viewTarget.status} />
               </div>
-              <ModalCancel onClose={() => setViewTarget(null)} />
+              <div className="flex gap-2">
+                {(viewTarget.status === 'completed' || viewTarget.deliveryNoteNumber) && (
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadDeliveryNote(viewTarget)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all shadow-sm"
+                  >
+                    <FileText className="size-3.5" /> View Delivery Note
+                  </button>
+                )}
+                <ModalCancel onClose={() => setViewTarget(null)} />
+              </div>
             </div>
           }
         >
