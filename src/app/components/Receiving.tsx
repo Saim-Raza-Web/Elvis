@@ -314,7 +314,7 @@ export function Receiving() {
   const handleDownloadDeliveryNote = async (asn: ASN) => {
     try {
       const asnId = asn.asnId || asn.asnNumber || asn._id;
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const response = await fetch(`/api/v1/documents/inbound-delivery-note/${asnId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
