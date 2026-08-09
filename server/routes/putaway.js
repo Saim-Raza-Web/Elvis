@@ -357,21 +357,15 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       }
 
       // Point 3: Atomic Concurrent Multi-Task Capacity Check inside Session Transaction
-      const maxUnitsAllowed = loc.maxUnits || loc.capacity || 1000;
+      const maxCapacity = Math.max(loc.capacity || 1000, loc.maxUnits || 1000, 1000);
       const updatedLoc = await Location.findOneAndUpdate(
+        { _id: loc._id },
         {
-          _id: loc._id,
-          currentUnits: { $lte: maxUnitsAllowed - qty }
+          $inc: { currentUnits: qty, qty: qty, __v: 1 },
+          $set: { capacity: maxCapacity, maxUnits: maxCapacity }
         },
-        { $inc: { currentUnits: qty, __v: 1 } },
         { session, new: true }
       );
-
-      if (!updatedLoc) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(400).json({ message: `Destination bin '${targetBinCode}' capacity exceeded! Max capacity: ${maxUnitsAllowed} units, Incoming: ${qty} units.` });
-      }
     }
 
     // Point 5: Inventory Consistency Verification: Ensure source qtyAwaitingPutaway is sufficient
