@@ -320,86 +320,86 @@ export function PutawayQueue() {
             </p>
           </div>
         ) : (
-          <div className="border border-border rounded-xl overflow-hidden bg-card text-xs">
-            <table className="w-full text-left border-collapse">
+          <div className="border border-border rounded-xl overflow-x-auto bg-card text-xs">
+            <table className="w-full text-left border-collapse min-w-[980px]">
               <thead>
                 <tr className="bg-secondary/60 border-b border-border font-semibold text-muted-foreground">
-                  <th className="p-3">{t.putaway.taskId}</th>
-                  <th className="p-3">{t.putaway.asnId} / {t.putaway.qcId}</th>
-                  <th className="p-3">Owner (3PL)</th>
-                  <th className="p-3">{t.inventory.sku}</th>
-                  <th className="p-3 text-right">{t.transfers.qty}</th>
-                  <th className="p-3">{t.putaway.fromLocation}</th>
-                  <th className="p-3">{t.putaway.toLocation}</th>
-                  <th className="p-3">{t.putaway.assignedOperator}</th>
-                  <th className="p-3">{t.common.status}</th>
-                  <th className="p-3 text-right">{t.common.actions}</th>
+                  <th className="p-3 whitespace-nowrap">{t.putaway.taskId}</th>
+                  <th className="p-3 whitespace-nowrap">{t.putaway.asnId} / {t.putaway.qcId}</th>
+                  <th className="p-3 whitespace-nowrap">Owner (3PL)</th>
+                  <th className="p-3 whitespace-nowrap">{t.inventory.sku}</th>
+                  <th className="p-3 text-right whitespace-nowrap">{t.transfers.qty}</th>
+                  <th className="p-3 whitespace-nowrap">{t.putaway.fromLocation}</th>
+                  <th className="p-3 whitespace-nowrap">{t.putaway.toLocation}</th>
+                  <th className="p-3 whitespace-nowrap">{t.putaway.assignedOperator}</th>
+                  <th className="p-3 whitespace-nowrap">{t.common.status}</th>
+                  <th className="p-3 text-right whitespace-nowrap">{t.common.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {pagedTasks.map(task => (
                   <tr key={task._id} className="hover:bg-secondary/20 transition-colors">
-                    <td className="p-3 font-mono font-bold text-primary cursor-pointer" onClick={() => setSelectedTask(task)}>
+                    <td className="p-3 font-mono font-bold text-primary cursor-pointer whitespace-nowrap" onClick={() => setSelectedTask(task)}>
                       {task.taskId}
                     </td>
-                    <td className="p-3 font-mono text-muted-foreground">
+                    <td className="p-3 font-mono text-muted-foreground whitespace-nowrap">
                       <div className="font-bold text-foreground">{task.asnNumber || task.asnId || "—"}</div>
                       <div className="text-[11px]">{task.qcId || "—"}</div>
                     </td>
-                    <td className="p-3">
-                      <span className="font-bold text-primary bg-primary/10 px-2 py-0.5 rounded text-[11px]">
+                    <td className="p-3 whitespace-nowrap">
+                      <span className="font-bold text-primary bg-primary/10 px-2 py-0.5 rounded text-[11px] inline-block whitespace-nowrap">
                         {task.owner || "Default Owner"}
                       </span>
                     </td>
                     <td className="p-3">
-                      <div className="font-bold text-foreground">{task.sku}</div>
-                      <div className="text-[11px] text-muted-foreground">{task.productName}</div>
+                      <div className="font-bold text-foreground whitespace-nowrap">{task.sku}</div>
+                      <div className="text-[11px] text-muted-foreground truncate max-w-[160px]">{task.productName}</div>
                     </td>
-                    <td className="p-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    <td className="p-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                       {task.qty.toLocaleString()} units
                     </td>
-                    <td className="p-3 font-mono text-muted-foreground">
-                      <span className="bg-secondary px-2 py-0.5 rounded text-[11px] font-bold">{task.fromLocation}</span>
+                    <td className="p-3 font-mono text-muted-foreground whitespace-nowrap">
+                      <span className="bg-secondary px-2 py-0.5 rounded text-[11px] font-bold inline-block whitespace-nowrap">{task.fromLocation}</span>
                     </td>
-                    <td className="p-3 font-mono text-foreground">
-                      <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded text-[11px] font-bold">
+                    <td className="p-3 font-mono text-foreground whitespace-nowrap">
+                      <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded text-[11px] font-bold inline-block whitespace-nowrap">
                         {task.toLocation}
                       </span>
                     </td>
-                    <td className="p-3">
+                    <td className="p-3 whitespace-nowrap">
                       {task.assignedTo ? (
-                        <span className="font-medium text-foreground bg-secondary px-2 py-0.5 rounded text-[11px]">
+                        <span className="font-medium text-foreground bg-secondary px-2 py-0.5 rounded text-[11px] inline-block whitespace-nowrap">
                           {task.assignedTo}
                         </span>
                       ) : (
                         <span className="text-muted-foreground italic text-[11px]">{t.putaway.unassigned}</span>
                       )}
                     </td>
-                    <td className="p-3">
+                    <td className="p-3 whitespace-nowrap">
                       <StatusBadge status={task.status} />
                     </td>
-                    <td className="p-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="p-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                         {task.status !== 'completed' && task.status !== 'cancelled' && (
                           <>
                             <button
                               type="button"
                               onClick={() => { setSelectedTask(task); setAssignOperatorEmail(task.assignedTo || ""); setAssignModalOpen(true); }}
-                              className="px-2.5 py-1 bg-secondary border border-border rounded text-[11px] font-semibold hover:bg-secondary/80 text-foreground flex items-center gap-1"
+                              className="px-2.5 py-1 bg-secondary border border-border rounded text-[11px] font-semibold hover:bg-secondary/80 text-foreground flex items-center gap-1 whitespace-nowrap"
                             >
                               <UserPlus className="size-3" /> {t.putaway.assign}
                             </button>
                             <button
                               type="button"
                               onClick={() => openExecuteModal(task)}
-                              className="px-2.5 py-1 bg-primary text-primary-foreground rounded text-[11px] font-semibold hover:bg-primary/90 flex items-center gap-1"
+                              className="px-2.5 py-1 bg-primary text-primary-foreground rounded text-[11px] font-semibold hover:bg-primary/90 flex items-center gap-1 whitespace-nowrap"
                             >
                               <Scan className="size-3" /> {t.putaway.execute}
                             </button>
                           </>
                         )}
                         {task.status === 'completed' && (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] flex items-center gap-1">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] flex items-center gap-1 whitespace-nowrap">
                             <CheckCircle2 className="size-3.5" /> {t.putaway.done}
                           </span>
                         )}
