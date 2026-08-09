@@ -11,6 +11,7 @@ import Counter from '../models/Counter.js';
 import Notification from '../models/Notification.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Product from '../models/Product.js';
+import ASN from '../models/ASN.js';
 import { proposeDestinationLocation } from '../services/locationProposalService.js';
 
 const router = express.Router();
@@ -321,7 +322,16 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
     const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
     const toBinCode = proposed.proposedBin;
 
-    const asnDoc = await ASN.findOne({ asnId: qItem.asnId || qItem.asnNumber, company: req.user.company }).session(session);
+    const targetAsnKey = qItem.asnId || qItem.asnNumber;
+    const isObjId = targetAsnKey && mongoose.Types.ObjectId.isValid(targetAsnKey);
+    const asnDoc = await ASN.findOne({
+      $or: [
+        ...(isObjId ? [{ _id: targetAsnKey }] : []),
+        { asnId: targetAsnKey },
+        { asnNumber: targetAsnKey }
+      ],
+      company: req.user.company
+    }).session(session);
     const itemOwner = asnDoc?.owner || qItem.owner || 'Default Owner';
     const itemSupplier = asnDoc?.supplier || '';
 

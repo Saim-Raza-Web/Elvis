@@ -277,7 +277,16 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       return res.status(403).json({ message: 'Company context required' });
     }
 
-    const asn = await ASN.findOne({ _id: req.params.id, company: req.user.company, isDeleted: { $ne: true } }).session(session);
+    const isObjId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const asn = await ASN.findOne({
+      $or: [
+        ...(isObjId ? [{ _id: req.params.id }] : []),
+        { asnId: req.params.id },
+        { asnNumber: req.params.id }
+      ],
+      company: req.user.company,
+      isDeleted: { $ne: true }
+    }).session(session);
     if (!asn) {
       await session.abortTransaction();
       session.endSession();

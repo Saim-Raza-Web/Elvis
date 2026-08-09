@@ -11,6 +11,7 @@ import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 import { receivingService } from "../../services/receiving.service";
 import { locationsService } from "../../services/locations.service";
+import { incidentsService } from "../../services/incidents.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
 
@@ -363,8 +364,8 @@ export function Receiving() {
 
   const [showCameraScanner, setShowCameraScanner] = useState(false);
 
-  // Barcode Scan Handler (Strict Non-ASN Barcode Rejection)
-  const handleBarcodeScanSubmit = (scannedVal?: string) => {
+  // Barcode Scan Handler (Strict Non-ASN Barcode Rejection & Permanent Incident Creation)
+  const handleBarcodeScanSubmit = async (scannedVal?: string) => {
     const term = (scannedVal !== undefined ? scannedVal : scannedBarcode).trim().toUpperCase();
     if (!term) return;
 
@@ -378,6 +379,28 @@ export function Receiving() {
     } else {
       setHighlightedSku(null);
       toast.error(`REJECTED: Barcode/SKU '${term}' does not belong to this ASN.`);
+      if (receiveTarget) {
+        try {
+          await incidentsService.create({
+            type: 'Scan Rejection',
+            sku: term,
+            scannedBarcode: term,
+            expectedSKU: 'N/A',
+            asnReference: receiveTarget.poNumber || receiveTarget.po || receiveTarget.asnId,
+            asnId: receiveTarget.asnId || receiveTarget.asnNumber,
+            supplier: receiveTarget.supplier,
+            owner: receiveTarget.owner || 'Default Owner',
+            operator: 'admin@wms.com',
+            user: 'admin@wms.com',
+            reported_by: 'admin@wms.com',
+            reason: 'Unexpected SKU',
+            module: 'Receiving',
+            status: 'open',
+            description: `Unexpected barcode scan: '${term}' on ASN ${receiveTarget.asnId || receiveTarget.asnNumber}. Supplier: ${receiveTarget.supplier}, Owner: ${receiveTarget.owner || 'Default Owner'}`
+          });
+          reload();
+        } catch (_) { }
+      }
     }
   };
 
