@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Package, Search, Plus, Truck, AlertTriangle, CheckCircle2, Clock,
-  Trash2, Copy, Eye, Pencil, Calendar, Anchor, FileText, ArrowUpDown, RefreshCw, Layers,
+  Trash2, Copy, Eye, Pencil, Calendar, Anchor, FileText, ArrowUpDown, RefreshCw, Layers, Download,
   ScanLine, Check, AlertOctagon, History, ShieldAlert, CheckSquare, Play, Camera
 } from "lucide-react";
 import { toast } from "sonner";
@@ -50,6 +50,7 @@ type ASN = {
   expected_units: number;
   items: ProductLine[];
   createdBy?: string;
+  deliveryNoteNumber?: string;
   createdAt?: string;
   updatedAt?: string;
   __v?: number;
@@ -330,6 +331,47 @@ export function Receiving() {
       }
     } catch (err: any) {
       toast.error(err.message || "Delivery Note not generated yet");
+    }
+  };
+
+  // Download Direct PDF File (GET /api/v1/documents/dn/:dnNumber/pdf)
+  const handleDownloadPdfFile = async (asn: ASN) => {
+    try {
+      const asnId = asn.asnId || asn.asnNumber || asn._id;
+      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
+      
+      let dnNumber = asn.deliveryNoteNumber;
+      if (!dnNumber) {
+        const asnRes = await fetch(`/api/v1/receiving/${asnId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (asnRes.ok) {
+          const freshAsn = await asnRes.json();
+          dnNumber = freshAsn.deliveryNoteNumber;
+        }
+      }
+      if (!dnNumber) throw new Error("Delivery Note number not assigned yet");
+
+      const response = await fetch(`/api/v1/documents/dn/${dnNumber}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to download PDF from server");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${dnNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`PDF ${dnNumber}.pdf downloaded!`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to download Delivery Note PDF");
     }
   };
 
@@ -711,14 +753,24 @@ export function Receiving() {
                       <Eye className="size-3.5" /> {t.common.view}
                     </button>
                     {(isCompleted || asn.deliveryNoteNumber) && (
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadDeliveryNote(asn)}
-                        className="flex items-center gap-1 px-3 py-1.5 border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs font-bold transition-all shadow-sm"
-                        title="Download / View Delivery Note Document"
-                      >
-                        <FileText className="size-3.5" /> Delivery Note
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadDeliveryNote(asn)}
+                          className="flex items-center gap-1 px-3 py-1.5 border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs font-bold transition-all shadow-sm"
+                          title="View Inbound Delivery Note Manifest"
+                        >
+                          <FileText className="size-3.5" /> View Note
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadPdfFile(asn)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+                          title="Download Delivery Note PDF Document"
+                        >
+                          <Download className="size-3.5" /> Download PDF
+                        </button>
+                      </>
                     )}
                     {!isCompleted && (
                       <button
@@ -1154,13 +1206,22 @@ export function Receiving() {
               </div>
               <div className="flex gap-2">
                 {(viewTarget.status === 'completed' || viewTarget.deliveryNoteNumber) && (
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadDeliveryNote(viewTarget)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all shadow-sm"
-                  >
-                    <FileText className="size-3.5" /> View Delivery Note
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadDeliveryNote(viewTarget)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary border border-border text-foreground rounded-lg text-xs font-bold hover:bg-secondary/80 transition-all shadow-sm"
+                    >
+                      <FileText className="size-3.5" /> View Note
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPdfFile(viewTarget)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all shadow-sm"
+                    >
+                      <Download className="size-3.5" /> Download PDF
+                    </button>
+                  </>
                 )}
                 <ModalCancel onClose={() => setViewTarget(null)} />
               </div>

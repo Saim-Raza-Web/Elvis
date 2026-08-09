@@ -7,8 +7,9 @@ import ASN from '../models/ASN.js';
 import Document from '../models/Document.js';
 import Return from '../models/Return.js';
 import Company from '../models/Company.js';
-import Counter from '../models/Counter.js';
+import Discrepancy from '../models/Discrepancy.js';
 import ActivityLog from '../models/ActivityLog.js';
+import { generatePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -570,16 +571,31 @@ router.get('/dn/:dnNumber/pdf', async (req, res, next) => {
     const docRecord = await Document.findOne({ documentNumber: req.params.dnNumber, company: req.user.company });
     if (!docRecord) return res.status(404).json({ message: `Delivery Note ${req.params.dnNumber} not found.` });
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${docRecord.documentNumber}.pdf"`);
-
+    let pdfBuffer = null;
     if (docRecord.pdfDataUri && docRecord.pdfDataUri.includes('base64,')) {
       const base64Data = docRecord.pdfDataUri.split('base64,')[1];
-      const buffer = Buffer.from(base64Data, 'base64');
-      return res.send(buffer);
+      pdfBuffer = Buffer.from(base64Data, 'base64');
+    } else {
+      // Dynamic fallback: Generate PDF stream on-the-fly if pdfDataUri was missing
+      const asn = await ASN.findOne({
+        $or: [{ asnId: docRecord.asnId }, { asnNumber: docRecord.asnId }],
+        company: req.user.company
+      });
+      if (asn) {
+        const discrepancies = await Discrepancy.find({ asnId: asn.asnId || asn.asnNumber, company: req.user.company });
+        pdfBuffer = await generatePDFBuffer(asn, docRecord.documentNumber, discrepancies, req.user.company, docRecord.generatedBy || 'system');
+        docRecord.pdfDataUri = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+        await docRecord.save().catch(() => {});
+      }
     }
 
-    res.status(404).json({ message: 'PDF binary stream data not found for this document.' });
+    if (!pdfBuffer) {
+      return res.status(404).json({ message: 'PDF binary stream could not be generated for this document.' });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${docRecord.documentNumber}.pdf"`);
+    return res.send(pdfBuffer);
   } catch (err) { next(err); }
 });
 
@@ -593,12 +609,26 @@ router.get('/dn/:dnNumber', async (req, res, next) => {
     const docRecord = await Document.findOne({ documentNumber: req.params.dnNumber, company: req.user.company });
     if (!docRecord) return res.status(404).json({ message: `Delivery Note ${req.params.dnNumber} not found.` });
 
-    if (req.query.format === 'pdf' && docRecord.pdfDataUri) {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${docRecord.documentNumber}.pdf"`);
-      const base64Data = docRecord.pdfDataUri.split('base64,')[1];
-      const buffer = Buffer.from(base64Data, 'base64');
-      return res.send(buffer);
+    if (req.query.format === 'pdf') {
+      let pdfBuffer = null;
+      if (docRecord.pdfDataUri && docRecord.pdfDataUri.includes('base64,')) {
+        const base64Data = docRecord.pdfDataUri.split('base64,')[1];
+        pdfBuffer = Buffer.from(base64Data, 'base64');
+      } else {
+        const asn = await ASN.findOne({
+          $or: [{ asnId: docRecord.asnId }, { asnNumber: docRecord.asnId }],
+          company: req.user.company
+        });
+        if (asn) {
+          const discrepancies = await Discrepancy.find({ asnId: asn.asnId || asn.asnNumber, company: req.user.company });
+          pdfBuffer = await generatePDFBuffer(asn, docRecord.documentNumber, discrepancies, req.user.company, docRecord.generatedBy || 'system');
+        }
+      }
+      if (pdfBuffer) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${docRecord.documentNumber}.pdf"`);
+        return res.send(pdfBuffer);
+      }
     }
 
     res.setHeader('Content-Type', 'text/html');

@@ -6,7 +6,7 @@ import ActivityLog from '../models/ActivityLog.js';
 import PDFDocument from 'pdfkit';
 
 /** Helper to render a binary PDF Buffer in memory using PDFKit */
-async function generatePDFBuffer(asn, dnNumber, discrepancies, companyId, operator) {
+export async function generatePDFBuffer(asn, dnNumber, discrepancies, companyId, operator) {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: 'A4' });
@@ -195,9 +195,46 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
         th { background: #0f172a; color: #ffffff; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 10px; text-align: left; }
         .footer { margin-top: 40px; pt: 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 12px; color: #64748b; }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: #ffffff; } .doc-card { box-shadow: none; border: none; padding: 0; } }
       </style>
+      <script>
+        function downloadPdf() {
+          const token = localStorage.getItem('jwt_token') || localStorage.getItem('token');
+          fetch('/api/v1/documents/dn/${dnNumber}/pdf', {
+            headers: { 'Authorization': 'Bearer ' + token }
+          })
+          .then(res => {
+            if (!res.ok) throw new Error('Failed to download PDF stream from server');
+            return res.blob();
+          })
+          .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '${dnNumber}.pdf';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+          })
+          .catch(err => alert(err.message));
+        }
+      </script>
     </head>
     <body>
+      <div class="no-print" style="max-width: 800px; margin: 0 auto 16px auto; display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 12px 20px; border-radius: 10px; border: 1px solid #cbd5e1; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+          <span>📄 <strong>Inbound Delivery Note</strong> (${dnNumber})</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button onclick="window.print()" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+            🖨️ Print Manifest
+          </button>
+          <button onclick="downloadPdf()" style="padding: 8px 18px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+            📥 Download PDF
+          </button>
+        </div>
+      </div>
       <div class="doc-card">
         <div class="header">
           <div>
