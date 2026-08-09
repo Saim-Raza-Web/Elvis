@@ -71,11 +71,15 @@ export function Incidents() {
             {incidents.map((inc, i) => (
               <tr key={inc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
                 <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{inc.incidentId}</td>
-                <td className="px-4 py-3 font-semibold text-destructive">{inc.type}</td>
-                <td className="px-4 py-3" style={{ fontFamily: "JetBrains Mono, monospace" }}>{inc.sku || "—"}</td>
+                <td className="px-4 py-3 font-semibold text-destructive">{inc.type || inc.module || "Discrepancy"}</td>
+                <td className="px-4 py-3" style={{ fontFamily: "JetBrains Mono, monospace" }}>{inc.sku || inc.expectedSKU || inc.scannedBarcode || "—"}</td>
                 <td className="px-4 py-3">
-                  <div className="text-xs truncate max-w-xs">{inc.description}</div>
-                  <div className="text-[10px] text-muted-foreground">Reported by: {inc.reported_by}</div>
+                  <div className="text-xs max-w-sm">{inc.description || inc.reason || (inc.scannedBarcode ? `Unexpected scan: ${inc.scannedBarcode}` : "Incident Event")}</div>
+                  <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span>Reported by: <strong>{inc.reported_by || inc.operator || inc.user || "System"}</strong></span>
+                    {inc.supplier && <span>· Supplier: <strong>{inc.supplier}</strong></span>}
+                    {inc.owner && <span>· Owner: <strong className="text-primary">{inc.owner}</strong></span>}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-center"><StatusBadge status={inc.status} /></td>
                 <td className="px-4 py-3 text-right">

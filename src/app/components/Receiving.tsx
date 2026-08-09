@@ -271,6 +271,7 @@ export function Receiving() {
     setEditTarget(asn);
     setForm({
       supplier: asn.supplier || "",
+      owner: asn.owner || "",
       poNumber: asn.poNumber || asn.po || "",
       origin: asn.origin || "",
       carrier: asn.carrier || "DHL",

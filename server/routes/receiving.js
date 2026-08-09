@@ -734,7 +734,16 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
 
-    const existing = await ASN.findOne({ _id: req.params.id, company: req.user.company, isDeleted: { $ne: true } });
+    const isObjId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const existing = await ASN.findOne({
+      $or: [
+        ...(isObjId ? [{ _id: req.params.id }] : []),
+        { asnId: req.params.id },
+        { asnNumber: req.params.id }
+      ],
+      company: req.user.company,
+      isDeleted: { $ne: true }
+    });
     if (!existing) return res.status(404).json({ message: 'ASN not found' });
 
     // Explicit Version / Optimistic Concurrency Conflict Check
