@@ -141,7 +141,7 @@ export function PutawayQueue() {
     setExecutedQty(task.qty || 1);
     setLocationError(null);
     setSkuError(null);
-    setSelectedBin(task.destinationBin || task.toLocation || "");
+    setSelectedBin(""); // MUST START COMPLETELY EMPTY!
     setExecuteModalOpen(true);
     loadLocations();
   };
@@ -154,24 +154,42 @@ export function PutawayQueue() {
     setSkuError(null);
 
     const proposedLocation = (selectedTask.destinationBin || selectedTask.toLocation || "").trim();
-    const targetBin = (scannedBinBarcode.trim() || selectedBin.trim() || proposedLocation).trim();
+    const enteredBin = (scannedBinBarcode || selectedBin || "").trim();
 
-    // Step 1 Validation: Shelf / Bin Barcode Check
-    if (scannedBinBarcode.trim() && scannedBinBarcode.trim() !== proposedLocation) {
-      const errMsg = `Location Verification Failed: Scanned location '${scannedBinBarcode.trim()}' does not match expected proposed location '${proposedLocation}'.`;
+    // Step 1 Validation: Shelf / Bin Barcode Check MUST be entered and match proposed location
+    if (!enteredBin) {
+      const errMsg = `Step 1 Security Failure: Scan shelf/bin barcode to proceed. Proposed location is '${proposedLocation}'.`;
       setLocationError(errMsg);
       toast.error(errMsg);
       return;
     }
 
-    if (!targetBin) {
-      toast.error("Please scan or select a destination bin.");
+    if (enteredBin.toUpperCase() !== proposedLocation.toUpperCase()) {
+      const errMsg = `Wrong location. Scanned: ${enteredBin}. Expected: ${proposedLocation}.`;
+      setLocationError(errMsg);
+      toast.error(errMsg);
       return;
     }
 
-    // Step 2 Validation: Product SKU Barcode Check
-    if (scannedSkuBarcode.trim() && scannedSkuBarcode.trim() !== selectedTask.sku.trim()) {
-      const errMsg = `SKU Verification Failed: Scanned SKU barcode '${scannedSkuBarcode.trim()}' does not match expected SKU '${selectedTask.sku}'.`;
+    // Step 2 Validation: Product SKU Barcode Check MUST be entered and match expected SKU
+    const enteredSkuBarcode = scannedSkuBarcode.trim();
+    if (!enteredSkuBarcode) {
+      const errMsg = `Step 2 Security Failure: Scan product barcode / SKU to proceed.`;
+      setSkuError(errMsg);
+      toast.error(errMsg);
+      return;
+    }
+
+    let resolvedSku = enteredSkuBarcode.toUpperCase();
+    try {
+      const resolveRes = await inventoryService.resolveBarcode(enteredSkuBarcode).catch(() => null);
+      if (resolveRes && resolveRes.found) {
+        resolvedSku = resolveRes.sku.toUpperCase();
+      }
+    } catch (_) {}
+
+    if (resolvedSku !== selectedTask.sku.toUpperCase()) {
+      const errMsg = `Wrong product. Scanned: ${enteredSkuBarcode}. Expected: ${selectedTask.sku}.`;
       setSkuError(errMsg);
       toast.error(errMsg);
       return;
@@ -192,9 +210,9 @@ export function PutawayQueue() {
       setIsSubmitting(true);
       const res = await putawayService.complete(selectedTask._id, {
         scannedTaskBarcode: scannedTaskBarcode.trim() || undefined,
-        scannedBinBarcode: scannedBinBarcode.trim() || undefined,
-        scannedSkuBarcode: scannedSkuBarcode.trim() || undefined,
-        destinationBin: targetBin,
+        scannedBinBarcode: enteredBin,
+        scannedSkuBarcode: enteredSkuBarcode,
+        destinationBin: enteredBin,
         executedQty: executedQty,
         __v: selectedTask.__v
       });
@@ -320,10 +338,70 @@ export function PutawayQueue() {
             </p>
           </div>
         ) : (
-          <div className="border border-border rounded-xl overflow-x-auto bg-card text-xs">
-            <table className="w-full text-left border-collapse min-w-[980px]">
-              <thead>
-                <tr className="bg-secondary/60 border-b border-border font-semibold text-muted-foreground">
+          <>
+            {/* Mobile View (<768px): Card Layout with visible Execute button without horizontal scrolling */}
+            <div className="space-y-3 md:hidden">
+              {pagedTasks.map(task => (
+                <div key={`mob-${task._id}`} className="bg-card border border-border rounded-xl p-3.5 space-y-2.5 text-xs shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-primary text-sm cursor-pointer" onClick={() => setSelectedTask(task)}>{task.taskId}</span>
+                    <StatusBadge status={task.status} />
+                  </div>
+                  <div className="flex justify-between items-center bg-secondary/30 p-2 rounded-lg border border-border/50">
+                    <div>
+                      <div className="font-bold text-foreground">{task.sku}</div>
+                      <div className="text-[11px] text-muted-foreground truncate max-w-[180px]">{task.productName}</div>
+                    </div>
+                    <div className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      {task.qty.toLocaleString()} units
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-muted-foreground block">Destination Bin:</span>
+                      <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono inline-block mt-0.5">
+                        {task.toLocation}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block">3PL Owner:</span>
+                      <span className="font-bold text-primary truncate block mt-0.5">{task.owner || "Default Owner"}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                    {task.status !== 'completed' && task.status !== 'cancelled' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedTask(task); setAssignOperatorEmail(task.assignedTo || ""); setAssignModalOpen(true); }}
+                          className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-xs font-semibold hover:bg-secondary/80 flex items-center gap-1"
+                        >
+                          <UserPlus className="size-3.5" /> {t.putaway.assign}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openExecuteModal(task)}
+                          className="px-3.5 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90 flex items-center gap-1"
+                        >
+                          <Scan className="size-3.5" /> {t.putaway.execute}
+                        </button>
+                      </>
+                    )}
+                    {task.status === 'completed' && (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                        <CheckCircle2 className="size-4" /> {t.putaway.done}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop View (>=768px): Table Layout */}
+            <div className="hidden md:block border border-border rounded-xl overflow-x-auto bg-card text-xs">
+              <table className="w-full text-left border-collapse min-w-[980px]">
+                <thead>
+                  <tr className="bg-secondary/60 border-b border-border font-semibold text-muted-foreground">
                   <th className="p-3 whitespace-nowrap">{t.putaway.taskId}</th>
                   <th className="p-3 whitespace-nowrap">{t.putaway.asnId} / {t.putaway.qcId}</th>
                   <th className="p-3 whitespace-nowrap">Owner (3PL)</th>
@@ -410,6 +488,7 @@ export function PutawayQueue() {
               </tbody>
             </table>
           </div>
+        </>
         )}
         <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       </div>

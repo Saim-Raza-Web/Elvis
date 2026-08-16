@@ -429,28 +429,71 @@ export function Receiving() {
 
   const [showCameraScanner, setShowCameraScanner] = useState(false);
 
-  // Barcode Scan Handler (Strict Non-ASN Barcode Rejection & Permanent Incident Creation)
+  // Barcode Scan Handler (Unified Barcode Resolver & Incident Creation)
   const handleBarcodeScanSubmit = async (scannedVal?: string) => {
     const term = (scannedVal !== undefined ? scannedVal : scannedBarcode).trim().toUpperCase();
     if (!term) return;
 
-    const matchIdx = receiveLines.findIndex(l => l.sku.toUpperCase() === term || l.name.toUpperCase().includes(term));
-    if (matchIdx !== -1) {
-      const line = receiveLines[matchIdx];
-      setHighlightedSku(line.sku);
-      toast.success(`Scanned valid ASN SKU: ${line.sku} (${line.name}). Row highlighted!`);
-      const inputEl = document.getElementById(`receive-qty-input-${matchIdx}`);
-      if (inputEl) inputEl.focus();
-    } else {
-      setHighlightedSku(null);
-      toast.error(`REJECTED: Barcode/SKU '${term}' does not belong to this ASN.`);
-      if (receiveTarget) {
-        try {
+    try {
+      // 1. Resolve barcode via Unified Barcode Resolver
+      const resolveRes = await inventoryService.resolveBarcode(term).catch(() => null);
+
+      if (!resolveRes || !resolveRes.found) {
+        // Scenario 2: Barcode does not exist in catalog
+        setHighlightedSku(null);
+        toast.error(`REJECTED: Product not found / barcode '${term}' not in catalog.`);
+        if (receiveTarget) {
           const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
           await incidentsService.create({
             incidentId: incId,
             type: 'Discrepancy',
-            sku: term,
+            sku: 'UNKNOWN',
+            scannedBarcode: term,
+            expectedSKU: 'N/A',
+            asnReference: receiveTarget.poNumber || receiveTarget.po || receiveTarget.asnId,
+            asnId: receiveTarget.asnId || receiveTarget.asnNumber,
+            supplier: receiveTarget.supplier,
+            owner: receiveTarget.owner || 'Default Owner',
+            operator: 'admin@demologistics.io',
+            user: 'admin@demologistics.io',
+            reported_by: 'admin@demologistics.io',
+            reason: 'Product not found / barcode not in catalog',
+            module: 'Receiving',
+            status: 'open',
+            description: `Barcode '${term}' not found in product catalog during receiving for ASN ${receiveTarget.asnId || receiveTarget.asnNumber}.`
+          }).catch(console.error);
+          reload();
+        }
+        return;
+      }
+
+      const targetSku = resolveRes.sku.toUpperCase();
+      const matchIdx = receiveLines.findIndex(l => l.sku.toUpperCase() === targetSku || l.name.toUpperCase().includes(term));
+
+      if (matchIdx !== -1) {
+        const line = receiveLines[matchIdx];
+        setHighlightedSku(line.sku);
+
+        if (resolveRes.matchType === 'case') {
+          const caseQty = resolveRes.multiplier || 1;
+          updateReceiveLine(matchIdx, "qtyToReceive", caseQty);
+          toast.success(`Case Barcode Scanned! Set ${line.sku} receive quantity to ${caseQty} units (multiplier: ${caseQty}).`);
+        } else {
+          toast.success(`Scanned valid ASN SKU: ${line.sku} (${line.name}). Row highlighted!`);
+        }
+
+        const inputEl = document.getElementById(`receive-qty-input-${matchIdx}`);
+        if (inputEl) inputEl.focus();
+      } else {
+        // Scenario 1: Known product, but NOT in current ASN
+        setHighlightedSku(null);
+        toast.error(`REJECTED: Product '${resolveRes.productName}' (${targetSku}) does not belong to ASN ${receiveTarget?.asnId}.`);
+        if (receiveTarget) {
+          const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          await incidentsService.create({
+            incidentId: incId,
+            type: 'Discrepancy',
+            sku: targetSku,
             scannedBarcode: term,
             expectedSKU: 'N/A',
             asnReference: receiveTarget.poNumber || receiveTarget.po || receiveTarget.asnId,
@@ -463,13 +506,13 @@ export function Receiving() {
             reason: 'Unexpected SKU',
             module: 'Receiving',
             status: 'open',
-            description: `Unexpected barcode scan '${term}' on ASN ${receiveTarget.asnId || receiveTarget.asnNumber}. Supplier: ${receiveTarget.supplier}, Owner: ${receiveTarget.owner || 'Default Owner'}`
-          });
+            description: `Unexpected barcode scan '${term}' (Product: ${resolveRes.productName}) on ASN ${receiveTarget.asnId || receiveTarget.asnNumber}. Supplier: ${receiveTarget.supplier}, Owner: ${receiveTarget.owner || 'Default Owner'}`
+          }).catch(console.error);
           reload();
-        } catch (e) {
-          console.error("Failed to create incident on rejection:", e);
         }
       }
+    } catch (err: any) {
+      toast.error(`Scan error: ${err.message || "Failed to resolve barcode"}`);
     }
   };
 
@@ -713,7 +756,7 @@ export function Receiving() {
                         <StatusBadge status={asn.status} />
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        Supplier: <strong className="text-foreground">{asn.supplier}</strong> · Owner: <strong className="text-primary font-semibold">{asn.owner || 'Default Owner'}</strong> · PO: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>{displayPo}</span>
+                        Supplier: <strong className="text-foreground">{asn.supplier}</strong> · Owner: {asn.owner && asn.owner.trim() ? <strong className="text-primary font-semibold">{asn.owner}</strong> : <span className="bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold px-2 py-0.5 rounded text-[10px]">⚠️ Review Required (Legacy - No Owner)</span>} · PO: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>{displayPo}</span>
                       </div>
                     </div>
                   </div>
@@ -1009,12 +1052,17 @@ export function Receiving() {
                   placeholder={tc?.eGAcmeIndustrialCorp || "e.g. Acme Industrial Corp"}
                 />
               </Field>
-              <Field label="Inventory Owner * (3PL)" required>
-                <Input
+              <Field label="Inventory Owner * (3PL)" required hint="Mandatory for 3PL multi-tenant stock isolation">
+                <Select
                   value={form.owner}
                   onChange={(e) => updateFormHeader("owner", e.target.value)}
-                  placeholder="e.g. Apple Distribution"
-                />
+                >
+                  <option value="">-- Select Registered Owner --</option>
+                  <option value="Apple Distribution 3PL">Apple Distribution 3PL</option>
+                  <option value="Acme Logistics 3PL">Acme Logistics 3PL</option>
+                  <option value="Global Retail Corp">Global Retail Corp</option>
+                  <option value="Internal Stock">Internal Stock</option>
+                </Select>
               </Field>
             </Row>
             <Row>

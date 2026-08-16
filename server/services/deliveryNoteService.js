@@ -370,3 +370,72 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
 
   return docRecord;
 }
+
+/** Helper to render a binary PDF Buffer in memory using PDFKit for Outbound B2B Pick Delivery Notes */
+export async function generatePickDeliveryNotePDFBuffer(pickTask, order, dnNumber, companyId, operator) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const buffers = [];
+      doc.on('data', b => buffers.push(b));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+      const totalOrdered = pickTask.items.reduce((s, i) => s + (Number(i.orderedQty) || 0), 0);
+      const totalPicked = pickTask.items.reduce((s, i) => s + (Number(i.pickedQty) || 0), 0);
+      const totalShortfall = pickTask.items.reduce((s, i) => s + (Number(i.shortfallQty) || 0), 0);
+      const isPartial = totalShortfall > 0 || pickTask.status === 'partially_picked';
+
+      // Header Banner
+      doc.fontSize(22).font('Helvetica-Bold').fillColor('#0f172a').text('OUTBOUND B2B DELIVERY NOTE', { align: 'left' });
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0284c7').text('OFFICIAL B2B PICKING & SHIPPING MANIFEST', { align: 'left' });
+      doc.moveDown(0.5);
+
+      // Metadata Block
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155');
+      doc.text(`Document No: ${dnNumber}`);
+      doc.font('Helvetica');
+      doc.text(`Order Number: ${pickTask.orderNumber || pickTask.orderId}`);
+      doc.text(`Pick Task ID: ${pickTask.taskId}`);
+      doc.text(`Customer / Buyer: ${pickTask.customer || order?.customer || 'B2B Client'}`);
+      doc.text(`3PL Owner: ${pickTask.owner || 'Default Owner'}`);
+      doc.text(`Warehouse: ${pickTask.warehouse || 'MIA'}`);
+      doc.text(`Picking Operator: ${operator}`);
+      doc.text(`Date & Time: ${new Date().toLocaleString()}`);
+      doc.moveDown(0.5);
+
+      // Status Pill
+      doc.fontSize(12).font('Helvetica-Bold').fillColor(isPartial ? '#d97706' : '#15803d');
+      doc.text(`STATUS: ${isPartial ? 'PARTIALLY PICKED WITH SHORTFALL' : 'COMPLETED - READY FOR SHIPPING'}`);
+      doc.moveDown();
+
+      // Product Summary Header
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0f172a').text('Picked Product Line Items Summary:');
+      doc.moveDown(0.3);
+
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#1e293b');
+      doc.text('#   SKU           Description                    Ordered   Picked   Shortfall   Bin         Status');
+      doc.text('---------------------------------------------------------------------------------------------------');
+
+      doc.font('Helvetica').fillColor('#334155');
+      pickTask.items.forEach((item, idx) => {
+        const skuStr = (item.sku || '').padEnd(14, ' ');
+        const nameStr = (item.productName || '').slice(0, 24).padEnd(26, ' ');
+        const ordStr = String(item.orderedQty || 0).padEnd(9, ' ');
+        const pickStr = String(item.pickedQty || 0).padEnd(9, ' ');
+        const shortStr = String(item.shortfallQty || 0).padEnd(11, ' ');
+        const binStr = (item.sourceLocation || 'STAGING-A').padEnd(11, ' ');
+        const statusStr = item.pickedQty >= item.orderedQty ? 'PICKED' : 'SHORTFALL';
+
+        doc.text(`${(idx + 1).toString().padEnd(3, ' ')}${skuStr}${nameStr}${ordStr}${pickStr}${shortStr}${binStr}${statusStr}`);
+      });
+
+      doc.moveDown();
+      doc.font('Helvetica-Bold').fillColor('#0f172a');
+      doc.text(`TOTALS: Ordered = ${totalOrdered} units | Picked = ${totalPicked} units | Shortfall = ${totalShortfall} units`);
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}

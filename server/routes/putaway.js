@@ -300,13 +300,21 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     }
 
     const proposedLocation = (task.destinationBin || task.toLocation || '').trim();
-    const targetBinCode = (scannedBinBarcode || destinationBin || proposedLocation).trim();
+    const providedBin = (scannedBinBarcode || destinationBin || '').trim();
 
-    if (scannedBinBarcode && proposedLocation && scannedBinBarcode.trim() !== proposedLocation && !req.body.allowMisbinOverride) {
+    if (!providedBin) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json({ message: `Location Verification Failed: Scanned shelf/bin barcode '${scannedBinBarcode.trim()}' does not match proposed location '${proposedLocation}'. Incorrect location rejected.` });
+      return res.status(400).json({ message: `Step 1 Security Failure: Scan shelf/bin barcode is required. Proposed location is '${proposedLocation}'.` });
     }
+
+    if (providedBin.toUpperCase() !== proposedLocation.toUpperCase() && !req.body.allowMisbinOverride) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Wrong location. Scanned: ${providedBin}. Expected: ${proposedLocation}.` });
+    }
+
+    const targetBinCode = providedBin;
 
     const warehouse = task.warehouse || 'MIA';
     const taskOwner = task.owner || 'Default Owner';

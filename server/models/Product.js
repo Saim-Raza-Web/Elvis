@@ -19,8 +19,14 @@ const productSchema = new mongoose.Schema({
   min_stock: Number,
   max_stock: Number,
   safety_stock: Number,
-  supplier_lead_time_days: Number,
+  unitBarcode: { type: String, trim: true, default: '' },
+  caseBarcode: { type: String, trim: true, default: '' },
+  caseMultiplier: { type: Number, default: 1, min: 1 },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });
+
+productSchema.index({ company: 1, sku: 1 }, { unique: true });
+productSchema.index({ company: 1, unitBarcode: 1 }, { sparse: true });
+productSchema.index({ company: 1, caseBarcode: 1 }, { sparse: true });
 
 export default mongoose.model('Product', productSchema);

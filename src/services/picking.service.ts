@@ -20,6 +20,14 @@ export const pickingService = {
     const response = await api.delete('/picking/' + id);
     return response.data;
   },
+  lookup: async (code: string) => {
+    const response = await api.get('/picking/lookup/' + encodeURIComponent(code));
+    return response.data;
+  },
+  complete: async (id: string, payload: any) => {
+    const response = await api.post(`/picking/${id}/complete`, payload);
+    return response.data;
+  },
   getBatches: async (params = {}) => {
     const response = await api.get('/picking/batches', { params: { ...params, all: true } });
     return unwrapList(response.data);

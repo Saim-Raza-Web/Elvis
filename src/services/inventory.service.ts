@@ -19,5 +19,9 @@ export const inventoryService = {
   delete: async (id) => {
     const response = await api.delete('/inventory/' + id);
     return response.data;
+  },
+  resolveBarcode: async (barcode: string) => {
+    const response = await api.get('/inventory/resolve-barcode/' + encodeURIComponent(barcode));
+    return response.data;
   }
 };

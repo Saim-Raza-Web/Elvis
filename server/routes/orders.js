@@ -191,21 +191,79 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/** Helper: Idempotent PickTask Generation for Confirmed/Released Orders */
+export async function ensurePickTaskForOrder(order, userCompany) {
+  const companyId = userCompany || order.company;
+  if (!order || !order.orderId) return null;
+
+  // 1. Idempotency Check: Prevent duplicate PickTasks for the same order!
+  const existingTask = await PickTask.findOne({ company: companyId, orderId: order.orderId });
+  if (existingTask) {
+    return existingTask;
+  }
+
+  // 2. Derive PickTask lines from Order product_lines
+  const lines = (order.product_lines || []).map(line => ({
+    sku: line.sku,
+    productName: line.product_name || line.sku,
+    orderedQty: Number(line.qty) || 1,
+    pickedQty: 0,
+    shortfallQty: 0,
+    sourceLocation: 'STAGING-A',
+    status: 'pending'
+  }));
+
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'pick_task', company: companyId },
+    { $inc: { seq: 1 } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  const taskId = `PICK-2026-${String(counter.seq).padStart(6, '0')}`;
+
+  const taskOwner = (order.company_name || order.customer || 'Default Owner').trim();
+  const totalQty = lines.reduce((sum, l) => sum + l.orderedQty, 0);
+
+  const newTask = await PickTask.create({
+    taskId,
+    orderId: order.orderId,
+    orderNumber: order.orderId,
+    orderType: order.order_type || 'B2B',
+    owner: taskOwner,
+    customer: order.customer || order.company_name || 'Client',
+    warehouse: order.warehouse || 'MIA',
+    priority: order.order_type === 'B2B' ? 'high' : 'normal',
+    status: 'pending',
+    linesCount: lines.length,
+    totalOrderedQty: totalQty,
+    totalPickedQty: 0,
+    totalShortfallQty: 0,
+    items: lines,
+    company: companyId
+  });
+
+  return newTask;
+}
+
 // STATUS UPDATE (PATCH) — lightweight status-only change
 router.patch('/:id/status', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const { status } = req.body;
-    const allowed = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+    const allowed = ['pending', 'processing', 'confirmed', 'shipped', 'delivered', 'cancelled'];
     if (!status || !allowed.includes(status)) {
       return res.status(400).json({ message: `Invalid status. Must be one of: ${allowed.join(', ')}` });
     }
     const item = await Order.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company },
-      { status },
+      { status: status === 'confirmed' ? 'processing' : status },
       { new: true }
     );
     if (!item) return res.status(404).json({ message: 'Order not found' });
+
+    // Auto-generate PickTask on Order Confirmation/Processing
+    if (status === 'processing' || status === 'confirmed') {
+      await ensurePickTaskForOrder(item, req.user.company);
+    }
 
     await logActivity(req, 'STATUS_CHANGE', 'Orders', `Order ${item.orderId} status changed to ${status}`);
 
@@ -221,37 +279,27 @@ router.post('/:id/release', requireOpsRole, async (req, res, next) => {
     const order = await Order.findOne({ _id: req.params.id, company: req.user.company });
     if (!order) return res.status(404).json({ message: 'Order not found' });
 
-    if (order.status !== 'pending') {
+    if (order.status !== 'pending' && order.status !== 'processing') {
       return res.status(400).json({ message: `Cannot release order with status "${order.status}". Only pending orders can be released.` });
     }
 
     order.status = 'processing';
     await order.save();
 
-    // Generate PickTask
-    const pickTaskId = 'PCK-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    await PickTask.create({
-      taskId: pickTaskId,
-      order: order.orderId,
-      priority: order.order_type === 'B2B' ? 'high' : 'normal',
-      status: 'ready',
-      items: order.items || 1,
-      picked: 0,
-      zone: 'Zone-A',
-      company: req.user.company,
-    });
+    // Idempotent PickTask Generation
+    const pickTask = await ensurePickTaskForOrder(order, req.user.company);
 
     // Notification
     Notification.create({
       company: req.user.company,
       kind: 'info',
       title: 'Order Released to Fulfillment',
-      body: `Order ${order.orderId} has been released to picking (${pickTaskId})`,
+      body: `Order ${order.orderId} has been released to picking (${pickTask.taskId})`,
     }).catch(() => {});
 
-    await logActivity(req, 'RELEASE', 'Orders', `Released order ${order.orderId} to fulfillment — pick task ${pickTaskId} created`);
+    await logActivity(req, 'RELEASE', 'Orders', `Released order ${order.orderId} to fulfillment — pick task ${pickTask.taskId} ready`);
 
-    res.json(order);
+    res.json({ order, pickTask });
   } catch (err) { next(err); }
 });
 

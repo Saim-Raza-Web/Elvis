@@ -1,149 +1,355 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { protect, requireRole } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
-import Model from '../models/PickTask.js';
+import PickTask from '../models/PickTask.js';
 import PickBatch from '../models/PickBatch.js';
 import Order from '../models/Order.js';
-import PackTask from '../models/PackTask.js';
+import InventoryBalance from '../models/InventoryBalance.js';
+import InventoryTransaction from '../models/InventoryTransaction.js';
+import Document from '../models/Document.js';
+import Counter from '../models/Counter.js';
+import ActivityLog from '../models/ActivityLog.js';
+import Notification from '../models/Notification.js';
+import { generatePickDeliveryNotePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();
-
 router.use(protect); // Secure all routes by default
 
-const requireOpsRole = requireRole('admin', 'manager');
+const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
 
-// GET all batches
+// ── GET Quick Scan Lookup (Order Barcode or Pick Task Barcode) ──
+router.get('/lookup/:code', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const code = (req.params.code || '').trim();
+    if (!code) return res.status(400).json({ message: 'Barcode / ID required' });
+
+    // Look up by taskId or orderId
+    const task = await PickTask.findOne({
+      company: req.user.company,
+      $or: [
+        { taskId: code },
+        { taskId: code.toUpperCase() },
+        { orderId: code },
+        { orderNumber: code }
+      ]
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: `No Pick Task found matching barcode '${code}'.` });
+    }
+
+    res.json(task);
+  } catch (err) { next(err); }
+});
+
+// ── GET all Batches ──
 router.get('/batches', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const result = await paginateQuery(PickBatch, { company: req.user.company }, req);
+    const filter = { company: req.user.company };
+    if (req.query.owner) filter.owner = req.query.owner;
+    if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
+
+    const result = await paginateQuery(PickBatch, filter, req);
     res.json(result);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-// CREATE a batch
+// ── CREATE a Pick Batch (STRICT OWNER ISOLATION ENFORCED) ──
 router.post('/batches', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const data = { ...req.body, company: req.user.company };
-    const batchId = 'BCH-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    data.batchId = batchId;
-    const item = await PickBatch.create(data);
-    
-    // Also update all passed picktasks or orders to in_progress/batched if needed
-    // Assuming data.orders contains orderIds
-    // This is optional for now; we just create the batch record.
+    const { pickTaskIds, priority } = req.body;
 
-    res.status(201).json(item);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// UPDATE a batch (start, complete)
-router.put('/batches/:id', requireOpsRole, async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const item = await PickBatch.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      req.body, 
-      { new: true }
-    );
-    if (!item) return res.status(404).json({ message: 'Not found' });
-    res.json(item);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET all
-router.get('/', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const result = await paginateQuery(Model, { company: req.user.company }, req);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET by ID
-router.get('/:id', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const item = await Model.findOne({ _id: req.params.id, company: req.user.company });
-    if (!item) return res.status(404).json({ message: 'Not found' });
-    res.json(item);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// CREATE
-router.post('/', requireOpsRole, async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const data = { ...req.body, company: req.user.company };
-    const item = await Model.create(data);
-    res.status(201).json(item);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// UPDATE
-router.put('/:id', requireOpsRole, async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-
-    const existing = await Model.findOne({ _id: req.params.id, company: req.user.company });
-    if (!existing) return res.status(404).json({ message: 'Not found' });
-
-    const wasCompleted = existing.status === 'completed';
-    const isCompleted = req.body.status === 'completed';
-
-    if (existing.status !== 'in_progress' && req.body.status === 'in_progress') {
-      req.body.started = new Date();
-    }
-    if (!wasCompleted && isCompleted) {
-      req.body.completedAt = new Date();
-      // Simulate random errors if not explicitly sent (for realistic metrics demo)
-      if (req.body.errors === undefined) {
-        req.body.errors = Math.random() > 0.85 ? Math.floor(Math.random() * 3) + 1 : 0;
-      }
+    if (!Array.isArray(pickTaskIds) || pickTaskIds.length === 0) {
+      return res.status(400).json({ message: 'Please select at least one pending Pick Task to create a batch.' });
     }
 
-    const item = await Model.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      req.body, 
-      { new: true }
-    );
+    const tasks = await PickTask.find({ _id: { $in: pickTaskIds }, company: req.user.company });
+    if (tasks.length === 0) {
+      return res.status(404).json({ message: 'Selected pick tasks not found.' });
+    }
 
-    if (!wasCompleted && isCompleted) {
-      const order = await Order.findOneAndUpdate(
-        { orderId: item.order, company: req.user.company },
-        { status: 'picked' },
-        { new: true }
-      );
-
-      const packTaskId = 'PAK-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-      await PackTask.create({
-        packId: packTaskId,
-        order: item.order,
-        customer: order ? order.customer : 'Unknown',
-        items: item.items,
-        picked: item.picked,
-        station: 'Station-1',
-        priority: item.priority || 'normal',
-        status: 'ready',
-        company: req.user.company
+    // STRICT OWNER ISOLATION: Ensure ALL tasks belong to the EXACT SAME Owner!
+    const owners = Array.from(new Set(tasks.map(t => (t.owner || 'Default Owner').trim())));
+    if (owners.length > 1) {
+      return res.status(400).json({
+        message: `Owner Isolation Error: Cannot mix pick tasks from different Owners (${owners.map(o => `'${o}'`).join(', ')}) in a single Pick Batch. Batches must be single-owner.`
       });
     }
 
+    const batchOwner = owners[0];
+    const counter = await Counter.findOneAndUpdate(
+      { _id: 'pick_batch', company: req.user.company },
+      { $inc: { seq: 1 } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    const batchId = `BCH-2026-${String(counter.seq).padStart(6, '0')}`;
+
+    // Group lines by sourceLocation for efficient warehouse picking movement
+    const lineMap = new Map();
+    let totalItems = 0;
+
+    tasks.forEach(task => {
+      (task.items || []).forEach(item => {
+        const loc = item.sourceLocation || 'STAGING-A';
+        const key = `${loc}_${item.sku}`;
+        totalItems += item.orderedQty;
+
+        if (!lineMap.has(key)) {
+          lineMap.set(key, {
+            sourceLocation: loc,
+            sku: item.sku,
+            productName: item.productName || item.sku,
+            totalQtyToPick: 0,
+            pickedQty: 0,
+            status: 'pending',
+            tasks: []
+          });
+        }
+        const grp = lineMap.get(key);
+        grp.totalQtyToPick += item.orderedQty;
+        grp.tasks.push({ taskId: task.taskId, qty: item.orderedQty });
+      });
+    });
+
+    const groupedLines = Array.from(lineMap.values());
+
+    const batch = await PickBatch.create({
+      batchId,
+      owner: batchOwner,
+      pickTaskIds: tasks.map(t => t.taskId),
+      orders: tasks.map(t => t.orderId),
+      priority: priority || 'normal',
+      status: 'pending',
+      assignee: req.user.email || req.user.name || '',
+      total_items: totalItems,
+      picked_items: 0,
+      groupedLines,
+      company: req.user.company
+    });
+
+    // Update tasks status to in_progress
+    await PickTask.updateMany(
+      { _id: { $in: pickTaskIds }, company: req.user.company },
+      { status: 'in_progress', startedAt: new Date() }
+    );
+
+    res.status(201).json(batch);
+  } catch (err) { next(err); }
+});
+
+// ── GET all Pick Tasks (With Owner & Status Filters + Search) ──
+router.get('/', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const filter = { company: req.user.company };
+    if (req.query.owner && req.query.owner !== 'all') filter.owner = req.query.owner;
+    if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
+    if (req.query.orderType) filter.orderType = req.query.orderType;
+
+    const result = await paginateQuery(PickTask, filter, req);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// ── GET Pick Task by ID ──
+router.get('/:id', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const item = await PickTask.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { taskId: req.params.id }]
+    });
+    if (!item) return res.status(404).json({ message: 'Pick Task not found' });
     res.json(item);
+  } catch (err) { next(err); }
+});
+
+// ── EXECUTE & COMPLETE PICK TASK (With Owner Isolation & PDF Delivery Note) ──
+router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const task = await PickTask.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { taskId: req.params.id }]
+    }).session(session);
+
+    if (!task) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Pick Task not found' });
+    }
+
+    if (task.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Pick Task ${task.taskId} is already completed.` });
+    }
+
+    const { lineUpdates } = req.body; // Array of { sku, pickedQty, sourceLocation }
+    const operator = req.user.email || req.user.name || 'system';
+    const warehouse = task.warehouse || 'MIA';
+    const taskOwner = task.owner || 'Default Owner';
+
+    let totalPicked = 0;
+    let totalShortfall = 0;
+    let hasShortfall = false;
+
+    // Process each line in task
+    for (const item of task.items) {
+      const update = Array.isArray(lineUpdates) ? lineUpdates.find(u => u.sku === item.sku) : null;
+      const actualPicked = update ? Math.min(Number(update.pickedQty) || 0, item.orderedQty) : item.orderedQty;
+      const shortfall = item.orderedQty - actualPicked;
+
+      item.pickedQty = actualPicked;
+      item.shortfallQty = shortfall;
+      item.status = actualPicked >= item.orderedQty ? 'picked' : shortfall > 0 ? 'shortfall' : 'pending';
+
+      totalPicked += actualPicked;
+      totalShortfall += shortfall;
+      if (shortfall > 0) hasShortfall = true;
+
+      const binCode = update?.sourceLocation || item.sourceLocation || 'STAGING-A';
+
+      // OWNER ISOLATION: Deduct stock ONLY from matching (company, warehouse, sku, owner, bin)
+      if (actualPicked > 0) {
+        const bal = await InventoryBalance.findOne({
+          company: req.user.company,
+          warehouse,
+          sku: item.sku,
+          owner: taskOwner,
+          bin: binCode
+        }).session(session);
+
+        if (!bal || (bal.qtyAvailable || 0) < actualPicked) {
+          const avail = bal ? bal.qtyAvailable || 0 : 0;
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            message: `Owner Stock Isolation Failure: Insufficient stock for SKU '${item.sku}' under Owner '${taskOwner}' at bin '${binCode}'. Available: ${avail}, Pick requested: ${actualPicked}.`
+          });
+        }
+
+        // Deduct picked stock from Available Inventory
+        await InventoryBalance.findOneAndUpdate(
+          { _id: bal._id },
+          { $inc: { qtyAvailable: -actualPicked } },
+          { session }
+        );
+
+        // Record Inventory Transaction
+        const txnId = 'TXN-PICK-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+        await InventoryTransaction.create([{
+          transactionId: txnId,
+          type: 'PICK_EXECUTE',
+          sku: item.sku,
+          owner: taskOwner,
+          warehouse,
+          qty: actualPicked,
+          bin: binCode,
+          referenceId: task.taskId,
+          user: operator,
+          timestamp: new Date(),
+          company: req.user.company
+        }], { session });
+      }
+    }
+
+    // Update Task Status
+    task.totalPickedQty = totalPicked;
+    task.totalShortfallQty = totalShortfall;
+    task.status = hasShortfall ? 'partially_picked' : 'completed';
+    task.completedAt = new Date();
+    task.completedBy = operator;
+
+    // Generate Outbound Delivery Note Document & PDF
+    const order = await Order.findOne({ orderId: task.orderId, company: req.user.company }).session(session);
+
+    const dnCounter = await Counter.findOneAndUpdate(
+      { _id: 'delivery_note', company: req.user.company },
+      { $inc: { seq: 1 } },
+      { upsert: true, new: true, setDefaultsOnInsert: true, session }
+    );
+    const dnNumber = `DN-2026-${String(dnCounter.seq).padStart(6, '0')}`;
+
+    const pdfBuffer = await generatePickDeliveryNotePDFBuffer(task, order, dnNumber, req.user.company, operator);
+    const pdfBase64 = pdfBuffer.toString('base64');
+    const pdfDataUri = `data:application/pdf;base64,${pdfBase64}`;
+
+    const docRecord = await Document.create([{
+      documentNumber: dnNumber,
+      type: 'OUTBOUND_DELIVERY_NOTE',
+      asnId: task.orderId,
+      poNumber: order?.po_reference || task.orderId,
+      supplier: order?.customer || task.customer,
+      owner: taskOwner,
+      receivingDock: 'OUTBOUND_DOCK',
+      warehouse,
+      totalExpected: task.totalOrderedQty,
+      totalReceived: totalPicked,
+      discrepancyCount: totalShortfall,
+      items: task.items.map(i => ({
+        sku: i.sku,
+        name: i.productName,
+        expected_qty: i.orderedQty,
+        received_qty: i.pickedQty,
+        uom: 'pcs',
+        lotNumber: 'DEFAULT-LOT',
+        status: i.pickedQty >= i.orderedQty ? 'PICKED' : 'SHORTFALL'
+      })),
+      pdfDataUri,
+      generatedBy: operator,
+      company: req.user.company
+    }], { session });
+
+    task.deliveryNoteNumber = dnNumber;
+    task.deliveryNoteId = docRecord[0]._id;
+    await task.save({ session });
+
+    // Update Order status to 'Ready for Shipping' (or 'processing' if partial)
+    if (order) {
+      order.status = hasShortfall ? 'processing' : 'shipped';
+      order.delivery_note_number = dnNumber;
+      order.delivery_note_generated_at = new Date();
+      await order.save({ session });
+    }
+
+    // Commit Transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // Activity Log & Notification
+    ActivityLog.create({
+      logId: 'LOG-' + Date.now(),
+      user: operator,
+      role: 'warehouse_staff',
+      action: 'PICK_COMPLETED',
+      module: 'PICKING',
+      detail: `Completed Pick Task ${task.taskId} for Order ${task.orderId}. Delivery Note ${dnNumber} generated. Picked: ${totalPicked}/${task.totalOrderedQty} units.`,
+      company: req.user.company
+    }).catch(() => {});
+
+    res.json({
+      task,
+      deliveryNoteNumber: dnNumber,
+      pdfUrl: `/api/v1/documents/dn/${dnNumber}/pdf`
+    });
+
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     next(err);
   }
 });
@@ -152,12 +358,10 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 router.delete('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });
-    if (!item) return res.status(404).json({ message: 'Not found' });
+    const item = await PickTask.findOneAndDelete({ _id: req.params.id, company: req.user.company });
+    if (!item) return res.status(404).json({ message: 'Pick Task not found' });
     res.json({ message: 'Deleted successfully' });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 export default router;

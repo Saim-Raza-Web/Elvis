@@ -11,7 +11,7 @@ import { inventoryService } from "../../services/inventory.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { exportToCSV } from "../../lib/csvExport";
 
-type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; };
+type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; unitBarcode?: string; caseBarcode?: string; caseMultiplier?: number; };
 
 const categories = ["All", "Widgets", "Hardware", "Electronics", "Industrial", "Accessories", "Packaging"];
 
@@ -21,6 +21,7 @@ const blankProduct = (): Omit<Product, "_id"> => ({
   qty_available: 0, qty_reserved: 0, qty_blocked: 0,
   qty_ecommerce: 0, qty_customer: 0, owner: "internal", price: 0, warehouse: "MIA", status: "ok",
   reorder_point: 0, min_stock: 0, max_stock: 0, safety_stock: 0, supplier_lead_time_days: 7,
+  unitBarcode: "", caseBarcode: "", caseMultiplier: 1,
 });
 
 export function Inventory() {
@@ -326,6 +327,14 @@ export function Inventory() {
               {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
               {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
             </Select></Field>
+          </Row>
+          <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Barcodes & Case Multipliers</div>
+          <Row>
+            <Field label="Unit Barcode / EAN" hint="Scanned as 1 unit"><Input value={form.unitBarcode || ""} onChange={(e) => setForm({ ...form, unitBarcode: e.target.value })} placeholder="e.g. 1234567890123" /></Field>
+            <Field label="Case Barcode" hint="Scanned as Case Qty"><Input value={form.caseBarcode || ""} onChange={(e) => setForm({ ...form, caseBarcode: e.target.value })} placeholder="e.g. 1234567890999" /></Field>
+          </Row>
+          <Row>
+            <Field label="Case Quantity Multiplier" hint="Units per case"><Input type="number" min="1" value={form.caseMultiplier || 1} onChange={(e) => setForm({ ...form, caseMultiplier: Math.max(1, Number(e.target.value)) })} /></Field>
           </Row>
           <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Stock & Replenishment</div>
           <Row>
