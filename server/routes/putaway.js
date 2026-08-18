@@ -241,6 +241,34 @@ router.post('/:id/start', requireOpsRole, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── POST /api/v1/putaway/:id/verify-location — VERIFY STEP 1 LOCATION SCAN ──
+router.post('/:id/verify-location', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { scannedBinBarcode } = req.body;
+    const task = await PutawayTask.findOne({
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { taskId: req.params.id }],
+      company: req.user.company
+    });
+
+    if (!task) return res.status(404).json({ message: 'Putaway task not found' });
+
+    const proposedLocation = (task.destinationBin || task.toLocation || '').trim();
+    const scannedBin = (scannedBinBarcode || '').trim();
+
+    if (!scannedBin) {
+      return res.status(400).json({ message: `Step 1 Security Failure: Scan shelf/bin barcode is required. Expected: ${proposedLocation}.` });
+    }
+
+    if (scannedBin.toUpperCase() !== proposedLocation.toUpperCase()) {
+      return res.status(400).json({ message: `Wrong location. Scanned: ${scannedBin}. Expected: ${proposedLocation}.` });
+    }
+
+    res.json({ success: true, message: `Step 1 Verified: Location '${proposedLocation}' matched.`, taskId: task.taskId, location: proposedLocation });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/v1/putaway/:id/complete — EXECUTE PUTAWAY & ATOMIC INVENTORY TRANSFER ──
 router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
   const session = await mongoose.startSession();
@@ -293,10 +321,34 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: `Task barcode mismatch: Scanned '${scannedTaskBarcode}', Expected '${task.taskId}'.` });
     }
 
-    if (scannedSkuBarcode && scannedSkuBarcode.trim() !== task.sku) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: `SKU barcode mismatch: Scanned '${scannedSkuBarcode}', Expected '${task.sku}'.` });
+    let caseMultiplier = 1;
+    if (scannedSkuBarcode && scannedSkuBarcode.trim()) {
+      const cleanBarcode = scannedSkuBarcode.trim();
+      const resolvedProd = await Product.findOne({
+        company: req.user.company,
+        $or: [
+          { sku: cleanBarcode.toUpperCase() },
+          { unitBarcode: cleanBarcode },
+          { caseBarcode: cleanBarcode },
+          { barcode: cleanBarcode }
+        ]
+      }).session(session);
+
+      if (!resolvedProd) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: `Unknown product barcode '${cleanBarcode}'. Not found in Product Catalogue.` });
+      }
+
+      if (resolvedProd.sku !== task.sku) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: `SKU barcode mismatch: Scanned '${cleanBarcode}' resolves to SKU '${resolvedProd.sku}', Expected '${task.sku}'.` });
+      }
+
+      if (resolvedProd.caseBarcode && resolvedProd.caseBarcode === cleanBarcode) {
+        caseMultiplier = resolvedProd.caseMultiplier || 1;
+      }
     }
 
     const proposedLocation = (task.destinationBin || task.toLocation || '').trim();

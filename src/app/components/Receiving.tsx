@@ -14,6 +14,8 @@ import { inventoryService } from "../../services/inventory.service";
 import { locationsService } from "../../services/locations.service";
 import { incidentsService } from "../../services/incidents.service";
 import { clientsService, type ClientOwner } from "../../services/clients.service";
+import { suppliersService, type Supplier } from "../../services/suppliers.service";
+import { settingsService } from "../../services/settings.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
 
@@ -106,13 +108,14 @@ const blankASN = () => ({
 const asnListService: ListService<ASN> = {
   getAll: async (params) => {
     const data = await receivingService.getAll(params);
-    return data.map((d: any) => ({ ...d, id: d.asnId || d._id }));
+    return Array.isArray(data) ? data.map((d: any) => ({ ...d, id: d.asnId || d._id })) : [];
   },
   getPage: async (params) => {
     const data = await receivingService.getPage(params);
+    const rawList = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
     return {
-      data: data.data.map((d: any) => ({ ...d, id: d.asnId || d._id })),
-      pagination: data.pagination
+      data: rawList.map((d: any) => ({ ...d, id: d.asnId || d._id })),
+      pagination: data?.pagination || { page: 1, limit: 25, total: rawList.length, pages: 1 }
     };
   }
 };
@@ -171,17 +174,66 @@ export function Receiving() {
   );
 
   const [clients, setClients] = useState<ClientOwner[]>([]);
+  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
+  const [blindReceiving, setBlindReceiving] = useState(false);
+  const [skuWarnings, setSkuWarnings] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    clientsService.getAll().then(res => setClients(res || [])).catch(() => []);
+    clientsService.getAll().then(res => setClients(Array.isArray(res) ? res : [])).catch(() => setClients([]));
+    suppliersService.getAll().then(res => setSuppliersList(Array.isArray(res) ? res : [])).catch(() => setSuppliersList([]));
+    settingsService.getCompanySettings().then(res => {
+      if (res) setBlindReceiving(Boolean(res.blindReceiving));
+    }).catch(() => []);
   }, []);
+
+  const handleSkuLookup = async (idx: number, skuValue: string) => {
+    const cleanSku = skuValue.trim().toUpperCase();
+    if (!cleanSku) {
+      updateLine(idx, "name", "");
+      updateLine(idx, "description", "");
+      setSkuWarnings(prev => ({ ...prev, [idx]: "" }));
+      return;
+    }
+    try {
+      const res = await inventoryService.resolveBarcode(cleanSku);
+      if (res && res.found && (res.product || res.sku)) {
+        const prodName = res.product?.name || res.product?.sku || cleanSku;
+        const prodDesc = res.product?.description || res.product?.category || "";
+        updateLine(idx, "name", prodName);
+        updateLine(idx, "description", prodDesc);
+        setSkuWarnings(prev => ({ ...prev, [idx]: "" }));
+      } else {
+        updateLine(idx, "name", "");
+        updateLine(idx, "description", "");
+        setSkuWarnings(prev => ({ ...prev, [idx]: `SKU '${cleanSku}' not found in Product Catalogue` }));
+      }
+    } catch (_) {
+      updateLine(idx, "name", "");
+      updateLine(idx, "description", "");
+      setSkuWarnings(prev => ({ ...prev, [idx]: `SKU '${cleanSku}' not found in Product Catalogue` }));
+    }
+  };
+
+  const handleOpenAddModal = async () => {
+    const newForm = blankASN();
+    try {
+      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
+      const res = await fetch("/api/v1/receiving/next-po", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.poNumber) newForm.poNumber = data.poNumber;
+      }
+    } catch (_) {}
+    setForm(newForm);
+    setEditTarget(null);
+    setSkuWarnings({});
+    setShowAdd(true);
+  };
 
   // External open trigger
   useEffect(() => {
     const handler = () => {
-      setForm(blankASN());
-      setEditTarget(null);
-      setShowAdd(true);
+      handleOpenAddModal();
     };
     window.addEventListener("open-new-asn", handler);
     return () => window.removeEventListener("open-new-asn", handler);
@@ -675,7 +727,7 @@ export function Receiving() {
               className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-xs font-medium outline-none focus:border-primary/50 transition-colors"
             >
               {STATUS_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.value === 'All' ? `${t.common.all} ${t.common.status}` : (t.status[opt.value as keyof typeof t.status] || opt.label)}</option>
+                <option key={opt.value} value={opt.value}>{opt.value === 'All' ? `${t.common?.all || 'All'} ${t.common?.status || 'Status'}` : ((t as any).status?.[opt.value] || opt.label)}</option>
               ))}
             </select>
 
@@ -686,7 +738,7 @@ export function Receiving() {
                 onChange={(e) => setSupplierFilter(e.target.value)}
                 className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-xs font-medium outline-none focus:border-primary/50 transition-colors"
               >
-                <option value="">{t.common.all} Suppliers</option>
+                <option value="">{t.common?.all || 'All'} Suppliers</option>
                 {uniqueSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             )}
@@ -737,45 +789,43 @@ export function Receiving() {
             </PrimaryButton>
           </div>
         ) : (
-          sortedAsns.map((asn, i) => {
-            const displayId = asn.asnId || asn.asnNumber || "ASN-0000";
-            const displayPo = asn.poNumber || asn.po || "—";
-            const displayDate = asn.expectedDate || asn.expected_date ? new Date(asn.expectedDate || asn.expected_date!).toLocaleDateString("en-GB") : "—";
-            const totalUnits = asn.expected_units || (asn.items ? asn.items.reduce((s, x) => s + (Number(x.expected_qty) || 0), 0) : 0);
-            const receivedUnits = asn.items ? asn.items.reduce((s, x) => s + (Number(x.received_qty) || 0), 0) : 0;
-            const lineCount = asn.sku_count || (asn.items ? asn.items.length : 0);
-            const isCompleted = asn.status === "completed" || asn.status === "completed_with_discrepancies" || asn.status === "cancelled";
+          sortedAsns.map((asn) => {
+            const isCompleted = asn.status === "completed" || asn.status === "completed_with_discrepancies";
+            const displayDate = asn.expectedDate
+              ? new Date(asn.expectedDate).toLocaleDateString()
+              : asn.expected_date
+              ? new Date(asn.expected_date).toLocaleDateString()
+              : "—";
 
             return (
               <div
                 key={asn._id}
-                className="rounded-xl border border-border bg-card p-4 hover:border-primary/50 transition-all shadow-sm"
+                className="p-4 rounded-xl border border-border bg-card hover:border-border/80 transition-all space-y-3"
               >
-                <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-xl bg-secondary/80 flex items-center justify-center border border-border">
-                      <Package className="size-5 text-primary" />
+                    <div className="size-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold">
+                      <Truck className="size-5" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-bold text-base" style={{ fontFamily: "JetBrains Mono, monospace" }}>
-                          {displayId}
-                        </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm font-mono text-primary">{asn.asnId || asn.asnNumber}</span>
                         <StatusBadge status={asn.status} />
+                        {!asn.owner && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                            Review Required / Legacy - No Owner
+                          </span>
+                        )}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        Supplier: <strong className="text-foreground">{asn.supplier}</strong> · Owner: {asn.owner && asn.owner.trim() ? <strong className="text-primary font-semibold">{asn.owner}</strong> : <span className="bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold px-2 py-0.5 rounded text-[10px]">⚠️ Review Required (Legacy - No Owner)</span>} · PO: <span style={{ fontFamily: "JetBrains Mono, monospace" }}>{displayPo}</span>
+                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span>Supplier: <strong className="text-foreground">{asn.supplier}</strong></span>
+                        <span>· Owner: <strong className="text-primary">{asn.owner || "Unassigned Legacy"}</strong></span>
+                        <span>· PO: <strong className="text-foreground">{asn.poNumber || asn.po || "N/A"}</strong></span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                    <div className="bg-secondary/50 px-2.5 py-1 rounded-md border border-border/50">
-                      <strong>{lineCount}</strong> lines · <strong style={{ fontFamily: "JetBrains Mono, monospace" }}>{receivedUnits}/{totalUnits.toLocaleString()}</strong> units received
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Truck className="size-3.5" /> {asn.carrier || "DHL"}
-                    </div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <div className="flex items-center gap-1">
                       <Anchor className="size-3.5" /> {asn.receivingDock || "Dock 1"}
                     </div>
@@ -858,75 +908,47 @@ export function Receiving() {
           onClose={() => { if (!isSubmitting) setReceiveTarget(null); }}
           title={`Receiving Workspace: ${receiveTarget.asnId || receiveTarget.asnNumber}`}
           subtitle={`Supplier: ${receiveTarget.supplier} · Dock: ${receiveTarget.receivingDock} · PO: ${receiveTarget.poNumber || receiveTarget.po}`}
-          width="xl"
+          width="2xl"
           footer={
             <div className="flex items-center justify-between w-full">
-              <div className="text-xs text-muted-foreground font-medium">
-                Ready to Receive: <strong>{receiveLines.reduce((s, l) => s + (Number(l.qtyToReceive) || 0), 0)}</strong> units
+              <div className="text-xs text-muted-foreground">
+                Total Items: <strong>{receiveLines.length}</strong> · Ready to Receive: <strong>{receiveLines.reduce((acc, l) => acc + (Number(l.qtyToReceive) || 0), 0)}</strong>
               </div>
               <div className="flex gap-2">
                 <ModalCancel onClose={() => setReceiveTarget(null)} />
-                <button
-                  type="button"
-                  onClick={handleConfirmReceiveExecution}
-                  disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-all shadow-sm disabled:opacity-50"
-                >
-                  <Check className="size-4" />
-                  {isSubmitting ? "Confirming & Updating Stock..." : "Confirm Receive"}
-                </button>
+                <ModalSubmit onClick={handleConfirmReceiveExecution} disabled={isSubmitting}>
+                  {isSubmitting ? "Receiving Goods..." : "Confirm Goods Receipt"}
+                </ModalSubmit>
               </div>
             </div>
           }
         >
           <div className="space-y-4">
-            {/* Barcode Scanner Box */}
-            <div className="bg-secondary/40 border-2 border-dashed border-primary/40 p-3.5 rounded-xl space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-primary">
-                <ScanLine className="size-4" /> Barcode SKU Scanner
-              </div>
-              <div className="flex gap-2">
-                <input
-                  value={scannedBarcode}
-                  onChange={(e) => setScannedBarcode(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleBarcodeScanSubmit()}
-                  placeholder={tc?.scanProductBarcodeOrTypeSKUAndPressEnter || "Scan product barcode or type SKU and press Enter..."}
-                  className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-card text-xs font-mono outline-none focus:border-primary/50"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleBarcodeScanSubmit()}
-                  className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-lg hover:opacity-90 transition-all"
-                >
-                  Scan SKU
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCameraScanner(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-bold rounded-lg transition-all border border-border"
-                  title="Scan using Webcam / Mobile Camera"
-                >
-                  <Camera className="size-3.5" /> Camera Scanner
-                </button>
-              </div>
+            {/* Quick Barcode Scanner Input */}
+            <div className="bg-primary/5 p-3 rounded-xl border border-primary/20 flex items-center gap-3">
+              <ScanLine className="size-5 text-primary shrink-0" />
+              <input
+                value={scannedBarcode}
+                onChange={(e) => setScannedBarcode(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleBarcodeScanSubmit(scannedBarcode)}
+                placeholder={tc?.scanProductSKUOrBarcodeToVerifyItem || "Scan Product SKU or Unit Barcode / Case Barcode to verify item..."}
+                className="flex-1 bg-transparent text-xs font-mono font-bold outline-none placeholder:font-normal placeholder:text-muted-foreground"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => handleBarcodeScanSubmit(scannedBarcode)}
+                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all"
+              >
+                Scan SKU
+              </button>
             </div>
-
-            {/* Camera Barcode Scanner Modal */}
-            <CameraBarcodeScanner
-              open={showCameraScanner}
-              onClose={() => setShowCameraScanner(false)}
-              onScan={(scannedVal) => {
-                setScannedBarcode(scannedVal);
-                handleBarcodeScanSubmit(scannedVal);
-              }}
-              title={`Scan SKU for ASN ${receiveTarget.asnId || receiveTarget.asnNumber}`}
-            />
 
             {/* Line Items Receiving Table */}
             <div className="border border-border rounded-xl overflow-hidden text-xs space-y-0">
               <div className="bg-secondary/70 p-2.5 font-bold border-b border-border flex items-center justify-between">
                 <span>Inbound Product Lines ({receiveLines.length})</span>
-                <span className="text-[11px] text-muted-foreground">Line-by-Line Receiving Execution</span>
+                <span className="text-[11px] text-muted-foreground">{blindReceiving ? "Blind Receiving Mode Active" : "Line-by-Line Receiving Execution"}</span>
               </div>
               <div className="divide-y divide-border max-h-[50vh] overflow-y-auto">
                 {receiveLines.map((line, idx) => {
@@ -949,9 +971,9 @@ export function Receiving() {
                           )}
                         </div>
                         <div className="flex items-center gap-3 text-xs font-mono">
-                          <span>Expected: <strong>{line.expected}</strong></span>
+                          <span>Expected: <strong>{blindReceiving ? "???" : line.expected}</strong></span>
                           <span>Recv'd: <strong>{line.alreadyReceived}</strong></span>
-                          <span className="text-primary font-bold">Remaining: {line.remaining}</span>
+                          <span className="text-primary font-bold">Remaining: {blindReceiving ? "???" : line.remaining}</span>
                         </div>
                       </div>
 
@@ -1014,7 +1036,7 @@ export function Receiving() {
                         <div>
                           <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">Remaining After</label>
                           <div className="px-2.5 py-1.5 rounded-lg bg-secondary/50 border border-border text-xs font-mono font-bold text-muted-foreground">
-                            {remainingAfterThis} {line.uom}
+                            {blindReceiving ? "Hidden (Blind Mode)" : `${remainingAfterThis} ${line.uom}`}
                           </div>
                         </div>
                       </div>
@@ -1054,11 +1076,22 @@ export function Receiving() {
             <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Shipment Header Information</h4>
             <Row>
               <Field label={tc?.supplierName || "Supplier Name *"} required>
-                <Input
+                <Select
                   value={form.supplier}
                   onChange={(e) => updateFormHeader("supplier", e.target.value)}
-                  placeholder={tc?.eGAcmeIndustrialCorp || "e.g. Acme Industrial Corp"}
-                />
+                >
+                  <option value="">-- Select Registered Supplier --</option>
+                  {(Array.isArray(suppliersList) ? suppliersList : []).map(s => (
+                    <option key={s._id} value={s.name}>{s.name} ({s.country || 'Spain'})</option>
+                  ))}
+                  {(!Array.isArray(suppliersList) || suppliersList.length === 0) && (
+                    <>
+                      <option value="Acme Global Suppliers">Acme Global Suppliers</option>
+                      <option value="TechParts International">TechParts International</option>
+                      <option value="Logistics Direct SA">Logistics Direct SA</option>
+                    </>
+                  )}
+                </Select>
               </Field>
               <Field label="Inventory Owner * (3PL)" required hint="Mandatory for 3PL multi-tenant stock isolation">
                 <Select
@@ -1066,7 +1099,7 @@ export function Receiving() {
                   onChange={(e) => updateFormHeader("owner", e.target.value)}
                 >
                   <option value="">-- Select Registered Owner --</option>
-                  {clients.map(c => (
+                  {(Array.isArray(clients) ? clients : []).map(c => (
                     <option key={c._id} value={c.name}>{c.name}</option>
                   ))}
                   <option value="Client Alpha">Client Alpha</option>
@@ -1078,11 +1111,11 @@ export function Receiving() {
               </Field>
             </Row>
             <Row>
-              <Field label={tc?.purchaseOrder || "Purchase Order # *"} required>
+              <Field label={tc?.purchaseOrder || "Purchase Order # *"} required hint="Auto-generated if left blank">
                 <Input
                   value={form.poNumber}
                   onChange={(e) => updateFormHeader("poNumber", e.target.value)}
-                  placeholder={tc?.eGPO998877 || "e.g. PO-998877"}
+                  placeholder={tc?.eGPO998877 || "Auto-generated e.g. PO-2026-00001"}
                 />
               </Field>
               <Field label={tc?.originAddress || "Origin / Address"}>
@@ -1168,9 +1201,25 @@ export function Receiving() {
                       <label className="text-[11px] font-medium block mb-1">SKU *</label>
                       <Input
                         value={line.sku}
-                        onChange={(e) => updateLine(idx, "sku", e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          updateLine(idx, "sku", val);
+                          if (val.trim()) {
+                            handleSkuLookup(idx, val);
+                          } else {
+                            updateLine(idx, "name", "");
+                            updateLine(idx, "description", "");
+                            setSkuWarnings(prev => ({ ...prev, [idx]: "" }));
+                          }
+                        }}
+                        onBlur={(e) => handleSkuLookup(idx, e.target.value)}
                         placeholder={tc?.sKU1001 || "SKU-1001"}
                       />
+                      {skuWarnings[idx] && (
+                        <div className="text-[10px] text-amber-500 font-bold mt-1 flex items-center gap-1">
+                          <AlertTriangle className="size-3 shrink-0" /> {skuWarnings[idx]}
+                        </div>
+                      )}
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-[11px] font-medium block mb-1">Product Name *</label>

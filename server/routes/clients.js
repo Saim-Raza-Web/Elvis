@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Client from '../models/Client.js';
 import { protect } from '../middleware/auth.js';
 
@@ -18,19 +19,31 @@ router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    let clients = await Client.find({ company: req.user.company }).sort({ name: 1 });
+    const db = mongoose.connection?.db;
+    let clients = db 
+      ? await db.collection('clients').find({ company: req.user.company }).sort({ name: 1 }).toArray()
+      : await Client.find({ company: req.user.company }).sort({ name: 1 });
 
     // Seed defaults if empty
     if (clients.length === 0) {
       const seedData = DEFAULT_OWNERS.map(o => ({
         ...o,
-        company: req.user.company
+        company: req.user.company,
+        createdAt: new Date(),
+        updatedAt: new Date()
       }));
       try {
-        await Client.insertMany(seedData, { ordered: false });
-        clients = await Client.find({ company: req.user.company }).sort({ name: 1 });
+        if (db) {
+          await db.collection('clients').insertMany(seedData, { ordered: false });
+          clients = await db.collection('clients').find({ company: req.user.company }).sort({ name: 1 }).toArray();
+        } else {
+          await Client.insertMany(seedData, { ordered: false });
+          clients = await Client.find({ company: req.user.company }).sort({ name: 1 });
+        }
       } catch (_) {
-        clients = await Client.find({ company: req.user.company }).sort({ name: 1 });
+        clients = db 
+          ? await db.collection('clients').find({ company: req.user.company }).sort({ name: 1 }).toArray()
+          : await Client.find({ company: req.user.company }).sort({ name: 1 });
       }
     }
 

@@ -47,11 +47,15 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     
     // Log Activity
     await ActivityLog.create({
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
       company: req.user.company,
+      action: 'Report Incident',
+      module: req.body.module || 'Receiving',
       type: 'Incident',
-      user: req.user.name,
-      description: `Reported incident ${item.incidentId}: ${item.type}`
-    });
+      user: req.user.name || 'system',
+      detail: `Reported incident ${item.incidentId}: ${item.reason || item.type}`,
+      description: `Reported incident ${item.incidentId}: ${item.reason || item.type}`
+    }).catch(() => {});
 
     res.status(201).json(item);
   } catch (err) {

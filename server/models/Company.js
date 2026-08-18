@@ -26,6 +26,7 @@ const companySchema = new mongoose.Schema({
   orderNotifs: { type: Boolean, default: true },
   lowStockNotifs: { type: Boolean, default: true },
   shipmentNotifs: { type: Boolean, default: false },
+  blindReceiving: { type: Boolean, default: false },
   apiKeys: [{
     name: String,
     key: String,

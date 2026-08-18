@@ -31,25 +31,62 @@ const idempotencyCache = new Map();
 async function nextAsnNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
-  
-  const counter = await Counter.findOneAndUpdate(
-    { _id: 'asn', company },
-    { $inc: { seq: 1 } },
-    opts
-  );
-  return `ASN-${String(counter.seq).padStart(6, '0')}`;
+  let attempts = 0;
+  while (attempts < 20) {
+    const counter = await Counter.findOneAndUpdate(
+      { _id: 'asn', company },
+      { $inc: { seq: 1 } },
+      opts
+    );
+    const asnId = `ASN-${String(counter.seq).padStart(6, '0')}`;
+    const query = { company, $or: [{ asnId }, { asnNumber: asnId }] };
+    const existing = session ? await ASN.findOne(query).session(session) : await ASN.findOne(query);
+    if (!existing) return asnId;
+    attempts++;
+  }
+  return `ASN-${Date.now().toString().slice(-6)}`;
 }
 
 /** Atomic Sequential Putaway Number: PUT-000001, PUT-000002... */
 async function nextPutawayNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
-  const counter = await Counter.findOneAndUpdate(
-    { _id: 'putaway', company },
-    { $inc: { seq: 1 } },
-    opts
-  );
-  return `PUT-${String(counter.seq).padStart(6, '0')}`;
+  let attempts = 0;
+  while (attempts < 20) {
+    const counter = await Counter.findOneAndUpdate(
+      { _id: 'putaway', company },
+      { $inc: { seq: 1 } },
+      opts
+    );
+    const taskId = `PUT-${String(counter.seq).padStart(6, '0')}`;
+    const query = { company, taskId };
+    const existing = session ? await PutawayTask.findOne(query).session(session) : await PutawayTask.findOne(query);
+    if (!existing) return taskId;
+    attempts++;
+  }
+  return `PUT-${Date.now().toString().slice(-6)}`;
+}
+
+/** Atomic Sequential PO Number: PO-2026-00001, PO-2026-00002... */
+export async function nextPoNumber(company, session) {
+  const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
+  if (session) opts.session = session;
+  const currentYear = new Date().getFullYear();
+  const counterId = `po_${currentYear}`;
+  let attempts = 0;
+  while (attempts < 20) {
+    const counter = await Counter.findOneAndUpdate(
+      { _id: counterId, company },
+      { $inc: { seq: 1 } },
+      opts
+    );
+    const poNumber = `PO-${currentYear}-${String(counter.seq).padStart(5, '0')}`;
+    const query = { company, $or: [{ poNumber }, { po: poNumber }] };
+    const existing = session ? await ASN.findOne(query).session(session) : await ASN.findOne(query);
+    if (!existing) return poNumber;
+    attempts++;
+  }
+  return `PO-${currentYear}-${Date.now().toString().slice(-5)}`;
 }
 
 /** Log activity */
@@ -73,9 +110,10 @@ async function logActivity(req, action, module, detail, session) {
 /** Validate ASN Payload */
 function validateAsnPayload(body) {
   const errors = [];
-  const { supplier, poNumber, po, expectedDate, expected_date, receivingDock, items } = body;
+  const { supplier, owner, poNumber, po, expectedDate, expected_date, receivingDock, items } = body;
 
   if (!supplier || !String(supplier).trim()) errors.push('Supplier is required.');
+  if (!owner || !String(owner).trim()) errors.push('Owner (3PL) is required.');
   const actualPo = poNumber || po;
   if (!actualPo || !String(actualPo).trim()) errors.push('Purchase Order number is required.');
 
@@ -164,6 +202,15 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET Next Auto-Generated PO Number
+router.get('/next-po', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const poNumber = await nextPoNumber(req.user.company);
+    res.json({ poNumber });
+  } catch (err) { next(err); }
+});
+
 // GET Details by ID
 router.get('/:id', async (req, res, next) => {
   try {
@@ -206,17 +253,39 @@ router.get('/:id/discrepancies', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET Next PO Number
+router.get('/next-po', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const currentYear = new Date().getFullYear();
+    const counterId = `po_${currentYear}`;
+    const counter = await Counter.findOne({ _id: counterId, company: req.user.company });
+    const nextSeq = (counter?.seq || 0) + 1;
+    const poNumber = `PO-${currentYear}-${String(nextSeq).padStart(5, '0')}`;
+    res.json({ poNumber });
+  } catch (err) { next(err); }
+});
+
 // CREATE ASN (uses document.save() for middleware execution)
 router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
 
-    const validationErrors = validateAsnPayload(req.body);
+    const data = { ...req.body, company: req.user.company };
+
+    if (!data.poNumber && !data.po) {
+      const generatedPO = await nextPoNumber(req.user.company);
+      data.poNumber = generatedPO;
+      data.po = generatedPO;
+    } else {
+      data.poNumber = data.poNumber || data.po;
+      data.po = data.po || data.poNumber;
+    }
+
+    const validationErrors = validateAsnPayload(data);
     if (validationErrors.length > 0) {
       return res.status(400).json({ message: validationErrors.join(' ') });
     }
-
-    const data = { ...req.body, company: req.user.company };
 
     if (!data.asnId && !data.asnNumber) {
       const generatedNumber = await nextAsnNumber(req.user.company);
@@ -227,8 +296,8 @@ router.post('/', requireOpsRole, async (req, res, next) => {
       data.asnId = data.asnId || data.asnNumber;
     }
 
-    data.poNumber = data.poNumber || data.po;
-    data.po = data.po || data.poNumber;
+    data.expectedDate = data.expectedDate || data.expected_date;
+    data.expected_date = data.expected_date || data.expectedDate;
     data.expectedDate = data.expectedDate || data.expected_date;
     data.expected_date = data.expected_date || data.expectedDate;
     data.status = data.status || 'pending';

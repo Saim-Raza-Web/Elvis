@@ -611,27 +611,44 @@ export function PutawayQueue() {
                   <span className="flex items-center gap-1 font-bold text-foreground">
                     <MapPin className="size-4 text-emerald-600" /> Step 1: Scan Shelf / Bin Barcode *
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => { setActiveCameraStep("bin"); setShowCameraScanner(true); }}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-primary text-primary-foreground text-[11px] font-bold rounded hover:opacity-90 transition-all"
-                  >
-                    <Camera className="size-3" /> Camera Scan Bin
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const loc = (selectedTask.toLocation || selectedTask.destinationBin || "A-01-01").trim();
+                        setScannedBinBarcode(loc);
+                        setSelectedBin(loc);
+                        setLocationError(null);
+                        toast.success(`Scanned location: ${loc}`);
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-bold rounded hover:bg-emerald-500/25 transition-all"
+                      title="Quick simulate location scan"
+                    >
+                      <Check className="size-3" /> Auto-Scan Location
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveCameraStep("bin"); setShowCameraScanner(true); }}
+                      className="flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground text-[11px] font-bold rounded hover:opacity-90 transition-all"
+                    >
+                      <Camera className="size-3" /> Camera Scan Bin
+                    </button>
+                  </div>
                 </label>
                 <input
                   type="text"
+                  readOnly
                   value={scannedBinBarcode || selectedBin}
-                  onChange={(e) => {
-                    setScannedBinBarcode(e.target.value);
-                    setSelectedBin(e.target.value);
-                    setLocationError(null);
-                  }}
                   placeholder={`Scan shelf barcode (must match ${selectedTask.toLocation || selectedTask.destinationBin})`}
-                  className={`w-full p-2.5 border rounded-lg outline-none focus:border-primary text-xs font-mono mb-1 ${
-                    locationError ? 'border-destructive bg-destructive/10 text-destructive' : 'bg-secondary/50 border-border'
+                  className={`w-full p-2.5 border rounded-lg outline-none cursor-not-allowed text-xs font-mono mb-1 ${
+                    scannedBinBarcode || selectedBin
+                      ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-bold'
+                      : locationError
+                      ? 'border-destructive bg-destructive/10 text-destructive'
+                      : 'bg-secondary/30 border-border text-muted-foreground'
                   }`}
                 />
+                <p className="text-[10px] text-muted-foreground mt-0.5">🔒 Scan-Only: Manual text typing disabled. Please scan shelf barcode via camera or hardware scanner.</p>
                 {locationError && (
                   <div className="text-[11px] font-bold text-destructive flex items-center gap-1 mt-1">
                     <X className="size-3.5 shrink-0" /> {locationError}
@@ -645,13 +662,27 @@ export function PutawayQueue() {
                   <span className="flex items-center gap-1 font-bold text-foreground">
                     <QrCode className="size-4 text-primary" /> Step 2: Scan Product Barcode / SKU *
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => { setActiveCameraStep("sku"); setShowCameraScanner(true); }}
-                    className="flex items-center gap-1 px-2 py-1 bg-secondary border border-border text-[11px] font-bold rounded hover:bg-secondary/80 transition-all"
-                  >
-                    <Camera className="size-3" /> Camera Scan Product
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScannedSkuBarcode(selectedTask.sku);
+                        setSkuError(null);
+                        toast.success(`Scanned SKU: ${selectedTask.sku}`);
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 bg-primary/15 text-primary border border-primary/30 text-[11px] font-bold rounded hover:bg-primary/25 transition-all"
+                      title="Quick simulate SKU scan"
+                    >
+                      <Check className="size-3" /> Auto-Scan SKU
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveCameraStep("sku"); setShowCameraScanner(true); }}
+                      className="flex items-center gap-1 px-2 py-1 bg-secondary border border-border text-[11px] font-bold rounded hover:bg-secondary/80 transition-all"
+                    >
+                      <Camera className="size-3" /> Camera Scan Product
+                    </button>
+                  </div>
                 </label>
                 <input
                   type="text"

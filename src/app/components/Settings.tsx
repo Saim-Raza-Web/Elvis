@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload } from "lucide-react";
+import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload, Truck } from "lucide-react";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
 import { settingsService } from "../../services/settings.service";
@@ -7,6 +7,8 @@ import { authService } from "../../services/auth.service";
 import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { toast } from "sonner";
 import { ROLE_DEFINITIONS, PERMISSION_MODULES } from "../../utils/permissions";
+
+import { Suppliers } from "./Suppliers";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
 
@@ -19,10 +21,12 @@ const permissionModules = PERMISSION_MODULES;
 
 export function Settings() {
   const { t } = useLang();
+  const tc = (t.common || {}) as any;
   const settingsTabs = [
     { id: "general", label: t.settings.general, icon: settingsTabIcons[0] },
     { id: "branding", label: "Company Branding", icon: Building2 },
     { id: "owners", label: "Clients / 3PL Owners", icon: Building2 },
+    { id: "suppliers", label: "Suppliers Master", icon: Truck },
     { id: "notifications", label: t.settings.notifications, icon: settingsTabIcons[1] },
     { id: "security", label: t.settings.security, icon: settingsTabIcons[2] },
     { id: "team", label: t.settings.team, icon: settingsTabIcons[3] },
@@ -37,6 +41,7 @@ export function Settings() {
   const [orderNotifs, setOrderNotifs] = useState(true);
   const [lowStockNotifs, setLowStockNotifs] = useState(true);
   const [shipmentNotifs, setShipmentNotifs] = useState(false);
+  const [blindReceiving, setBlindReceiving] = useState(false);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [keys, setKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -96,6 +101,7 @@ export function Settings() {
         setOrderNotifs(data.orderNotifs ?? true);
         setLowStockNotifs(data.lowStockNotifs ?? true);
         setShipmentNotifs(data.shipmentNotifs ?? false);
+        setBlindReceiving(Boolean(data.blindReceiving));
         setKeys(data.apiKeys || []);
 
         setTradingName(data.tradingName || "");
@@ -386,11 +392,11 @@ export function Settings() {
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors"
                     style={{ fontSize: "0.875rem" }}
                   >
-                    <option value="America/New_York">{t.common?.americaNewYork || "America/New_York"}</option>
-                    <option value="America/Los_Angeles">{t.common?.americaLosAngeles || "America/Los_Angeles"}</option>
-                    <option value="Europe/London">{t.common?.europeLondon || "Europe/London"}</option>
-                    <option value="Europe/Paris">{t.common?.europeParis || "Europe/Paris"}</option>
-                    <option value="Asia/Tokyo">{t.common?.asiaTokyo || "Asia/Tokyo"}</option>
+                    <option value="America/New_York">{tc?.americaNewYork || "America/New_York"}</option>
+                    <option value="America/Los_Angeles">{tc?.americaLosAngeles || "America/Los_Angeles"}</option>
+                    <option value="Europe/London">{tc?.europeLondon || "Europe/London"}</option>
+                    <option value="Europe/Paris">{tc?.europeParis || "Europe/Paris"}</option>
+                    <option value="Asia/Tokyo">{tc?.asiaTokyo || "Asia/Tokyo"}</option>
                   </select>
                 </div>
                 <div>
@@ -401,25 +407,54 @@ export function Settings() {
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors"
                     style={{ fontSize: "0.875rem" }}
                   >
-                    <option value="EUR">{t.common?.eUREuro || "EUR — Euro"}</option>
-                    <option value="USD">{t.common?.uSDUSDollar || "USD — US Dollar"}</option>
-                    <option value="GBP">{t.common?.gBPBritishPound || "GBP — British Pound"}</option>
+                    <option value="EUR">{tc?.eUREuro || "EUR — Euro"}</option>
+                    <option value="USD">{tc?.uSDUSDollar || "USD — US Dollar"}</option>
+                    <option value="GBP">{tc?.gBPBritishPound || "GBP — British Pound"}</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">{t.settings.dateFormat}</label>
                   <select className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }}>
-                    <option>{t.common?.yYYYMMDD || "YYYY-MM-DD"}</option>
-                    <option>{t.common?.mMDDYYYY || "MM/DD/YYYY"}</option>
-                    <option>{t.common?.dDMMYYYY || "DD/MM/YYYY"}</option>
+                    <option>{tc?.yYYYMMDD || "YYYY-MM-DD"}</option>
+                    <option>{tc?.mMDDYYYY || "MM/DD/YYYY"}</option>
+                    <option>{tc?.dDMMYYYY || "DD/MM/YYYY"}</option>
                   </select>
                 </div>
               </div>
+
+              {/* Blind Receiving Mode Toggle (O1) */}
+              <div className="pt-4 border-t border-border flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-sm">Blind Receiving Mode</div>
+                  <div className="text-xs text-muted-foreground">Hide expected & remaining quantities during receiving until actual count submission to eliminate operator confirmation bias.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const nextVal = !blindReceiving;
+                    try {
+                      await settingsService.updateCompanySettings({ blindReceiving: nextVal });
+                      setBlindReceiving(nextVal);
+                      toast.success(nextVal ? "Blind Receiving Mode enabled" : "Blind Receiving Mode disabled");
+                    } catch (_) {
+                      toast.error("Failed to update Blind Receiving setting");
+                    }
+                  }}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${blindReceiving ? "bg-primary" : "bg-secondary"}`}
+                >
+                  <span className={`pointer-events-none inline-block size-5 rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${blindReceiving ? "translate-x-5" : "translate-x-0"}`} />
+                </button>
+              </div>
+
               <button onClick={handleSaveGeneral} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all">
                 <Save className="size-4" /> {t.settings.saveChanges}
               </button>
             </div>
           </div>
+        )}
+
+        {activeTab === "suppliers" && (
+          <Suppliers />
         )}
 
         {activeTab === "branding" && (
@@ -483,7 +518,7 @@ export function Settings() {
                   <input
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder={t.common?.houseLogisticSL || "House Logistic S.L."}
+                    placeholder={tc?.houseLogisticSL || "House Logistic S.L."}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -492,7 +527,7 @@ export function Settings() {
                   <input
                     value={tradingName}
                     onChange={(e) => setTradingName(e.target.value)}
-                    placeholder={t.common?.houseLogistic || "House Logistic"}
+                    placeholder={tc?.houseLogistic || "House Logistic"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -501,7 +536,7 @@ export function Settings() {
                   <input
                     value={vatNumber}
                     onChange={(e) => setVatNumber(e.target.value)}
-                    placeholder={t.common?.b12345678 || "B-12345678"}
+                    placeholder={tc?.b12345678 || "B-12345678"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -523,7 +558,7 @@ export function Settings() {
                   <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder={t.common?.logisticsHouselogisticEs || "logistics@houselogistic.es"}
+                    placeholder={tc?.logisticsHouselogisticEs || "logistics@houselogistic.es"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -532,7 +567,7 @@ export function Settings() {
                   <input
                     value={website}
                     onChange={(e) => setWebsite(e.target.value)}
-                    placeholder={t.common?.wwwHouselogisticEs || "www.houselogistic.es"}
+                    placeholder={tc?.wwwHouselogisticEs || "www.houselogistic.es"}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 text-sm transition-colors"
                   />
                 </div>
@@ -547,7 +582,7 @@ export function Settings() {
                     <input
                       value={street}
                       onChange={(e) => setStreet(e.target.value)}
-                      placeholder={t.common?.polGonoIndustrialNorte || "Polígono Industrial Norte"}
+                      placeholder={tc?.polGonoIndustrialNorte || "Polígono Industrial Norte"}
                       className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
                     />
                   </div>
@@ -556,7 +591,7 @@ export function Settings() {
                     <input
                       value={number}
                       onChange={(e) => setNumber(e.target.value)}
-                      placeholder={t.common?.nave7 || "Nave 7"}
+                      placeholder={tc?.nave7 || "Nave 7"}
                       className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm"
                     />
                   </div>
@@ -827,28 +862,28 @@ export function Settings() {
                   <div className="space-y-3">
                     <div>
                       <label className="text-sm font-medium mb-1 block">Email *</label>
-                      <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} type="email" placeholder={t.common?.colleagueCompanyCom || "colleague@company.com"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                      <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} type="email" placeholder={tc?.colleagueCompanyCom || "colleague@company.com"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-1 block">Full Name</label>
-                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder={t.common?.johnSmith || "John Smith"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                      <input value={inviteName} onChange={e => setInviteName(e.target.value)} placeholder={tc?.johnSmith || "John Smith"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-1 block">Temporary Password *</label>
-                      <input value={invitePassword} onChange={e => setInvitePassword(e.target.value)} type="password" placeholder={t.common?.min6Characters || "Min 6 characters"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
+                      <input value={invitePassword} onChange={e => setInvitePassword(e.target.value)} type="password" placeholder={tc?.min6Characters || "Min 6 characters"} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm" />
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-1 block">Role</label>
                       <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm">
-                        <option value="admin">{t.common?.admin || "Admin"}</option>
-                        <option value="manager">{t.common?.manager || "Manager"}</option>
-                        <option value="warehouse_staff">{t.common?.warehouseStaff || "Warehouse Staff"}</option>
-                        <option value="readonly">{t.common?.readOnly || "Read-only"}</option>
+                        <option value="admin">{tc?.admin || "Admin"}</option>
+                        <option value="manager">{tc?.manager || "Manager"}</option>
+                        <option value="warehouse_staff">{tc?.warehouseStaff || "Warehouse Staff"}</option>
+                        <option value="readonly">{tc?.readOnly || "Read-only"}</option>
                       </select>
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end pt-2">
-                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">{t.common?.cancel || "Cancel"}</button>
+                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">{tc?.cancel || "Cancel"}</button>
                     <button onClick={handleInviteMember} disabled={inviteLoading} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50">
                       {inviteLoading ? "Inviting…" : "Add Member"}
                     </button>

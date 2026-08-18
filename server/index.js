@@ -9,6 +9,7 @@ import { ROUTE_MODULE_MAP } from './config/permissions.js';
 
 // Load environment variables
 dotenv.config();
+mongoose.set('bufferCommands', false);
 
 const app = express();
 
@@ -87,6 +88,7 @@ import notificationsRoutes from './routes/notifications.js';
 import qcRoutes from './routes/qc.js';
 import putawayRoutes from './routes/putaway.js';
 import clientsRoutes from './routes/clients.js';
+import suppliersRoutes from './routes/suppliers.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -131,6 +133,7 @@ mountModuleRoute('/api/v1/stock-counts', stockCountsRoutes);
 mountModuleRoute('/api/v1/documents', documentsRoutes);
 mountModuleRoute('/api/v1/notifications', notificationsRoutes);
 mountModuleRoute('/api/v1/clients', clientsRoutes);
+mountModuleRoute('/api/v1/suppliers', suppliersRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');
@@ -144,7 +147,9 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ message: Object.values(err.errors).map(e => e.message).join(', ') });
   }
   if (err.code === 11000) {
-    return res.status(400).json({ message: 'Duplicate field value entered' });
+    const fields = err.keyValue ? Object.keys(err.keyValue).join(', ') : 'field';
+    const val = err.keyValue ? Object.values(err.keyValue).join(', ') : 'value';
+    return res.status(400).json({ message: `Duplicate field error: ${fields} '${val}' already exists.` });
   }
 
   res.status(err.status || 500).json({
@@ -155,8 +160,12 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+  connectToDatabase().then(() => {
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
+  }).catch(err => {
+    console.error('Failed to connect to MongoDB:', err);
   });
 }
 
