@@ -19,7 +19,7 @@ const typeColor: Record<string, string> = {
 
 const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "MIA", from_loc: "", to_wh: "LAX", to_loc: "", type: "transfer", requestedBy: "Admin" });
 
-function mapTransfer(d: Record<string, unknown>): Transfer {
+function mapTransfer(d: any): Transfer {
   return { ...(d as Transfer), id: (d.transferId as string) || (d._id as string) };
 }
 
@@ -121,7 +121,9 @@ export function Transfers() {
         </div>
         <div className="flex gap-1.5">
           {["All", "pending", "in_progress", "completed", "replenishment"].map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap capitalize transition-all ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{f.replace("_", " ")}</button>
+            <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap capitalize transition-all ${filter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>
+              {f === "All" ? t.common.all : (t.status as any)[f] || (t.transfers as any)[f] || f.replace("_", " ")}
+            </button>
           ))}
         </div>
         <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.transfers.newTransfer}</PrimaryButton>
@@ -176,25 +178,25 @@ export function Transfers() {
       </div>
       <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
       {/* New Transfer Modal */}
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.transfers.newTransfer} subtitle={t.common?.moveStockBetweenLocations || "Move stock between locations"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.transfers.newTransfer}</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.transfers.newTransfer} subtitle={(t.common as any)?.moveStockBetweenLocations || "Move stock between locations"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.transfers.newTransfer}</ModalSubmit></>}>
         <Row>
-          <Field label={t.common?.sKU || "SKU"} required><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
+          <Field label={(t.common as any)?.sku || "SKU"} required><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={(t.common as any)?.sKUXXXX || "SKU-XXXX"} /></Field>
           <Field label={t.transfers.qty}><Input type="number" value={form.qty} onChange={(e) => setForm({ ...form, qty: Number(e.target.value) })} /></Field>
         </Row>
-        <Field label={t.common?.productDescription || "Product description"}><Input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} placeholder={t.common?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
+        <Field label={(t.common as any)?.productDescription || "Product description"}><Input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} placeholder={(t.common as any)?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
         <Row>
           <Field label={t.transfers.fromWarehouse}><Select value={form.from_wh} onChange={(e) => setForm({ ...form, from_wh: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
+            {warehouses.length === 0 && <option value="MIA">MIA</option>}
           </Select></Field>
-          <Field label={t.transfers.fromLocation} required><Input value={form.from_loc} onChange={(e) => setForm({ ...form, from_loc: e.target.value })} placeholder={t.common?.a01B || "A-01-B"} /></Field>
+          <Field label={t.transfers.fromLocation} required><Input value={form.from_loc} onChange={(e) => setForm({ ...form, from_loc: e.target.value })} placeholder={(t.common as any)?.a01B || "A-01-B"} /></Field>
         </Row>
         <Row>
           <Field label={t.transfers.toWarehouse}><Select value={form.to_wh} onChange={(e) => setForm({ ...form, to_wh: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="LAX">{t.common?.lAX || "LAX"}</option>}
+            {warehouses.length === 0 && <option value="LAX">LAX</option>}
           </Select></Field>
-          <Field label={t.transfers.toLocation} required><Input value={form.to_loc} onChange={(e) => setForm({ ...form, to_loc: e.target.value })} placeholder={t.common?.b03A || "B-03-A"} /></Field>
+          <Field label={t.transfers.toLocation} required><Input value={form.to_loc} onChange={(e) => setForm({ ...form, to_loc: e.target.value })} placeholder={(t.common as any)?.b03A || "B-03-A"} /></Field>
         </Row>
         <Field label={t.transfers.transferType}><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
           <option value="transfer">{t.transfers.transfer}</option><option value="replenishment">{t.transfers.replenishment}</option>

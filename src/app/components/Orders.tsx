@@ -461,7 +461,7 @@ function OrderFormContent({
 //   Main Orders Component
 // ─────────────────────────────────────────────────────────────
 export function Orders() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
@@ -624,7 +624,7 @@ export function Orders() {
           { label: t.orders.totalOrders, value: allItems.length, icon: ShoppingCart, color: "text-primary" },
           { label: t.orders.pending, value: pendingCount, icon: Package, color: "text-warning" },
           { label: t.orders.processing, value: processingCount, icon: Package, color: "text-blue-500" },
-          { label: "B2B Orders", value: b2bCount, icon: Building2, color: "text-purple-500" },
+          { label: lang === "es" ? "Pedidos B2B" : "B2B Orders", value: b2bCount, icon: Building2, color: "text-purple-500" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2">
@@ -657,7 +657,7 @@ export function Orders() {
               onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all capitalize ${statusFilter === s ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}
             >
-              {s}
+              {s === "All" ? t.common.all : (t.status as any)[s.toLowerCase()] || s}
             </button>
           ))}
         </div>

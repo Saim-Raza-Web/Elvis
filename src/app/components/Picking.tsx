@@ -84,7 +84,7 @@ const priorityColor: Record<string, string> = {
 };
 
 export function Picking() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [tasks, setTasks] = useState<PickTask[]>([]);
   const [view, setView] = useState<"tasks" | "batches">("tasks");
   const [search, setSearch] = useState("");
@@ -361,10 +361,10 @@ export function Picking() {
       {/* ── Interactive Clickable Status KPI Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { id: "pending", label: "Pending Tasks", value: counts.pending, icon: Clock, color: "text-warning", badge: "bg-warning/15 text-warning" },
-          { id: "in_progress", label: "In Progress", value: counts.inProgress, icon: Package, color: "text-primary", badge: "bg-primary/15 text-primary" },
-          { id: "partially_picked", label: "Partially Picked", value: counts.partiallyPicked, icon: AlertTriangle, color: "text-amber-500", badge: "bg-amber-500/15 text-amber-500" },
-          { id: "completed", label: "Completed Picks", value: counts.completed, icon: CheckCircle2, color: "text-success", badge: "bg-success/15 text-success" },
+          { id: "pending", label: lang === "es" ? "Tareas Pendientes" : "Pending Tasks", value: counts.pending, icon: Clock, color: "text-warning", badge: "bg-warning/15 text-warning" },
+          { id: "in_progress", label: t.status.in_progress || "In Progress", value: counts.inProgress, icon: Package, color: "text-primary", badge: "bg-primary/15 text-primary" },
+          { id: "partially_picked", label: lang === "es" ? "Parcialmente Recogido" : "Partially Picked", value: counts.partiallyPicked, icon: AlertTriangle, color: "text-amber-500", badge: "bg-amber-500/15 text-amber-500" },
+          { id: "completed", label: lang === "es" ? "Picks Completados" : "Completed Picks", value: counts.completed, icon: CheckCircle2, color: "text-success", badge: "bg-success/15 text-success" },
         ].map((s) => (
           <div
             key={s.id}
@@ -380,7 +380,7 @@ export function Picking() {
             <div className="flex items-baseline justify-between">
               <div className="font-bold text-2xl" style={{ fontFamily: "JetBrains Mono, monospace" }}>{s.value}</div>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.badge}`}>
-                {statusFilter === s.id ? "ACTIVE FILTER" : "FILTER"}
+                {statusFilter === s.id ? (lang === "es" ? "FILTRO ACTIVO" : "ACTIVE FILTER") : (lang === "es" ? "FILTRAR" : "FILTER")}
               </span>
             </div>
           </div>
@@ -394,13 +394,13 @@ export function Picking() {
             onClick={() => setView("tasks")}
             className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${view === "tasks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}
           >
-            Pick Tasks ({filteredTasks.length})
+            {lang === "es" ? "Tareas de Picking" : "Pick Tasks"} ({filteredTasks.length})
           </button>
           <button
             onClick={() => setView("batches")}
             className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${view === "batches" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}
           >
-            Pick Batches ({batches.length})
+            {lang === "es" ? "Lotes de Picking" : "Pick Batches"} ({batches.length})
           </button>
         </div>
 
@@ -410,7 +410,7 @@ export function Picking() {
           <input
             value={scanValue}
             onChange={(e) => setScanValue(e.target.value)}
-            placeholder="Quick Scan Order ID or Pick Task ID…"
+            placeholder={lang === "es" ? "Escaneo rápido de ID de pedido o tarea…" : "Quick Scan Order ID or Pick Task ID…"}
             onKeyDown={(e) => e.key === "Enter" && handleQuickScanSubmit()}
             className="flex-1 bg-transparent text-xs font-mono outline-none px-1"
           />
@@ -418,7 +418,7 @@ export function Picking() {
             onClick={handleQuickScanSubmit}
             className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all"
           >
-            Execute Scan
+            {lang === "es" ? "Ejecutar Escaneo" : "Execute Scan"}
           </button>
         </div>
 
@@ -429,11 +429,11 @@ export function Picking() {
               disabled={isSubmitting}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all"
             >
-              <Layers className="size-4" /> Create Batch ({selectedTaskIds.length})
+              <Layers className="size-4" /> {lang === "es" ? "Crear Lote" : "Create Batch"} ({selectedTaskIds.length})
             </button>
           )}
           <PrimaryButton icon={Plus} onClick={() => setShowManual(true)}>
-            Create pick task
+            {lang === "es" ? "Crear tarea de picking" : "Create pick task"}
           </PrimaryButton>
         </div>
       </div>
@@ -446,36 +446,36 @@ export function Picking() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search Task ID, Order ID, Customer or Owner…"
+              placeholder={lang === "es" ? "Buscar ID de tarea, pedido, cliente o propietario…" : "Search Task ID, Order ID, Customer or Owner…"}
               className="w-full pl-9 pr-4 py-1.5 bg-secondary/50 border border-border rounded-lg outline-none text-xs focus:border-primary/50"
             />
           </div>
 
           <div className="flex items-center gap-2 text-xs">
             <Filter className="size-3.5 text-muted-foreground" />
-            <span className="font-bold text-muted-foreground">3PL Owner:</span>
+            <span className="font-bold text-muted-foreground">{lang === "es" ? "Propietario 3PL:" : "3PL Owner:"}</span>
             <select
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
               className="px-2.5 py-1.5 bg-secondary/50 border border-border rounded-lg text-xs font-medium outline-none"
             >
-              <option value="all">All Owners</option>
+              <option value="all">{lang === "es" ? "Todos los propietarios" : "All Owners"}</option>
               {uniqueOwners.map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="font-bold text-muted-foreground">Status:</span>
+            <span className="font-bold text-muted-foreground">{lang === "es" ? "Estado:" : "Status:"}</span>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-2.5 py-1.5 bg-secondary/50 border border-border rounded-lg text-xs font-medium outline-none"
             >
-              <option value="all">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="in_progress">In Progress</option>
-              <option value="partially_picked">Partially Picked</option>
-              <option value="completed">Completed</option>
+              <option value="all">{lang === "es" ? "Todos los estados" : "All Statuses"}</option>
+              <option value="pending">{t.status.pending}</option>
+              <option value="in_progress">{t.status.in_progress}</option>
+              <option value="partially_picked">{lang === "es" ? "Parcialmente Recogido" : "Partially Picked"}</option>
+              <option value="completed">{t.status.completed}</option>
             </select>
           </div>
 
@@ -504,14 +504,14 @@ export function Picking() {
                     }}
                   />
                 </th>
-                <th className="p-3 whitespace-nowrap">Task ID</th>
-                <th className="p-3 whitespace-nowrap">Owner (3PL Client)</th>
-                <th className="p-3 whitespace-nowrap">Order Ref</th>
-                <th className="p-3 text-center whitespace-nowrap">Lines Count</th>
-                <th className="p-3 whitespace-nowrap">Priority</th>
-                <th className="p-3 whitespace-nowrap">Assignee</th>
-                <th className="p-3 whitespace-nowrap">Status</th>
-                <th className="p-3 text-right whitespace-nowrap">Actions</th>
+                <th className="p-3 whitespace-nowrap">{lang === "es" ? "ID Tarea" : "Task ID"}</th>
+                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Cliente 3PL" : "Owner (3PL Client)"}</th>
+                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Ref Pedido" : "Order Ref"}</th>
+                <th className="p-3 text-center whitespace-nowrap">{lang === "es" ? "Nº Líneas" : "Lines Count"}</th>
+                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Prioridad" : "Priority"}</th>
+                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Asignado" : "Assignee"}</th>
+                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Estado" : "Status"}</th>
+                <th className="p-3 text-right whitespace-nowrap">{lang === "es" ? "Acciones" : "Actions"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">

@@ -26,8 +26,17 @@ type Transaction = { _id: string; id: string; date: string; description: string;
 
 
 
+const accountTranslations: Record<string, string> = {
+  "Cash & Cash Equivalents": "Efectivo y Equivalentes",
+  "Accounts Receivable": "Cuentas por Cobrar",
+  "Inventory Assets": "Activos de Inventario",
+  "Accounts Payable": "Cuentas por Pagar",
+  "Operating Expenses YTD": "Gastos Operativos (YTD)",
+  "Revenue YTD": "Ingresos Totales (YTD)",
+};
+
 export function Accounting() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [accounts, setAccounts] = useState<any[]>([]);
   const { items: pagedTransactions, allItems: transactionList, pagination, page, setPage, isLoading, reload } = usePaginatedList<Transaction>(
     accountingListService
@@ -87,7 +96,7 @@ export function Accounting() {
             {accounts.map((acc) => (
               <div key={acc.name} className="flex items-center justify-between">
                 <div className="flex-1 min-w-0 mr-3">
-                  <div className="text-sm truncate">{acc.name}</div>
+                  <div className="text-sm truncate">{lang === "es" ? accountTranslations[acc.name] || acc.name : acc.name}</div>
                   <div className={`text-[10px] font-semibold ${acc.change >= 0 ? "text-success" : "text-destructive"}`}>
                   {(acc.change ?? 0) >= 0 ? "+" : ""}€{(Number(acc.change) || 0).toLocaleString()}
                   </div>
