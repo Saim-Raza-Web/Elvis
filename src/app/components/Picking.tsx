@@ -102,6 +102,8 @@ export function Picking() {
 
   // Execution Step State
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
+  const [lineScannedBins, setLineScannedBins] = useState<Record<string, string>>({});
+  const [lineScannedBarcodes, setLineScannedBarcodes] = useState<Record<string, string>>({});
   const [scannedBin, setScannedBin] = useState("");
   const [scannedBarcode, setScannedBarcode] = useState("");
   const [enteredQty, setEnteredQty] = useState<number>(0);
@@ -199,6 +201,8 @@ export function Picking() {
     setScannedBarcode("");
     setLocationError(null);
     setBarcodeError(null);
+    setLineScannedBins({});
+    setLineScannedBarcodes({});
 
     const initialQtys: Record<string, number> = {};
     (task.items || []).forEach(item => {
@@ -213,12 +217,43 @@ export function Picking() {
   const handleCompletePickExecution = async () => {
     if (!selectedTask) return;
 
+    // Save active line scanned bin if set
+    const currentItem = selectedTask.items && selectedTask.items[currentLineIndex];
+    const activeBin = scannedBin.trim() || (currentItem ? lineScannedBins[currentItem.sku] || "" : "");
+
+    // Validate location for every line
+    for (let idx = 0; idx < (selectedTask.items || []).length; idx++) {
+      const line = selectedTask.items[idx];
+      const expectedLoc = (line.sourceLocation || 'STAGING-A').trim().toUpperCase();
+      const actualLoc = idx === currentLineIndex
+        ? activeBin.toUpperCase()
+        : (lineScannedBins[line.sku] || "").trim().toUpperCase();
+
+      if (!actualLoc) {
+        setCurrentLineIndex(idx);
+        setScannedBin("");
+        setScannedBarcode(lineScannedBarcodes[line.sku] || "");
+        setEnteredQty(linePickedQtys[line.sku] ?? line.orderedQty);
+        toast.error(`Line ${idx + 1} (${line.sku}) missing location scan. Expected: ${expectedLoc}`);
+        return;
+      }
+
+      if (actualLoc !== expectedLoc) {
+        setCurrentLineIndex(idx);
+        setScannedBin(lineScannedBins[line.sku] || actualLoc);
+        setLocationError(`Wrong location. Scanned: ${actualLoc}. Expected: ${expectedLoc}`);
+        toast.error(`Line ${idx + 1} (${line.sku}) wrong location. Scanned: ${actualLoc}. Expected: ${expectedLoc}`);
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
       const lineUpdates = (selectedTask.items || []).map(item => ({
         sku: item.sku,
         pickedQty: linePickedQtys[item.sku] !== undefined ? linePickedQtys[item.sku] : item.orderedQty,
-        sourceLocation: item.sourceLocation || 'STAGING-A'
+        sourceLocation: item.sourceLocation || 'STAGING-A',
+        scannedLocation: (lineScannedBins[item.sku] || item.sourceLocation || 'STAGING-A').trim()
       }));
 
       const result = await pickingService.complete(selectedTask._id, { lineUpdates });
@@ -444,7 +479,7 @@ export function Picking() {
             </select>
           </div>
 
-          <button onClick={() => reload()} className="p-2 border border-border rounded-lg text-muted-foreground hover:bg-secondary">
+          <button onClick={() => loadData()} className="p-2 border border-border rounded-lg text-muted-foreground hover:bg-secondary">
             <RefreshCw className="size-3.5" />
           </button>
         </div>
@@ -610,7 +645,7 @@ export function Picking() {
 
       {/* ── Task Detail Modal ── */}
       {detailModalOpen && selectedTask && (
-        <Modal open={detailModalOpen} onClose={() => setDetailModalOpen(null)} title={`Pick Task Details (${selectedTask.taskId})`} width="lg">
+        <Modal open={detailModalOpen} onClose={() => setDetailModalOpen(false)} title={`Pick Task Details (${selectedTask.taskId})`} width="lg">
           <div className="space-y-4 text-xs">
             <div className="grid grid-cols-2 gap-3 bg-secondary/30 p-3 rounded-xl border border-border">
               <div><span className="text-muted-foreground block">Order Reference:</span><strong className="font-mono text-sm text-foreground">{selectedTask.orderId}</strong></div>
@@ -733,10 +768,13 @@ export function Picking() {
                     type="text"
                     value={scannedBin}
                     onChange={(e) => {
-                      setScannedBin(e.target.value);
+                      const val = e.target.value;
+                      setScannedBin(val);
+                      const curSku = selectedTask.items[currentLineIndex].sku;
+                      setLineScannedBins(prev => ({ ...prev, [curSku]: val }));
                       const expected = (selectedTask.items[currentLineIndex].sourceLocation || 'STAGING-A').toUpperCase();
-                      if (e.target.value.trim() && e.target.value.trim().toUpperCase() !== expected) {
-                        setLocationError(`Wrong location. Scanned: ${e.target.value.trim()}. Expected: ${expected}.`);
+                      if (val.trim() && val.trim().toUpperCase() !== expected) {
+                        setLocationError(`Wrong location. Scanned: ${val.trim()}. Expected: ${expected}.`);
                       } else {
                         setLocationError(null);
                       }
@@ -760,6 +798,8 @@ export function Picking() {
                     onChange={async (e) => {
                       const val = e.target.value;
                       setScannedBarcode(val);
+                      const curSku = selectedTask.items[currentLineIndex].sku;
+                      setLineScannedBarcodes(prev => ({ ...prev, [curSku]: val }));
                       if (!val.trim()) { setBarcodeError(null); return; }
 
                       const resolveRes = await inventoryService.resolveBarcode(val.trim()).catch(() => null);
@@ -822,8 +862,10 @@ export function Picking() {
                       setCurrentLineIndex(prevIdx);
                       const prevSku = selectedTask.items[prevIdx].sku;
                       setEnteredQty(linePickedQtys[prevSku] ?? selectedTask.items[prevIdx].orderedQty);
-                      setScannedBin("");
-                      setScannedBarcode("");
+                      setScannedBin(lineScannedBins[prevSku] || "");
+                      setScannedBarcode(lineScannedBarcodes[prevSku] || "");
+                      setLocationError(null);
+                      setBarcodeError(null);
                     }}
                     className="px-3 py-1.5 border border-border rounded-lg font-bold disabled:opacity-40"
                   >
@@ -836,8 +878,10 @@ export function Picking() {
                       setCurrentLineIndex(nextIdx);
                       const nextSku = selectedTask.items[nextIdx].sku;
                       setEnteredQty(linePickedQtys[nextSku] ?? selectedTask.items[nextIdx].orderedQty);
-                      setScannedBin("");
-                      setScannedBarcode("");
+                      setScannedBin(lineScannedBins[nextSku] || "");
+                      setScannedBarcode(lineScannedBarcodes[nextSku] || "");
+                      setLocationError(null);
+                      setBarcodeError(null);
                     }}
                     className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg font-bold disabled:opacity-40"
                   >

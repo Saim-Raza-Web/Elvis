@@ -10,8 +10,10 @@ import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Mo
 import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 import { receivingService } from "../../services/receiving.service";
+import { inventoryService } from "../../services/inventory.service";
 import { locationsService } from "../../services/locations.service";
 import { incidentsService } from "../../services/incidents.service";
+import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
 
@@ -167,6 +169,12 @@ export function Receiving() {
       deps: [search, statusFilter, supplierFilter],
     }
   );
+
+  const [clients, setClients] = useState<ClientOwner[]>([]);
+
+  useEffect(() => {
+    clientsService.getAll().then(res => setClients(res || [])).catch(() => []);
+  }, []);
 
   // External open trigger
   useEffect(() => {
@@ -1058,6 +1066,10 @@ export function Receiving() {
                   onChange={(e) => updateFormHeader("owner", e.target.value)}
                 >
                   <option value="">-- Select Registered Owner --</option>
+                  {clients.map(c => (
+                    <option key={c._id} value={c.name}>{c.name}</option>
+                  ))}
+                  <option value="Client Alpha">Client Alpha</option>
                   <option value="Apple Distribution 3PL">Apple Distribution 3PL</option>
                   <option value="Acme Logistics 3PL">Acme Logistics 3PL</option>
                   <option value="Global Retail Corp">Global Retail Corp</option>

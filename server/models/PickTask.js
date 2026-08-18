@@ -12,6 +12,7 @@ const pickTaskLineSchema = new mongoose.Schema({
 
 const pickTaskSchema = new mongoose.Schema({
   taskId: { type: String, required: true }, // PICK-2026-000001
+  order: { type: String },
   orderId: { type: String, required: true },
   orderNumber: { type: String },
   orderType: { type: String, enum: ['B2B', 'B2C'], default: 'B2B' },

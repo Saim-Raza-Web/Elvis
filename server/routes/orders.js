@@ -5,6 +5,7 @@ import { buildListFilter } from '../utils/listFilters.js';
 import Order from '../models/Order.js';
 import Counter from '../models/Counter.js';
 import PickTask from '../models/PickTask.js';
+import InventoryBalance from '../models/InventoryBalance.js';
 import Notification from '../models/Notification.js';
 import ActivityLog from '../models/ActivityLog.js';
 
@@ -194,7 +195,14 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 /** Helper: Idempotent PickTask Generation for Confirmed/Released Orders */
 export async function ensurePickTaskForOrder(order, userCompany) {
   const companyId = userCompany || order.company;
-  if (!order || !order.orderId) return null;
+  if (!order || !order.orderId) {
+    throw new Error('Invalid order document');
+  }
+
+  // FAIL if order has zero product lines!
+  if (!order.product_lines || !Array.isArray(order.product_lines) || order.product_lines.length === 0) {
+    throw new Error(`Cannot release order ${order.orderId} to fulfillment: Order contains 0 product lines.`);
+  }
 
   // 1. Idempotency Check: Prevent duplicate PickTasks for the same order!
   const existingTask = await PickTask.findOne({ company: companyId, orderId: order.orderId });
@@ -202,15 +210,23 @@ export async function ensurePickTaskForOrder(order, userCompany) {
     return existingTask;
   }
 
-  // 2. Derive PickTask lines from Order product_lines
-  const lines = (order.product_lines || []).map(line => ({
-    sku: line.sku,
-    productName: line.product_name || line.sku,
-    orderedQty: Number(line.qty) || 1,
-    pickedQty: 0,
-    shortfallQty: 0,
-    sourceLocation: 'STAGING-A',
-    status: 'pending'
+  // 2. Derive PickTask lines from Order product_lines matching actual inventory balance location
+  const lines = await Promise.all(order.product_lines.map(async line => {
+    const balance = await InventoryBalance.findOne({
+      company: companyId,
+      sku: line.sku,
+      owner: order.owner || order.customer || order.company_name,
+      $or: [{ qty_available: { $gt: 0 } }, { qtyAvailable: { $gt: 0 } }]
+    });
+    return {
+      sku: line.sku,
+      productName: line.product_name || line.sku,
+      orderedQty: Number(line.qty) || 1,
+      pickedQty: 0,
+      shortfallQty: 0,
+      sourceLocation: balance ? balance.bin : 'STAGING-A',
+      status: 'pending'
+    };
   }));
 
   const counter = await Counter.findOneAndUpdate(
@@ -225,6 +241,7 @@ export async function ensurePickTaskForOrder(order, userCompany) {
 
   const newTask = await PickTask.create({
     taskId,
+    order: order.orderId, // Legacy order field for UI compatibility
     orderId: order.orderId,
     orderNumber: order.orderId,
     orderType: order.order_type || 'B2B',

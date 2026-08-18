@@ -9,6 +9,9 @@ import { useLang } from "../LangContext";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { inventoryService } from "../../services/inventory.service";
 import { warehousesService } from "../../services/warehouses.service";
+import { clientsService, type ClientOwner } from "../../services/clients.service";
+import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
+import { Camera, QrCode } from "lucide-react";
 import { exportToCSV } from "../../lib/csvExport";
 
 type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; unitBarcode?: string; caseBarcode?: string; caseMultiplier?: number; };
@@ -49,15 +52,22 @@ export function Inventory() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [clientOwners, setClientOwners] = useState<ClientOwner[]>([]);
+  const [showCatalogScanner, setShowCatalogScanner] = useState(false);
+  const [catalogScanTarget, setCatalogScanTarget] = useState<"unitBarcode" | "caseBarcode" | null>(null);
 
   const { items: productList, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<Product>(inventoryService, { limit: 25 });
 
   async function loadData() {
     try {
-      const whs = await warehousesService.getAll();
-      setWarehouses(whs);
+      const [whs, cls] = await Promise.all([
+        warehousesService.getAll().catch(() => []),
+        clientsService.getAll().catch(() => [])
+      ]);
+      setWarehouses(whs || []);
+      setClientOwners(cls || []);
     } catch (err) {
-      toast.error(t.common?.error || "Failed to load warehouses");
+      toast.error(t.common?.error || "Failed to load configuration data");
     }
     // Load replenishment alerts separately so a failure here doesn't break the rest of the page
     try {
@@ -330,11 +340,65 @@ export function Inventory() {
           </Row>
           <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Barcodes & Case Multipliers</div>
           <Row>
-            <Field label="Unit Barcode / EAN" hint="Scanned as 1 unit"><Input value={form.unitBarcode || ""} onChange={(e) => setForm({ ...form, unitBarcode: e.target.value })} placeholder="e.g. 1234567890123" /></Field>
-            <Field label="Case Barcode" hint="Scanned as Case Qty"><Input value={form.caseBarcode || ""} onChange={(e) => setForm({ ...form, caseBarcode: e.target.value })} placeholder="e.g. 1234567890999" /></Field>
+            <Field label="Unit Barcode / EAN" hint="Scanned as 1 unit">
+              <div className="flex gap-2">
+                <Input
+                  value={form.unitBarcode || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setForm({ ...form, unitBarcode: val });
+                    if (val.trim()) {
+                      const match = allItems.find((p: any) => p._id !== editTarget?._id && ((p.unitBarcode && p.unitBarcode.toUpperCase() === val.trim().toUpperCase()) || (p.caseBarcode && p.caseBarcode.toUpperCase() === val.trim().toUpperCase())));
+                      if (match) toast.warning(`Already linked to [${match.sku} - ${match.name}]. Edit it?`);
+                    }
+                  }}
+                  placeholder="e.g. 1234567890123"
+                />
+                <button
+                  type="button"
+                  onClick={() => { setCatalogScanTarget("unitBarcode"); setShowCatalogScanner(true); }}
+                  className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors whitespace-nowrap"
+                  title="Scan Unit Barcode with Camera"
+                >
+                  <Camera className="size-4" /> Scan
+                </button>
+              </div>
+            </Field>
+            <Field label="Case Barcode" hint="Scanned as Case Qty">
+              <div className="flex gap-2">
+                <Input
+                  value={form.caseBarcode || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setForm({ ...form, caseBarcode: val });
+                    if (val.trim()) {
+                      const match = allItems.find((p: any) => p._id !== editTarget?._id && ((p.unitBarcode && p.unitBarcode.toUpperCase() === val.trim().toUpperCase()) || (p.caseBarcode && p.caseBarcode.toUpperCase() === val.trim().toUpperCase())));
+                      if (match) toast.warning(`Already linked to [${match.sku} - ${match.name}]. Edit it?`);
+                    }
+                  }}
+                  placeholder="e.g. 1234567890999"
+                />
+                <button
+                  type="button"
+                  onClick={() => { setCatalogScanTarget("caseBarcode"); setShowCatalogScanner(true); }}
+                  className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors whitespace-nowrap"
+                  title="Scan Case Barcode with Camera"
+                >
+                  <Camera className="size-4" /> Scan
+                </button>
+              </div>
+            </Field>
           </Row>
           <Row>
             <Field label="Case Quantity Multiplier" hint="Units per case"><Input type="number" min="1" value={form.caseMultiplier || 1} onChange={(e) => setForm({ ...form, caseMultiplier: Math.max(1, Number(e.target.value)) })} /></Field>
+            <Field label="QC Profile" hint="Configures inspection fields">
+              <Select value={form.qcProfile || "Standard"} onChange={(e) => setForm({ ...form, qcProfile: e.target.value })}>
+                <option value="Standard">Standard (Packaging, Condition, Visual)</option>
+                <option value="Cold Chain">Cold Chain (+ Temp & Humidity)</option>
+                <option value="Electronics">Electronics (+ Functional & Serial)</option>
+                <option value="Custom">Custom</option>
+              </Select>
+            </Field>
           </Row>
           <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Stock & Replenishment</div>
           <Row>
@@ -350,12 +414,38 @@ export function Inventory() {
             <Field label={t.inventory.blocked}><Input type="number" value={form.qty_blocked} onChange={(e) => setForm({ ...form, qty_blocked: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
-            <Field label={t.inventory.owner}><Select value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })}>
-              <option value="internal">{t.common?.internal || "Internal"}</option><option value="customer">{t.inventory.customerOwned}</option><option value="mixed">{t.common?.mixed || "Mixed"}</option>
-            </Select></Field>
+            <Field label="Inventory Owner * (Centralized Master)">
+              <Select value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })}>
+                {clientOwners.map(c => <option key={c._id || c.name} value={c.name}>{c.name}</option>)}
+                {clientOwners.length === 0 && <option value="Apple Distribution 3PL">Apple Distribution 3PL</option>}
+              </Select>
+            </Field>
           </Row>
         </Modal>
       ))}
+
+      {/* Catalog Barcode Camera Scanner Modal */}
+      <CameraBarcodeScanner
+        open={showCatalogScanner}
+        onClose={() => { setShowCatalogScanner(false); setCatalogScanTarget(null); }}
+        title={`Scan ${catalogScanTarget === "caseBarcode" ? "Case" : "Unit"} Barcode`}
+        onScan={(scannedVal) => {
+          const val = scannedVal.trim();
+          if (catalogScanTarget === "unitBarcode") {
+            setForm(prev => ({ ...prev, unitBarcode: val }));
+          } else if (catalogScanTarget === "caseBarcode") {
+            setForm(prev => ({ ...prev, caseBarcode: val }));
+          }
+          const match = allItems.find((p: any) => p._id !== editTarget?._id && ((p.unitBarcode && p.unitBarcode.toUpperCase() === val.toUpperCase()) || (p.caseBarcode && p.caseBarcode.toUpperCase() === val.toUpperCase())));
+          if (match) {
+            toast.warning(`Already linked to [${match.sku} - ${match.name}]. Edit it?`);
+          } else {
+            toast.success(`Scanned ${catalogScanTarget === "caseBarcode" ? "Case" : "Unit"} Barcode: ${val}`);
+          }
+          setShowCatalogScanner(false);
+          setCatalogScanTarget(null);
+        }}
+      />
 
       {/* Delete confirmation */}
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={t.common?.deleteProduct || "Delete Product"} width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>

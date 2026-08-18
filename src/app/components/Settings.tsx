@@ -4,6 +4,7 @@ import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
 import { settingsService } from "../../services/settings.service";
 import { authService } from "../../services/auth.service";
+import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { toast } from "sonner";
 import { ROLE_DEFINITIONS, PERMISSION_MODULES } from "../../utils/permissions";
 
@@ -16,13 +17,12 @@ const roles = ROLE_DEFINITIONS;
 
 const permissionModules = PERMISSION_MODULES;
 
-
-
 export function Settings() {
   const { t } = useLang();
   const settingsTabs = [
     { id: "general", label: t.settings.general, icon: settingsTabIcons[0] },
     { id: "branding", label: "Company Branding", icon: Building2 },
+    { id: "owners", label: "Clients / 3PL Owners", icon: Building2 },
     { id: "notifications", label: t.settings.notifications, icon: settingsTabIcons[1] },
     { id: "security", label: t.settings.security, icon: settingsTabIcons[2] },
     { id: "team", label: t.settings.team, icon: settingsTabIcons[3] },
@@ -69,6 +69,21 @@ export function Settings() {
   const [invitePassword, setInvitePassword] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
 
+  // Clients / 3PL Owners State
+  const [clientsList, setClientsList] = useState<ClientOwner[]>([]);
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [editingClientTarget, setEditingClientTarget] = useState<ClientOwner | null>(null);
+  const [clientFormState, setClientFormState] = useState({ name: "", vat: "", contact: "", email: "", phone: "", warehouseAccess: "MIA" });
+
+  const fetchClientsList = async () => {
+    try {
+      const data = await clientsService.getAll();
+      setClientsList(data || []);
+    } catch (err: any) {
+      console.error("Failed to load clients:", err);
+    }
+  };
+
   async function loadSettings() {
     try {
       setLoading(true);
@@ -107,7 +122,54 @@ export function Settings() {
 
   useEffect(() => {
     loadSettings();
+    fetchClientsList();
   }, []);
+
+  const handleSaveClientForm = async () => {
+    if (!clientFormState.name.trim()) {
+      toast.error("Client/Owner name is required.");
+      return;
+    }
+    try {
+      if (editingClientTarget) {
+        await clientsService.update(editingClientTarget._id, {
+          name: clientFormState.name.trim(),
+          vat: clientFormState.vat,
+          contact: clientFormState.contact,
+          email: clientFormState.email,
+          phone: clientFormState.phone,
+          warehouseAccess: [clientFormState.warehouseAccess]
+        });
+        toast.success(`Client/Owner '${clientFormState.name}' updated.`);
+      } else {
+        await clientsService.create({
+          name: clientFormState.name.trim(),
+          vat: clientFormState.vat,
+          contact: clientFormState.contact,
+          email: clientFormState.email,
+          phone: clientFormState.phone,
+          warehouseAccess: [clientFormState.warehouseAccess]
+        });
+        toast.success(`Client/Owner '${clientFormState.name}' created.`);
+      }
+      setShowAddClientModal(false);
+      setEditingClientTarget(null);
+      setClientFormState({ name: "", vat: "", contact: "", email: "", phone: "", warehouseAccess: "MIA" });
+      fetchClientsList();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to save Client/Owner");
+    }
+  };
+
+  const handleDeleteClientItem = async (id: string) => {
+    try {
+      await clientsService.delete(id);
+      toast.success("Client/Owner deleted.");
+      fetchClientsList();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to delete Client/Owner");
+    }
+  };
 
   async function handleSaveGeneral() {
     try {
@@ -539,6 +601,166 @@ export function Settings() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === "owners" && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-base">Clients / 3PL Owners Master List</h3>
+                  <p className="text-xs text-muted-foreground">Centralized single source of truth for stock ownership across ASN, Products, Picking, Inventory, and Transfers.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingClientTarget(null);
+                    setClientFormState({ name: "", vat: "", contact: "", email: "", phone: "", warehouseAccess: "MIA" });
+                    setShowAddClientModal(true);
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all"
+                >
+                  <Plus className="size-3.5" /> Add Client / Owner
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-secondary/50 border-b border-border">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-semibold">Client / Owner Name</th>
+                      <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-semibold">VAT / Tax ID</th>
+                      <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-semibold">Contact Person</th>
+                      <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-semibold">Warehouses</th>
+                      <th className="text-right px-4 py-2.5 text-xs text-muted-foreground font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {clientsList.map((c) => (
+                      <tr key={c._id} className="hover:bg-secondary/20 transition-colors">
+                        <td className="px-4 py-3 font-semibold text-foreground flex items-center gap-2">
+                          <Building2 className="size-4 text-primary" /> {c.name}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{c.vat || "N/A"}</td>
+                        <td className="px-4 py-3 text-xs">{c.contact || c.email || "N/A"}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                            {(c.warehouseAccess || ['MIA']).join(', ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingClientTarget(c);
+                                setClientFormState({
+                                  name: c.name,
+                                  vat: c.vat || "",
+                                  contact: c.contact || "",
+                                  email: c.email || "",
+                                  phone: c.phone || "",
+                                  warehouseAccess: (c.warehouseAccess && c.warehouseAccess[0]) || "MIA"
+                                });
+                                setShowAddClientModal(true);
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                              title="Edit Client"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClientItem(c._id)}
+                              className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"
+                              title="Delete Client"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {clientsList.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-8 text-muted-foreground text-xs">
+                          No Clients / Owners found. Click "Add Client / Owner" to create one.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {showAddClientModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAddClientModal(false)} />
+                <div className="relative w-full max-w-md bg-card border border-border rounded-xl p-5 shadow-2xl z-10 space-y-4 animate-pop-in">
+                  <div className="flex items-center justify-between border-b border-border pb-3">
+                    <h3 className="font-bold text-sm text-foreground">
+                      {editingClientTarget ? "Edit Client / Owner" : "Create New Client / Owner"}
+                    </h3>
+                    <button onClick={() => setShowAddClientModal(false)} className="p-1 rounded hover:bg-secondary text-muted-foreground">
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Client / Owner Name *</label>
+                      <input
+                        value={clientFormState.name}
+                        onChange={(e) => setClientFormState({ ...clientFormState, name: e.target.value })}
+                        placeholder="e.g. Apple Distribution 3PL"
+                        className="w-full p-2 border border-border bg-secondary/50 rounded-lg text-xs outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">VAT / Tax ID</label>
+                      <input
+                        value={clientFormState.vat}
+                        onChange={(e) => setClientFormState({ ...clientFormState, vat: e.target.value })}
+                        placeholder="e.g. US-998877665"
+                        className="w-full p-2 border border-border bg-secondary/50 rounded-lg text-xs outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Contact Person</label>
+                      <input
+                        value={clientFormState.contact}
+                        onChange={(e) => setClientFormState({ ...clientFormState, contact: e.target.value })}
+                        placeholder="e.g. Operations Manager"
+                        className="w-full p-2 border border-border bg-secondary/50 rounded-lg text-xs outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Warehouse Access</label>
+                      <select
+                        value={clientFormState.warehouseAccess}
+                        onChange={(e) => setClientFormState({ ...clientFormState, warehouseAccess: e.target.value })}
+                        className="w-full p-2 border border-border bg-secondary/50 rounded-lg text-xs outline-none"
+                      >
+                        <option value="MIA">MIA (Miami Main Warehouse)</option>
+                        <option value="LAX">LAX (Los Angeles Hub)</option>
+                        <option value="ORD">ORD (Chicago Central)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                    <button
+                      onClick={() => setShowAddClientModal(false)}
+                      className="px-3 py-1.5 border border-border text-xs rounded-lg hover:bg-secondary"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveClientForm}
+                      className="px-4 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90"
+                    >
+                      {editingClientTarget ? "Save Changes" : "Create Client"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

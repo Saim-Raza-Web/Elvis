@@ -4,7 +4,7 @@ const inventoryTransactionSchema = new mongoose.Schema({
   transactionId: { type: String, required: true },
   type: {
     type: String,
-    enum: ['RECEIVING', 'QUARANTINE_HOLD', 'QC_RELEASE', 'QC_FAIL', 'RETURN_TO_VENDOR', 'PUTAWAY_CREATED', 'PUTAWAY_COMPLETE', 'ADJUSTMENT', 'TRANSFER'],
+    enum: ['RECEIVING', 'QUARANTINE_HOLD', 'QC_RELEASE', 'QC_FAIL', 'RETURN_TO_VENDOR', 'PUTAWAY_CREATED', 'PUTAWAY_COMPLETE', 'ADJUSTMENT', 'TRANSFER', 'PICK_EXECUTE', 'PICK_COMPLETE'],
     required: true
   },
   sku: { type: String, required: true },

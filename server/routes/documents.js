@@ -9,6 +9,7 @@ import Return from '../models/Return.js';
 import Company from '../models/Company.js';
 import Discrepancy from '../models/Discrepancy.js';
 import ActivityLog from '../models/ActivityLog.js';
+import Counter from '../models/Counter.js';
 import { generatePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();

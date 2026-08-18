@@ -317,8 +317,9 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
     // Loop through submitted lines
     for (const rItem of receiveItems) {
       const { sku, qtyToReceive, damagedQty = 0, lotNumber, batchNumber, expiryDate, bin = null, zone = null } = rItem;
-      // Use the bin/zone sent by the client (from location proposal). Fall back to warehouse-specific receiving zone.
-      const receivingBin = bin || `${warehouse}-RCV-DOCK1`;
+      // Determine source receiving dock / staging bin vs proposed destination storage location
+      const receivingDockName = asn.receivingDock || 'Dock 1';
+      const receivingBin = `STAGING-A`;
       const receivingZone = zone || 'Z-RECEIVING';
 
 
@@ -535,9 +536,9 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,
-          fromLocation: receivingBin,
-          toLocation: proposed.proposedBin,
-          destinationBin: proposed.proposedBin,
+          fromLocation: receivingBin === proposed.proposedBin ? 'STAGING-A' : receivingBin,
+          toLocation: proposed.proposedBin === 'STAGING-A' ? 'A-01-01' : proposed.proposedBin,
+          destinationBin: proposed.proposedBin === 'STAGING-A' ? 'A-01-01' : proposed.proposedBin,
           priority: 'normal',
           status: 'pending',
           createdBy: operator,

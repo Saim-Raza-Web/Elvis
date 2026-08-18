@@ -105,16 +105,27 @@ export async function generateInboundDeliveryNote(asn, companyId, operator = 'sy
   // 1. Generate Next Sequential Delivery Note Number (DN-YYYY-XXXXXX)
   const currentYear = new Date().getFullYear();
   const counterId = `delivery_note_${currentYear}_${companyId}`;
-
   const counterOpts = session ? { session, new: true, upsert: true } : { new: true, upsert: true };
-  const counter = await Counter.findOneAndUpdate(
-    { _id: counterId, company: companyId },
-    { $inc: { seq: 1 } },
-    counterOpts
-  );
 
-  const seqStr = String(counter.seq).padStart(6, '0');
-  const dnNumber = `DN-${currentYear}-${seqStr}`;
+  let dnNumber = '';
+  let attempts = 0;
+  while (!dnNumber && attempts < 50) {
+    attempts++;
+    const counter = await Counter.findOneAndUpdate(
+      { _id: counterId, company: companyId },
+      { $inc: { seq: 1 } },
+      counterOpts
+    );
+    const candidate = `DN-${currentYear}-${String(counter.seq).padStart(6, '0')}`;
+    const existsDoc = await Document.findOne({ documentNumber: candidate, company: companyId });
+    if (!existsDoc) {
+      dnNumber = candidate;
+    }
+  }
+
+  if (!dnNumber) {
+    dnNumber = `DN-${currentYear}-${Date.now().toString().slice(-6)}`;
+  }
 
   // 2. Fetch Discrepancies if any
   const discQuery = Discrepancy.find({ asnId: asn.asnId || asn.asnNumber, company: companyId });

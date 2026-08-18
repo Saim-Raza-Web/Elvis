@@ -106,8 +106,8 @@ export function Textarea(props: TextareaProps) {
   );
 }
 
-export function Row({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-3">{children}</div>;
+export function Row({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={`grid grid-cols-2 gap-3 ${className ?? ""}`}>{children}</div>;
 }
 
 export function ModalCancel({ onClose }: { onClose: () => void }) {

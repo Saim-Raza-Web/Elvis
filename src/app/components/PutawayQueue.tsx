@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
 import { TablePagination } from "./TablePagination";
 import { putawayService } from "../../services/putaway.service";
+import { inventoryService } from "../../services/inventory.service";
 import { locationsService } from "../../services/locations.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { useLang } from "../LangContext";

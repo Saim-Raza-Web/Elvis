@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   ShieldCheck, Search, Filter, RefreshCw, CheckCircle2, XCircle, AlertTriangle, 
   RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package
@@ -8,6 +8,7 @@ import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { qcService } from "../../services/qc.service";
+import { inventoryService } from "../../services/inventory.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { useLang } from "../LangContext";
 
@@ -56,6 +57,7 @@ const QC_STATUS_OPTIONS = [
 
 export function QCWorkspace() {
   const { t } = useLang();
+  const common = t.common as any;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
 
@@ -81,6 +83,24 @@ export function QCWorkspace() {
   const [failReason, setFailReason] = useState("Damaged Packaging & Visual Failure");
   const [rtvAuthNumber, setRtvAuthNumber] = useState("RTV-AUTH-2026-99");
   const [rtvCarrier, setRtvCarrier] = useState("DHL Freight");
+  const [productQcProfile, setProductQcProfile] = useState<string>("Standard");
+
+  useEffect(() => {
+    if (!inspectTarget) return;
+    const fetchQcProfile = async () => {
+      try {
+        const res = await inventoryService.resolveBarcode(inspectTarget.sku).catch(() => null);
+        if (res && res.product && res.product.qcProfile) {
+          setProductQcProfile(res.product.qcProfile);
+        } else {
+          setProductQcProfile("Standard");
+        }
+      } catch (_) {
+        setProductQcProfile("Standard");
+      }
+    };
+    fetchQcProfile();
+  }, [inspectTarget]);
 
   const { items: pagedItems, allItems: items, pagination, page, setPage, reload, isLoading } = usePaginatedList<QuarantineItem>(
     qcListService,
@@ -376,48 +396,67 @@ export function QCWorkspace() {
               </div>
             </div>
 
-            {/* Inspection Parameters Grid */}
+            {/* Inspection Parameters Grid (Configured by Product QC Profile) */}
             <div className="bg-secondary/20 p-4 rounded-xl border border-border space-y-3">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">{t.qc.paramTitle}</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">{t.qc.paramTitle}</h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                  QC Profile: {productQcProfile}
+                </span>
+              </div>
+
+              {/* Standard Fields (Packaging Condition, Product Condition, Visual Inspection) */}
               <Row>
                 <Field label={t.qc.pkgCondition}>
                   <Select value={form.packagingCondition} onChange={(e) => setForm(p => ({ ...p, packagingCondition: e.target.value }))}>
-                    <option value="Good">{t.common?.goodIntact || "Good / Intact"}</option>
-                    <option value="Minor Damage">{t.common?.minorBoxDamage || "Minor Box Damage"}</option>
-                    <option value="Severely Damaged">{t.common?.severelyDamaged || "Severely Damaged"}</option>
+                    <option value="Good">{common?.goodIntact || "Good / Intact"}</option>
+                    <option value="Minor Damage">{common?.minorBoxDamage || "Minor Box Damage"}</option>
+                    <option value="Severely Damaged">{common?.severelyDamaged || "Severely Damaged"}</option>
                   </Select>
                 </Field>
                 <Field label={t.qc.prodCondition}>
                   <Select value={form.productCondition} onChange={(e) => setForm(p => ({ ...p, productCondition: e.target.value }))}>
-                    <option value="Pass">{t.common?.passPristine || "Pass / Pristine"}</option>
-                    <option value="Scratched">{t.common?.scratchedCosmeticFault || "Scratched / Cosmetic Fault"}</option>
-                    <option value="Defective">{t.common?.defectiveNonFunctional || "Defective / Non-functional"}</option>
+                    <option value="Pass">{common?.passPristine || "Pass / Pristine"}</option>
+                    <option value="Scratched">{common?.scratchedCosmeticFault || "Scratched / Cosmetic Fault"}</option>
+                    <option value="Defective">{common?.defectiveNonFunctional || "Defective / Non-functional"}</option>
                   </Select>
                 </Field>
               </Row>
-              <Row>
-                <Field label={t.qc.tempReading}>
-                  <Input value={form.temperature} onChange={(e) => setForm(p => ({ ...p, temperature: e.target.value }))} />
-                </Field>
-                <Field label={t.qc.humidityLevel}>
-                  <Input value={form.humidity} onChange={(e) => setForm(p => ({ ...p, humidity: e.target.value }))} />
-                </Field>
-              </Row>
+
               <Row>
                 <Field label={t.qc.visualResult}>
                   <Select value={form.visualInspection} onChange={(e) => setForm(p => ({ ...p, visualInspection: e.target.value }))}>
-                    <option value="Pass">{t.common?.pass || "Pass"}</option>
-                    <option value="Fail">{t.common?.fail || "Fail"}</option>
-                  </Select>
-                </Field>
-                <Field label={t.qc.functionalResult}>
-                  <Select value={form.functionalTest} onChange={(e) => setForm(p => ({ ...p, functionalTest: e.target.value }))}>
-                    <option value="Pass">{t.common?.pass || "Pass"}</option>
-                    <option value="Fail">{t.common?.fail || "Fail"}</option>
-                    <option value="N/A">{t.common?.nANotRequired || "N/A (Not Required)"}</option>
+                    <option value="Pass">{common?.pass || "Pass"}</option>
+                    <option value="Fail">{common?.fail || "Fail"}</option>
                   </Select>
                 </Field>
               </Row>
+
+              {/* Cold Chain Specific Fields: Temperature & Humidity */}
+              {(productQcProfile?.includes("Cold Chain") || productQcProfile === "Custom") && (
+                <Row className="bg-blue-500/5 p-2.5 rounded-lg border border-blue-500/20">
+                  <Field label={t.qc.tempReading || "Temperature Reading (*Cold Chain)"}>
+                    <Input value={form.temperature} onChange={(e) => setForm(p => ({ ...p, temperature: e.target.value }))} placeholder="e.g. 4°C" />
+                  </Field>
+                  <Field label={t.qc.humidityLevel || "Humidity Level (*Cold Chain)"}>
+                    <Input value={form.humidity} onChange={(e) => setForm(p => ({ ...p, humidity: e.target.value }))} placeholder="e.g. 45% RH" />
+                  </Field>
+                </Row>
+              )}
+
+              {/* Electronics Specific Fields: Functional Test & Serial Check */}
+              {(productQcProfile?.includes("Electronics") || productQcProfile === "Custom") && (
+                <Row className="bg-purple-500/5 p-2.5 rounded-lg border border-purple-500/20">
+                  <Field label={t.qc.functionalResult || "Functional Test (*Electronics)"}>
+                    <Select value={form.functionalTest} onChange={(e) => setForm(p => ({ ...p, functionalTest: e.target.value }))}>
+                      <option value="Pass">{common?.pass || "Pass"}</option>
+                      <option value="Fail">{common?.fail || "Fail"}</option>
+                      <option value="N/A">{common?.nANotRequired || "N/A (Not Required)"}</option>
+                    </Select>
+                  </Field>
+                </Row>
+              )}
+
               <Field label={t.qc.inspectorComments}>
                 <Input value={form.notes} onChange={(e) => setForm(p => ({ ...p, notes: e.target.value }))} placeholder={t.qc.notesPlaceholder} />
               </Field>
@@ -450,11 +489,11 @@ export function QCWorkspace() {
           <div className="space-y-3 text-xs">
             <Field label={`${t.qc.reasonForFailure} *`} required>
               <Select value={failReason} onChange={(e) => setFailReason(e.target.value)}>
-                <option value="Damaged Packaging & Visual Failure">{t.common?.damagedPackagingVisualFailure || "Damaged Packaging & Visual Failure"}</option>
-                <option value="Expired or Invalid Expiry Date">{t.common?.expiredOrInvalidExpiryDate || "Expired or Invalid Expiry Date"}</option>
-                <option value="Temperature Excursion Failure">{t.common?.temperatureExcursionFailure || "Temperature Excursion Failure"}</option>
-                <option value="Missing Component Labels">{t.common?.missingComponentLabels || "Missing Component Labels"}</option>
-                <option value="Functional Test Defect">{t.common?.functionalTestDefect || "Functional Test Defect"}</option>
+                <option value="Damaged Packaging & Visual Failure">{common?.damagedPackagingVisualFailure || "Damaged Packaging & Visual Failure"}</option>
+                <option value="Expired or Invalid Expiry Date">{common?.expiredOrInvalidExpiryDate || "Expired or Invalid Expiry Date"}</option>
+                <option value="Temperature Excursion Failure">{common?.temperatureExcursionFailure || "Temperature Excursion Failure"}</option>
+                <option value="Missing Component Labels">{common?.missingComponentLabels || "Missing Component Labels"}</option>
+                <option value="Functional Test Defect">{common?.functionalTestDefect || "Functional Test Defect"}</option>
               </Select>
             </Field>
           </div>

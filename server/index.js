@@ -86,6 +86,7 @@ import documentsRoutes from './routes/documents.js';
 import notificationsRoutes from './routes/notifications.js';
 import qcRoutes from './routes/qc.js';
 import putawayRoutes from './routes/putaway.js';
+import clientsRoutes from './routes/clients.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -129,6 +130,7 @@ mountModuleRoute('/api/v1/storage-rules', storageRulesRoutes);
 mountModuleRoute('/api/v1/stock-counts', stockCountsRoutes);
 mountModuleRoute('/api/v1/documents', documentsRoutes);
 mountModuleRoute('/api/v1/notifications', notificationsRoutes);
+mountModuleRoute('/api/v1/clients', clientsRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');
@@ -152,7 +154,7 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-if (process.env.NODE_ENV !== 'production') {
+if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
   });
