@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { 
   ShieldCheck, Search, Filter, RefreshCw, CheckCircle2, XCircle, AlertTriangle, 
-  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package
+  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2
 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
@@ -77,7 +77,19 @@ export function QCWorkspace() {
     missingLabels: false,
     visualInspection: "Pass",
     functionalTest: "Pass",
-    notes: ""
+    notes: "",
+    arrivalTemp: "4.5",
+    minTemp: "3.2",
+    maxTemp: "6.8",
+    humidityPct: "45",
+    dataLogger: "EL-USB-1 S/N: 994821",
+    tempRangeMin: 2,
+    tempRangeMax: 8,
+    overrideBlocked: false,
+    approvedQty: 1,
+    rejectedQty: 0,
+    rejectionDestination: "Quarantine",
+    attachments: [] as any[]
   });
 
   const [failReason, setFailReason] = useState("Damaged Packaging & Visual Failure");
@@ -87,11 +99,18 @@ export function QCWorkspace() {
 
   useEffect(() => {
     if (!inspectTarget) return;
+    setForm(p => ({
+      ...p,
+      approvedQty: inspectTarget.qty,
+      rejectedQty: 0,
+      rejectionDestination: "Quarantine"
+    }));
     const fetchQcProfile = async () => {
       try {
         const res = await inventoryService.resolveBarcode(inspectTarget.sku).catch(() => null);
-        if (res && res.product && res.product.qcProfile) {
-          setProductQcProfile(res.product.qcProfile);
+        if (res && res.product) {
+          const profile = res.product.qc_profile || res.product.qcProfile || (res.product.category === 'COLD' ? 'Cold Chain' : 'Standard');
+          setProductQcProfile(profile);
         } else {
           setProductQcProfile("Standard");
         }
@@ -142,10 +161,34 @@ export function QCWorkspace() {
   // Pass Inspection Execution
   const handlePassInspection = async () => {
     if (!inspectTarget) return;
+
+    const total = inspectTarget.qty;
+    const approved = Number(form.approvedQty);
+    const rejected = Number(form.rejectedQty);
+
+    if (approved + rejected !== total) {
+      toast.error(`Units Approved (${approved}) + Units Rejected (${rejected}) must equal Total Received (${total}).`);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      const result = await qcService.passInspection(inspectTarget._id, form.notes);
-      toast.success(`${t.qc?.passSuccess || "QC PASSED!"} ${inspectTarget.qty} units released. Task ${result.putawayTask?.taskId} created.`);
+      const result = await qcService.passInspection(inspectTarget._id, {
+        notes: form.notes,
+        approvedQty: approved,
+        rejectedQty: rejected,
+        rejectionDestination: form.rejectionDestination,
+        arrivalTemp: form.arrivalTemp,
+        minTemp: form.minTemp,
+        maxTemp: form.maxTemp,
+        humidityPct: form.humidityPct,
+        dataLogger: form.dataLogger,
+        tempRangeMin: form.tempRangeMin,
+        tempRangeMax: form.tempRangeMax,
+        overrideBlocked: form.overrideBlocked,
+        attachments: form.attachments
+      });
+      toast.success(`${t.qc?.passSuccess || "QC PASSED!"} ${approved} units released. Task ${result.putawayTask?.taskId || 'PUT-001'} created.`);
       setInspectTarget(null);
       reload();
     } catch (err: any) {
@@ -432,30 +475,203 @@ export function QCWorkspace() {
                 </Field>
               </Row>
 
-              {/* Cold Chain Specific Fields: Temperature & Humidity */}
-              {(productQcProfile?.includes("Cold Chain") || productQcProfile === "Custom") && (
-                <Row className="bg-blue-500/5 p-2.5 rounded-lg border border-blue-500/20">
-                  <Field label={t.qc.tempReading || "Temperature Reading (*Cold Chain)"}>
-                    <Input value={form.temperature} onChange={(e) => setForm(p => ({ ...p, temperature: e.target.value }))} placeholder="e.g. 4°C" />
-                  </Field>
-                  <Field label={t.qc.humidityLevel || "Humidity Level (*Cold Chain)"}>
-                    <Input value={form.humidity} onChange={(e) => setForm(p => ({ ...p, humidity: e.target.value }))} placeholder="e.g. 45% RH" />
-                  </Field>
-                </Row>
+              {/* Cold Chain QC Block (QC-01) */}
+              {(productQcProfile?.includes("Cold Chain") || productQcProfile === "COLD" || inspectTarget?.sku.includes("COLD")) && (
+                <div className="bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                      <Layers className="size-4" /> Cold Chain Quality Inspection (QC-01)
+                    </span>
+                    <span className="text-[10px] font-mono bg-blue-500/20 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-md font-bold">
+                      Allowed Range: {form.tempRangeMin}°C – {form.tempRangeMax}°C
+                    </span>
+                  </div>
+
+                  <Row>
+                    <Field label="Arrival Temp (°C) *" required>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={form.arrivalTemp}
+                        onChange={(e) => setForm(p => ({ ...p, arrivalTemp: e.target.value }))}
+                        placeholder="e.g. 4.5"
+                      />
+                    </Field>
+                    <Field label="Min Temp Recorded (°C)">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={form.minTemp}
+                        onChange={(e) => setForm(p => ({ ...p, minTemp: e.target.value }))}
+                        placeholder="e.g. 3.2"
+                      />
+                    </Field>
+                    <Field label="Max Temp Recorded (°C)">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={form.maxTemp}
+                        onChange={(e) => setForm(p => ({ ...p, maxTemp: e.target.value }))}
+                        placeholder="e.g. 6.8"
+                      />
+                    </Field>
+                  </Row>
+
+                  <Row>
+                    <Field label="Relative Humidity (%)">
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={form.humidityPct}
+                        onChange={(e) => setForm(p => ({ ...p, humidityPct: e.target.value }))}
+                        placeholder="e.g. 45"
+                      />
+                      {Number(form.humidityPct) > 85 && (
+                        <span className="text-[10px] text-amber-500 font-bold block mt-1">⚠️ High Humidity Warning (&gt;85%)</span>
+                      )}
+                    </Field>
+                    <Field label="Data Logger Model & Serial #">
+                      <Input
+                        value={form.dataLogger}
+                        onChange={(e) => setForm(p => ({ ...p, dataLogger: e.target.value }))}
+                        placeholder="e.g. EL-USB-1 S/N: 994821"
+                      />
+                    </Field>
+                  </Row>
+
+                  {/* Temperature Excursion Warning & Override */}
+                  {form.arrivalTemp !== "" && !isNaN(Number(form.arrivalTemp)) &&
+                    (Number(form.arrivalTemp) < form.tempRangeMin || Number(form.arrivalTemp) > form.tempRangeMax) && (
+                      <div className="bg-destructive/15 p-3 rounded-lg border border-destructive/40 text-destructive text-xs space-y-2">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <AlertTriangle className="size-4 shrink-0" /> Temperature Excursion Blocked!
+                        </div>
+                        <p className="text-[11px]">
+                          Arrival temperature ({form.arrivalTemp}°C) is outside configured range ({form.tempRangeMin}°C – {form.tempRangeMax}°C).
+                        </p>
+                        <label className="flex items-center gap-2 text-xs font-bold cursor-pointer text-foreground pt-1">
+                          <input
+                            type="checkbox"
+                            checked={form.overrideBlocked}
+                            onChange={(e) => setForm(p => ({ ...p, overrideBlocked: e.target.checked }))}
+                            className="size-4 rounded border-border text-primary"
+                          />
+                          Supervisor Override Unblock Authorization
+                        </label>
+                      </div>
+                    )}
+                </div>
               )}
 
-              {/* Electronics Specific Fields: Functional Test & Serial Check */}
-              {(productQcProfile?.includes("Electronics") || productQcProfile === "Custom") && (
-                <Row className="bg-purple-500/5 p-2.5 rounded-lg border border-purple-500/20">
-                  <Field label={t.qc.functionalResult || "Functional Test (*Electronics)"}>
-                    <Select value={form.functionalTest} onChange={(e) => setForm(p => ({ ...p, functionalTest: e.target.value }))}>
-                      <option value="Pass">{common?.pass || "Pass"}</option>
-                      <option value="Fail">{common?.fail || "Fail"}</option>
-                      <option value="N/A">{common?.nANotRequired || "N/A (Not Required)"}</option>
+              {/* Partial Pass & Rejection Split (QC-02) */}
+              <div className="bg-secondary/40 p-3.5 rounded-xl border border-border space-y-3">
+                <h5 className="font-bold text-xs uppercase text-muted-foreground flex items-center gap-1.5">
+                  <CheckSquare className="size-4 text-emerald-600" /> Quantity Approval & Partial Rejection (QC-02)
+                </h5>
+                <Row>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground block mb-1">Total Received Units</label>
+                    <Input value={inspectTarget.qty} disabled className="bg-secondary opacity-80 font-mono font-bold" />
+                  </div>
+                  <Field label="Units Approved *" required>
+                    <Input
+                      type="number"
+                      min="0"
+                      max={inspectTarget.qty}
+                      value={form.approvedQty}
+                      onChange={(e) => {
+                        const app = Math.min(inspectTarget.qty, Math.max(0, Number(e.target.value) || 0));
+                        setForm(p => ({ ...p, approvedQty: app, rejectedQty: inspectTarget.qty - app }));
+                      }}
+                    />
+                  </Field>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground block mb-1">Units Rejected (Auto)</label>
+                    <Input value={form.rejectedQty} disabled className="bg-destructive/10 text-destructive font-mono font-bold" />
+                  </div>
+                </Row>
+
+                {form.rejectedQty > 0 && (
+                  <Field label="Rejection Destination *" required>
+                    <Select
+                      value={form.rejectionDestination}
+                      onChange={(e) => setForm(p => ({ ...p, rejectionDestination: e.target.value }))}
+                    >
+                      <option value="Quarantine">Quarantine Area</option>
+                      <option value="RTV">Return to Vendor (RTV)</option>
+                      <option value="Destruction">Scrap / Destruction</option>
                     </Select>
                   </Field>
-                </Row>
-              )}
+                )}
+              </div>
+
+              {/* Photo & Video Attachments (QC-03) */}
+              <div className="bg-secondary/20 p-3.5 rounded-xl border border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="font-bold text-xs uppercase text-muted-foreground flex items-center gap-1.5">
+                    <Camera className="size-4 text-primary" /> Inspection Attachments (QC-03)
+                  </h5>
+                  <span className="text-[10px] text-muted-foreground font-mono">{form.attachments.length}/10 Files (Max 20MB)</span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-bold cursor-pointer hover:bg-primary/20 transition-colors">
+                    <Camera className="size-4" /> Add Photo / Video
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      capture="environment"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        files.forEach(file => {
+                          if (file.size > 20 * 1024 * 1024) {
+                            toast.error(`File '${file.name}' exceeds 20MB limit.`);
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            setForm(p => ({
+                              ...p,
+                              attachments: [...p.attachments.slice(0, 9), {
+                                url: ev.target?.result as string,
+                                filename: file.name,
+                                fileType: file.type,
+                                size: file.size,
+                                uploadedAt: new Date().toISOString()
+                              }]
+                            }));
+                          };
+                          reader.readAsDataURL(file);
+                        });
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {form.attachments.length > 0 && (
+                  <div className="grid grid-cols-4 gap-2 pt-2">
+                    {form.attachments.map((att, aIdx) => (
+                      <div key={aIdx} className="relative group rounded-lg overflow-hidden border border-border bg-card p-1 text-[10px]">
+                        {att.fileType?.startsWith("video") ? (
+                          <div className="bg-secondary p-2 rounded text-center font-bold">🎬 Video File</div>
+                        ) : (
+                          <img src={att.url} alt={att.filename} className="w-full h-16 object-cover rounded" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setForm(p => ({ ...p, attachments: p.attachments.filter((_, i) => i !== aIdx) }))}
+                          className="absolute top-1 right-1 bg-destructive text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <Field label={t.qc.inspectorComments}>
                 <Input value={form.notes} onChange={(e) => setForm(p => ({ ...p, notes: e.target.value }))} placeholder={t.qc.notesPlaceholder} />

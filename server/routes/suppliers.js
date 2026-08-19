@@ -6,9 +6,9 @@ const router = express.Router();
 router.use(protect);
 
 const DEFAULT_SUPPLIERS = [
-  { name: 'Acme Global Suppliers', taxId: 'TAX-001', country: 'Spain', contact: 'Carlos Rodriguez', defaultCarrier: 'DHL Express', leadTime: 7 },
-  { name: 'TechParts International', taxId: 'TAX-002', country: 'Germany', contact: 'Hans Schmidt', defaultCarrier: 'FedEx', leadTime: 10 },
-  { name: 'Logistics Direct SA', taxId: 'TAX-003', country: 'France', contact: 'Jean Dupont', defaultCarrier: 'SEUR', leadTime: 5 }
+  { name: 'Acme Global Suppliers', taxId: 'TAX-001', country: 'Spain', contact: 'Carlos Rodriguez', email: 'carlos@acmeglobal.es', defaultCarrier: 'DHL Express', preferredCarrier: 'DHL Express', leadTime: 7 },
+  { name: 'TechParts International', taxId: 'TAX-002', country: 'Germany', contact: 'Hans Schmidt', email: 'hans@techparts.de', defaultCarrier: 'FedEx', preferredCarrier: 'FedEx', leadTime: 10 },
+  { name: 'Logistics Direct SA', taxId: 'TAX-003', country: 'France', contact: 'Jean Dupont', email: 'jean@logisticsdirect.fr', defaultCarrier: 'SEUR', preferredCarrier: 'SEUR', leadTime: 5 }
 ];
 
 // GET all suppliers
@@ -39,23 +39,30 @@ router.post('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { name, taxId, country, contact, email, phone, defaultCarrier, leadTime } = req.body;
+    const { name, taxId, country, contact, email, phone, defaultCarrier, preferredCarrier, preferredForOwner, leadTime, notes, active } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ message: 'Supplier name is required' });
+    if (!country || !country.trim()) return res.status(400).json({ message: 'Country is required' });
 
     const existing = await Supplier.findOne({ company: req.user.company, name: name.trim() });
     if (existing) {
       return res.status(400).json({ message: `Supplier '${name.trim()}' already exists.` });
     }
 
+    const carrier = preferredCarrier || defaultCarrier || '';
+
     const supplier = await Supplier.create({
       name: name.trim(),
       taxId: taxId || '',
-      country: country || 'Spain',
+      country: country.trim(),
       contact: contact || '',
       email: email || '',
       phone: phone || '',
-      defaultCarrier: defaultCarrier || '',
+      defaultCarrier: carrier,
+      preferredCarrier: carrier,
+      preferredForOwner: preferredForOwner || '',
       leadTime: Number(leadTime) || 7,
+      notes: notes || '',
+      active: active !== undefined ? Boolean(active) : true,
       company: req.user.company
     });
 
@@ -73,15 +80,27 @@ router.put('/:id', async (req, res, next) => {
     const supplier = await Supplier.findOne({ _id: req.params.id, company: req.user.company });
     if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
 
-    const { name, taxId, country, contact, email, phone, defaultCarrier, leadTime } = req.body;
-    if (name) supplier.name = name.trim();
+    const { name, taxId, country, contact, email, phone, defaultCarrier, preferredCarrier, preferredForOwner, leadTime, notes, active } = req.body;
+    if (name && name.trim() !== supplier.name) {
+      const existing = await Supplier.findOne({ company: req.user.company, name: name.trim(), _id: { $ne: supplier._id } });
+      if (existing) return res.status(400).json({ message: `Supplier '${name.trim()}' already exists.` });
+      supplier.name = name.trim();
+    }
+
     if (taxId !== undefined) supplier.taxId = taxId;
     if (country !== undefined) supplier.country = country;
     if (contact !== undefined) supplier.contact = contact;
     if (email !== undefined) supplier.email = email;
     if (phone !== undefined) supplier.phone = phone;
-    if (defaultCarrier !== undefined) supplier.defaultCarrier = defaultCarrier;
+    if (preferredCarrier !== undefined || defaultCarrier !== undefined) {
+      const c = preferredCarrier || defaultCarrier || '';
+      supplier.preferredCarrier = c;
+      supplier.defaultCarrier = c;
+    }
+    if (preferredForOwner !== undefined) supplier.preferredForOwner = preferredForOwner;
     if (leadTime !== undefined) supplier.leadTime = Number(leadTime);
+    if (notes !== undefined) supplier.notes = notes;
+    if (active !== undefined) supplier.active = Boolean(active);
 
     await supplier.save();
     res.json(supplier);

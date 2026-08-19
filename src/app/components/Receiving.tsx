@@ -186,6 +186,76 @@ export function Receiving() {
     }).catch(() => []);
   }, []);
 
+  const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [scanSearchResults, setScanSearchResults] = useState<any[]>([]);
+  const [showScanDropdown, setShowScanDropdown] = useState(false);
+  const scanDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleScanInputChange = (val: string) => {
+    setScannedBarcode(val);
+    if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
+
+    if (val.trim().length >= 2) {
+      setShowScanDropdown(true);
+      scanDebounceRef.current = setTimeout(async () => {
+        try {
+          const results = await inventoryService.searchProducts(val.trim());
+          setScanSearchResults(Array.isArray(results) ? results : []);
+        } catch (_) {
+          setScanSearchResults([]);
+        }
+      }, 250);
+    } else {
+      setShowScanDropdown(false);
+      setScanSearchResults([]);
+    }
+  };
+
+  const handleSkuInputChange = (idx: number, val: string) => {
+    updateLine(idx, "sku", val);
+
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    if (val.trim().length >= 2) {
+      setActiveSearchIdx(idx);
+      setSearchLoading(true);
+      searchDebounceRef.current = setTimeout(async () => {
+        try {
+          const results = await inventoryService.searchProducts(val.trim());
+          setSearchResults(Array.isArray(results) ? results : []);
+        } catch (_) {
+          setSearchResults([]);
+        } finally {
+          setSearchLoading(false);
+        }
+      }, 250);
+    } else {
+      setActiveSearchIdx(null);
+      setSearchResults([]);
+      setSearchLoading(false);
+    }
+
+    if (!val.trim()) {
+      updateLine(idx, "name", "");
+      updateLine(idx, "description", "");
+      setSkuWarnings(prev => ({ ...prev, [idx]: "" }));
+    }
+  };
+
+  const handleSelectSearchResult = (idx: number, item: any) => {
+    updateLine(idx, "sku", item.sku);
+    updateLine(idx, "name", item.name);
+    updateLine(idx, "description", `${item.category || 'GEN'} · ${item.temperature || 'Ambient'}`);
+    updateLine(idx, "qcRequired", Boolean(item.category === 'COLD' || item.qcProfile?.includes('Cold Chain')));
+    setSkuWarnings(prev => ({ ...prev, [idx]: "" }));
+    setActiveSearchIdx(null);
+    setSearchResults([]);
+  };
+
   const handleSkuLookup = async (idx: number, skuValue: string) => {
     const cleanSku = skuValue.trim().toUpperCase();
     if (!cleanSku) {
@@ -925,23 +995,69 @@ export function Receiving() {
         >
           <div className="space-y-4">
             {/* Quick Barcode Scanner Input */}
-            <div className="bg-primary/5 p-3 rounded-xl border border-primary/20 flex items-center gap-3">
-              <ScanLine className="size-5 text-primary shrink-0" />
-              <input
-                value={scannedBarcode}
-                onChange={(e) => setScannedBarcode(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleBarcodeScanSubmit(scannedBarcode)}
-                placeholder={tc?.scanProductSKUOrBarcodeToVerifyItem || "Scan Product SKU or Unit Barcode / Case Barcode to verify item..."}
-                className="flex-1 bg-transparent text-xs font-mono font-bold outline-none placeholder:font-normal placeholder:text-muted-foreground"
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => handleBarcodeScanSubmit(scannedBarcode)}
-                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all"
-              >
-                Scan SKU
-              </button>
+            <div className="relative">
+              <div className="bg-primary/5 p-3 rounded-xl border border-primary/20 flex items-center gap-3">
+                <ScanLine className="size-5 text-primary shrink-0" />
+                <input
+                  value={scannedBarcode}
+                  onChange={(e) => handleScanInputChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setShowScanDropdown(false);
+                      handleBarcodeScanSubmit(scannedBarcode);
+                    }
+                  }}
+                  onFocus={() => { if (scannedBarcode.length >= 2) setShowScanDropdown(true); }}
+                  onBlur={() => setTimeout(() => setShowScanDropdown(false), 200)}
+                  placeholder={tc?.scanProductSKUOrBarcodeToVerifyItem || "Scan Product SKU or Unit Barcode / Case Barcode to verify item..."}
+                  className="flex-1 bg-transparent text-xs font-mono font-bold outline-none placeholder:font-normal placeholder:text-muted-foreground"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowScanDropdown(false);
+                    handleBarcodeScanSubmit(scannedBarcode);
+                  }}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all"
+                >
+                  Scan SKU
+                </button>
+              </div>
+
+              {/* F3-bis Autocomplete Results Dropdown for Scan Input */}
+              {showScanDropdown && (
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                  {scanSearchResults.length > 0 ? (
+                    scanSearchResults.map((item, sIdx) => (
+                      <div
+                        key={sIdx}
+                        onMouseDown={() => {
+                          setScannedBarcode(item.sku);
+                          handleBarcodeScanSubmit(item.sku);
+                          setShowScanDropdown(false);
+                        }}
+                        className="p-2.5 hover:bg-primary/10 cursor-pointer border-b border-border/40 last:border-0 flex items-center justify-between text-xs transition-colors"
+                      >
+                        <div>
+                          <div className="font-bold font-mono text-primary">{item.sku}</div>
+                          <div className="font-medium text-foreground">{item.name}</div>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.category === 'COLD' ? 'bg-blue-500/15 text-blue-600' : 'bg-secondary text-muted-foreground'}`}>
+                            {item.category || 'GEN'}
+                          </span>
+                          <div className="text-[10px] text-muted-foreground">{item.qcProfile}</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-3 text-xs text-muted-foreground italic">
+                      No matching products found. Type exact SKU or barcode to scan.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Line Items Receiving Table */}
@@ -971,21 +1087,32 @@ export function Receiving() {
                           )}
                         </div>
                         <div className="flex items-center gap-3 text-xs font-mono">
-                          <span>Expected: <strong>{blindReceiving ? "???" : line.expected}</strong></span>
-                          <span>Recv'd: <strong>{line.alreadyReceived}</strong></span>
-                          <span className="text-primary font-bold">Remaining: {blindReceiving ? "???" : line.remaining}</span>
+                          {!blindReceiving && (
+                            <>
+                              <span>Expected: <strong>{line.expected}</strong></span>
+                              <span>Recv'd: <strong>{line.alreadyReceived}</strong></span>
+                              <span className="text-primary font-bold">Remaining: {line.remaining}</span>
+                            </>
+                          )}
+                          {blindReceiving && (
+                            <span className="text-amber-500 font-bold bg-amber-500/10 px-2.5 py-1 rounded-md text-xs border border-amber-500/20">
+                              🔒 BLIND RECEIVING MODE: Expected & Remaining Quantities Hidden
+                            </span>
+                          )}
                         </div>
                       </div>
 
                       {/* Inputs Row */}
                       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1">
                         <div>
-                          <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">Qty to Receive</label>
+                          <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">
+                            {blindReceiving ? "Qty Counted" : "Qty to Receive"}
+                          </label>
                           <input
                             id={`receive-qty-input-${idx}`}
                             type="number"
                             min="0"
-                            max={line.remaining}
+                            {...(!blindReceiving ? { max: line.remaining } : {})}
                             value={line.qtyToReceive}
                             onChange={(e) => updateReceiveLine(idx, "qtyToReceive", Number(e.target.value))}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-mono font-bold focus:border-primary/50"
@@ -1197,24 +1324,47 @@ export function Receiving() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-[11px] font-medium block mb-1">SKU *</label>
+                    <div className="relative">
+                      <label className="text-[11px] font-medium block mb-1">SKU * (Auto-search)</label>
                       <Input
                         value={line.sku}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          updateLine(idx, "sku", val);
-                          if (val.trim()) {
-                            handleSkuLookup(idx, val);
-                          } else {
-                            updateLine(idx, "name", "");
-                            updateLine(idx, "description", "");
-                            setSkuWarnings(prev => ({ ...prev, [idx]: "" }));
-                          }
-                        }}
-                        onBlur={(e) => handleSkuLookup(idx, e.target.value)}
-                        placeholder={tc?.sKU1001 || "SKU-1001"}
+                        onChange={(e) => handleSkuInputChange(idx, e.target.value)}
+                        onBlur={() => setTimeout(() => setActiveSearchIdx(null), 200)}
+                        placeholder="Search by SKU code or product name..."
                       />
+
+                      {/* F3-bis Autocomplete Results Dropdown */}
+                      {activeSearchIdx === idx && (
+                        <div className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                          {searchLoading ? (
+                            <div className="p-3 text-xs text-muted-foreground animate-pulse">Searching product catalogue...</div>
+                          ) : searchResults.length > 0 ? (
+                            searchResults.map((item, sIdx) => (
+                              <div
+                                key={sIdx}
+                                onMouseDown={() => handleSelectSearchResult(idx, item)}
+                                className="p-2.5 hover:bg-primary/10 cursor-pointer border-b border-border/40 last:border-0 flex items-center justify-between text-xs transition-colors"
+                              >
+                                <div>
+                                  <div className="font-bold font-mono text-primary">{item.sku}</div>
+                                  <div className="font-medium text-foreground">{item.name}</div>
+                                </div>
+                                <div className="text-right">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.category === 'COLD' ? 'bg-blue-500/15 text-blue-600' : 'bg-secondary text-muted-foreground'}`}>
+                                    {item.category || 'GEN'}
+                                  </span>
+                                  <div className="text-[10px] text-muted-foreground">{item.qcProfile}</div>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="p-3 text-xs text-muted-foreground italic">
+                              Not found. Enter code manually or add to catalogue.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {skuWarnings[idx] && (
                         <div className="text-[10px] text-amber-500 font-bold mt-1 flex items-center gap-1">
                           <AlertTriangle className="size-3 shrink-0" /> {skuWarnings[idx]}

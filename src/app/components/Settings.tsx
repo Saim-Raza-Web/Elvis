@@ -8,7 +8,9 @@ import { clientsService, type ClientOwner } from "../../services/clients.service
 import { toast } from "sonner";
 import { ROLE_DEFINITIONS, PERMISSION_MODULES } from "../../utils/permissions";
 
+import { Tag } from "lucide-react";
 import { Suppliers } from "./Suppliers";
+import { ProductCategories } from "./ProductCategories";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
 
@@ -27,6 +29,7 @@ export function Settings() {
     { id: "branding", label: "Company Branding", icon: Building2 },
     { id: "owners", label: "Clients / 3PL Owners", icon: Building2 },
     { id: "suppliers", label: "Suppliers Master", icon: Truck },
+    { id: "categories", label: "Product Categories", icon: Tag },
     { id: "notifications", label: t.settings.notifications, icon: settingsTabIcons[1] },
     { id: "security", label: t.settings.security, icon: settingsTabIcons[2] },
     { id: "team", label: t.settings.team, icon: settingsTabIcons[3] },
@@ -455,6 +458,10 @@ export function Settings() {
 
         {activeTab === "suppliers" && (
           <Suppliers />
+        )}
+
+        {activeTab === "categories" && (
+          <ProductCategories />
         )}
 
         {activeTab === "branding" && (

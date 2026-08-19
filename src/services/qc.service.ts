@@ -16,8 +16,9 @@ export const qcService = {
     const response = await api.put('/qc/' + id, data);
     return response.data;
   },
-  passInspection: async (id: string, notes?: string) => {
-    const response = await api.post('/qc/' + id + '/pass', { notes });
+  passInspection: async (id: string, data?: string | any) => {
+    const payload = typeof data === 'string' ? { notes: data } : (data || {});
+    const response = await api.post('/qc/' + id + '/pass', payload);
     return response.data;
   },
   failInspection: async (id: string, failReason: string) => {

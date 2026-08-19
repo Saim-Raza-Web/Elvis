@@ -1,12 +1,10 @@
-import { useState, useMemo } from "react";
-import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3 } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3, Printer, CheckSquare, Square } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
-
-import { useEffect } from "react";
 import { locationsService } from "../../services/locations.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { zonesService } from "../../services/zones.service";
@@ -21,7 +19,28 @@ const locationsListService: ListService<Loc> = {
 };
 
 type Zone = { _id: string; code: string; name: string; type: string; warehouse: string; locations: number; occupied: number; capacity: number; };
-type Loc = { _id: string; code: string; zone: string; aisle: string; shelf: string; bin: string; sku: string | null; product: string | null; qty: number; capacity: number; status: string; };
+type Loc = {
+  _id: string;
+  code: string;
+  zone: string;
+  aisle: string;
+  shelf: string;
+  bin: string;
+  sku: string | null;
+  product: string | null;
+  qty: number;
+  capacity: number;
+  status: string;
+  locationType?: string;
+  type?: string;
+  tempMin?: number;
+  tempMax?: number;
+  palletCapacity?: number;
+  boxCapacity?: number;
+  weightCapacity?: number;
+  allowedOwners?: string[];
+  active?: boolean;
+};
 
 const zoneTypeColor: Record<string, string> = {
   receiving: "bg-blue-500/15 text-blue-500",
@@ -42,7 +61,10 @@ export function Locations() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"zones" | "locations" | "rules">("zones");
 
-  // Storage Rules State
+  // Selection & Barcode Label Printing (LOC-04)
+  const [selectedLocIds, setSelectedLocIds] = useState<string[]>([]);
+
+  // Storage Rules State (LOC-01)
   const [rules, setRules] = useState<any[]>([]);
   const [showRule, setShowRule] = useState(false);
   const [ruleForm, setRuleForm] = useState({ name: "", conditionType: "category", conditionValue: "", targetZone: "", targetLocationType: "", priority: 1 });
@@ -55,9 +77,27 @@ export function Locations() {
   const [editZoneTarget, setEditZoneTarget] = useState<Zone | null>(null);
   const [deleteZoneTarget, setDeleteZoneTarget] = useState<Zone | null>(null);
 
-  // Add Location modal
+  // Add Location modal (LOC-03 Extended Properties)
   const [showLoc, setShowLoc] = useState(false);
-  const [locForm, setLocForm] = useState({ zone: "PICK-A", aisle: "", shelf: "", bin: "", sku: "", product: "", capacity: 100, allowed_manufacturers: "", allowed_families: "" });
+  const [locForm, setLocForm] = useState({
+    zone: "PICK-A",
+    aisle: "",
+    shelf: "",
+    bin: "",
+    sku: "",
+    product: "",
+    capacity: 100,
+    locationType: "PALLET",
+    tempMin: 15,
+    tempMax: 25,
+    palletCapacity: 1,
+    boxCapacity: 50,
+    weightCapacity: 1000,
+    allowedOwners: "",
+    active: true,
+    allowed_manufacturers: "",
+    allowed_families: ""
+  });
   const [editLocTarget, setEditLocTarget] = useState<Loc | null>(null);
   const [deleteLocTarget, setDeleteLocTarget] = useState<Loc | null>(null);
 
@@ -76,12 +116,12 @@ export function Locations() {
         zonesService.getAll({ warehouse: selectedWarehouse }),
         fetch(`/api/v1/storage-rules`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
-        }).then(res => res.json())
+        }).then(res => res.json()).catch(() => [])
       ]);
       const whList = (whs || []) as any[];
       setZones((zonesData as Zone[]) || []);
       setWarehouses(whList);
-      setRules((rulesData as any) || []);
+      setRules(Array.isArray(rulesData) ? rulesData : []);
       if (whList.length > 0 && !selectedWarehouse) setSelectedWarehouse(whList[0].code);
     } catch (err) {
       toast.error(t.common?.error || "Failed to load data");
@@ -99,102 +139,209 @@ export function Locations() {
     return () => window.removeEventListener("open-add-location", handler);
   }, [selectedWarehouse]);
 
-  const filteredZones = zones.filter(
-    (z) => (z.code || "").toLowerCase().includes(search.toLowerCase()) || (z.name || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const toggleSelectLoc = (id: string) => {
+    setSelectedLocIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
 
-  async function handleAddZone() {
-    if (!zoneForm.code || !zoneForm.name) return;
+  const toggleSelectAllLocs = () => {
+    if (selectedLocIds.length === pagedLocs.length) {
+      setSelectedLocIds([]);
+    } else {
+      setSelectedLocIds(pagedLocs.map(l => l._id));
+    }
+  };
+
+  // LOC-04 Barcode Label Printable Generator (Zebra 100x50mm Code 128)
+  const handlePrintLocationLabels = (targetList?: Loc[]) => {
+    const printItems = targetList || pagedLocs.filter(l => selectedLocIds.includes(l._id));
+    if (printItems.length === 0) {
+      toast.error("Please select at least one location to print barcode labels.");
+      return;
+    }
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+      toast.error("Please allow popups to print location barcode labels.");
+      return;
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Location Barcode Labels - Elvis WMS</title>
+        <style>
+          @page { size: A4; margin: 8mm; }
+          body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; background: #fff; color: #000; }
+          .label-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; }
+          .label-card {
+            border: 2px solid #000;
+            border-radius: 8px;
+            padding: 5mm;
+            box-sizing: border-box;
+            height: 52mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            page-break-inside: avoid;
+            background: #fff;
+          }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 4px; }
+          .code { font-family: monospace; font-size: 22px; font-weight: 900; letter-spacing: 1px; }
+          .badge { font-size: 11px; font-weight: bold; background: #000; color: #fff; padding: 2px 8px; border-radius: 4px; }
+          .barcode-box { text-align: center; margin: 4px 0; }
+          .barcode-box svg { max-width: 100%; height: 50px; }
+          .barcode-text { font-family: monospace; font-size: 13px; font-weight: bold; margin-top: 2px; }
+          .footer-info { display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; color: #333; border-top: 1px solid #ccc; padding-top: 4px; }
+        </style>
+      </head>
+      <body>
+        <div class="label-grid">
+          ${printItems.map(item => `
+            <div class="label-card">
+              <div class="header">
+                <span class="code">${item.code}</span>
+                <span class="badge">${item.zone || 'MAIN'} · ${item.locationType || item.type || 'PALLET'}</span>
+              </div>
+              <div class="barcode-box">
+                <svg id="barcode-${item._id}"></svg>
+                <div class="barcode-text">*${item.code}*</div>
+              </div>
+              <div class="footer-info">
+                <span>WH: ${selectedWarehouse}</span>
+                <span>Temp: ${item.tempMin ?? 15}°C to ${item.tempMax ?? 25}°C</span>
+                <span>Cap: ${item.palletCapacity ?? 1} Pallet / ${item.weightCapacity ?? 1000}kg</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+        <script>
+          window.onload = () => {
+            ${printItems.map(item => `
+              try {
+                JsBarcode("#barcode-${item._id}", "${item.code}", { format: "CODE128", width: 2, height: 45, displayValue: false });
+              } catch(e) {}
+            `).join('\n')}
+            setTimeout(() => { window.print(); }, 400);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWin.document.write(html);
+    printWin.document.close();
+  };
+
+  const handleAddZone = async () => {
     try {
+      if (!zoneForm.code || !zoneForm.name) { toast.error("Code and Name are required"); return; }
       if (editZoneTarget) {
         await zonesService.update(editZoneTarget._id, zoneForm);
-        toast.success(`Zone updated.`);
-        setEditZoneTarget(null);
+        toast.success(`Zone ${zoneForm.code} updated`);
       } else {
         await zonesService.create(zoneForm);
-        toast.success(`${t.locations.zoneCreated}: ${zoneForm.code}`);
-        setShowZone(false);
+        toast.success(`Zone ${zoneForm.code} created`);
       }
+      setShowZone(false);
+      setEditZoneTarget(null);
       loadData();
-    } catch (e) { toast.error(t.common?.error || "Failed to save zone"); }
-  }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to save zone");
+    }
+  };
 
-  async function handleDeleteZone() {
+  const handleDeleteZone = async () => {
     if (!deleteZoneTarget) return;
     try {
       await zonesService.delete(deleteZoneTarget._id);
-      toast.success(`Zone deleted.`);
+      toast.success(`Zone ${deleteZoneTarget.code} deleted`);
       setDeleteZoneTarget(null);
       loadData();
-    } catch (e) { toast.error(t.common?.error || "Failed to delete zone"); }
-  }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to delete zone");
+    }
+  };
 
-  async function handleAddLoc() {
-    if (!locForm.aisle || !locForm.shelf || !locForm.bin) return;
-    const code = `${selectedWarehouse}-${locForm.zone}-${locForm.aisle}-${locForm.shelf}`;
-    const parsedRules = {
-      allowed_manufacturers: locForm.allowed_manufacturers.split(',').map(s=>s.trim()).filter(Boolean),
-      allowed_families: locForm.allowed_families.split(',').map(s=>s.trim()).filter(Boolean)
-    };
+  const handleAddLoc = async () => {
     try {
+      if (!locForm.zone || !locForm.aisle || !locForm.shelf) { toast.error("Zone, Aisle, and Shelf are required"); return; }
+      const payload = {
+        ...locForm,
+        warehouse: selectedWarehouse,
+        allowed_manufacturers: locForm.allowed_manufacturers.split(',').map(s => s.trim()).filter(Boolean),
+        allowed_families: locForm.allowed_families.split(',').map(s => s.trim()).filter(Boolean),
+        allowedOwners: locForm.allowedOwners.split(',').map(s => s.trim()).filter(Boolean),
+      };
       if (editLocTarget) {
-        await locationsService.update(editLocTarget._id, { ...locForm, ...parsedRules, code });
-        toast.success(`Location updated.`);
-        setEditLocTarget(null);
+        await locationsService.update(editLocTarget._id, payload);
+        toast.success(`Location updated`);
       } else {
-        await locationsService.create({ ...locForm, ...parsedRules, code, qty: 0, status: "ok" });
-        toast.success(`${t.locations.locCreated}: ${code}`);
-        setShowLoc(false);
+        await locationsService.create(payload);
+        toast.success(`Location created`);
       }
+      setShowLoc(false);
+      setEditLocTarget(null);
       reload();
-    } catch (e) { toast.error(t.common?.error || "Failed to save location"); }
-  }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to save location");
+    }
+  };
 
-  async function handleDeleteLoc() {
+  const handleDeleteLoc = async () => {
     if (!deleteLocTarget) return;
     try {
       await locationsService.delete(deleteLocTarget._id);
-      toast.success(`Location deleted.`);
+      toast.success(`Location ${deleteLocTarget.code} deleted`);
       setDeleteLocTarget(null);
       reload();
-    } catch (e) { toast.error(t.common?.error || "Failed to delete location"); }
-  }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to delete location");
+    }
+  };
 
-  async function handleAddRule() {
-    if (!ruleForm.name || !ruleForm.conditionValue) return;
+  const handleAddRule = async () => {
     try {
-      const url = `/api/v1/storage-rules`;
+      if (!ruleForm.name || !ruleForm.targetZone) { toast.error("Rule name and Target Zone are required"); return; }
       const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
-      if (editRuleTarget) {
-        await fetch(`${url}/${editRuleTarget._id}`, {
-          method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(ruleForm)
-        });
-        toast.success(`Rule updated.`);
-        setEditRuleTarget(null);
-      } else {
-        await fetch(url, {
-          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify(ruleForm)
-        });
-        toast.success(`Storage Rule created.`);
-        setShowRule(false);
-      }
+      const url = editRuleTarget ? `/api/v1/storage-rules/${editRuleTarget._id}` : `/api/v1/storage-rules`;
+      const method = editRuleTarget ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(ruleForm)
+      });
+      if (!res.ok) throw new Error("Failed to save storage rule");
+      toast.success(editRuleTarget ? `Rule ${ruleForm.name} updated` : `Rule ${ruleForm.name} created`);
+      setShowRule(false);
+      setEditRuleTarget(null);
       loadData();
-    } catch (e) { toast.error(t.common?.error || "Failed to save rule"); }
-  }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save rule");
+    }
+  };
 
-  async function handleDeleteRule() {
+  const handleDeleteRule = async () => {
     if (!deleteRuleTarget) return;
     try {
-      await fetch(`/api/v1/storage-rules/${deleteRuleTarget._id}`, {
-        method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
+      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
+      const res = await fetch(`/api/v1/storage-rules/${deleteRuleTarget._id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
       });
-      toast.success(`Rule deleted.`);
+      if (!res.ok) throw new Error("Failed to delete rule");
+      toast.success(`Rule ${deleteRuleTarget.name} deleted`);
       setDeleteRuleTarget(null);
       loadData();
-    } catch (e) { toast.error(t.common?.error || "Failed to delete rule"); }
-  }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete rule");
+    }
+  };
+
+  const filteredZones = useMemo(() => {
+    return zones.filter(z => z.code.toLowerCase().includes(search.toLowerCase()) || z.name.toLowerCase().includes(search.toLowerCase()));
+  }, [zones, search]);
 
   return (
     <div className="space-y-6">
@@ -214,24 +361,40 @@ export function Locations() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`${t.common.search}…`} className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+      <div className="flex items-center gap-3 flex-wrap justify-between">
+        <div className="flex items-center gap-3 flex-1 min-w-48">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`${t.common.search}…`} className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
+          </div>
+          <div className="flex gap-1.5">
+            {warehouses.map((wh: any) => (
+              <button key={wh.code} onClick={() => setSelectedWarehouse(wh.code)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedWarehouse === wh.code ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{wh.code}</button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-1.5">
-          {warehouses.map((wh: any) => (
-            <button key={wh.code} onClick={() => setSelectedWarehouse(wh.code)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedWarehouse === wh.code ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:bg-secondary"}`}>{wh.code}</button>
-          ))}
+
+        <div className="flex items-center gap-2">
+          {view === "locations" && selectedLocIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => handlePrintLocationLabels()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-sm"
+            >
+              <Printer className="size-4" /> Print Selected Labels ({selectedLocIds.length})
+            </button>
+          )}
+
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button onClick={() => setView("zones")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "zones" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.zone}s</button>
+            <button onClick={() => setView("locations")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "locations" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.location}s</button>
+            <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.locations?.rules || "Rules"}</button>
+          </div>
+
+          <PrimaryButton icon={Plus} onClick={() => view === "zones" ? setShowZone(true) : view === "locations" ? setShowLoc(true) : setShowRule(true)}>
+            {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : (t.locations?.addRule || "Add Rule")}
+          </PrimaryButton>
         </div>
-        <div className="flex rounded-lg border border-border overflow-hidden">
-          <button onClick={() => setView("zones")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "zones" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.zone}s</button>
-          <button onClick={() => setView("locations")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "locations" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.location}s</button>
-          <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.locations?.rules || "Rules"}</button>
-        </div>
-        <PrimaryButton icon={Plus} onClick={() => view === "zones" ? setShowZone(true) : view === "locations" ? setShowLoc(true) : setShowRule(true)}>
-          {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : (t.locations?.addRule || "Add Rule")}
-        </PrimaryButton>
       </div>
 
       {view === "zones" && (
@@ -281,44 +444,105 @@ export function Locations() {
 
       {view === "locations" && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border font-bold">
               <tr>
-                <th className="text-left px-4 py-3">{t.locations.locationCode}</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">{t.common.zone}</th>
-                <th className="text-left px-4 py-3">{t.locations.product}</th>
-                <th className="text-right px-4 py-3">{t.locations.qty}</th>
-                <th className="text-center px-4 py-3">{t.common.status}</th>
+                <th className="px-4 py-3 w-10 text-center">
+                  <button type="button" onClick={toggleSelectAllLocs} className="hover:text-foreground">
+                    {selectedLocIds.length > 0 && selectedLocIds.length === pagedLocs.length ? (
+                      <CheckSquare className="size-4 text-primary" />
+                    ) : (
+                      <Square className="size-4" />
+                    )}
+                  </button>
+                </th>
+                <th className="px-4 py-3">{t.locations.locationCode}</th>
+                <th className="px-4 py-3 hidden md:table-cell">{t.common.zone}</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">{t.locations.product}</th>
+                <th className="px-4 py-3 text-right">{t.locations.qty}</th>
+                <th className="px-4 py-3 text-center">{t.common.status}</th>
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {pagedLocs.map((loc, i) => (
-                <tr key={loc._id || i} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 25}ms` }}>
-                  <td className="px-4 py-3 font-semibold" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "0.75rem" }}>{loc.code}</td>
-                  <td className="px-4 py-3 hidden md:table-cell"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${zoneTypeColor[zones.find((z) => z.code === loc.zone)?.type ?? "storage"]}`}>{loc.zone}</span></td>
-                  <td className="px-4 py-3">
-                    {loc.product ? <div><div className="font-medium">{loc.product}</div><div className="text-xs text-muted-foreground">{loc.sku}</div></div> : <span className="text-muted-foreground text-xs">{t.locations.empty}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{loc.qty > 0 ? loc.qty : "—"}</td>
-                  <td className="px-4 py-3 text-center"><StatusBadge status={loc.status} /></td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-1">
-                      <button onClick={() => { setEditLocTarget(loc); setLocForm({ zone: loc.zone, aisle: loc.aisle, shelf: loc.shelf, bin: loc.bin, sku: loc.sku || "", product: loc.product || "", capacity: loc.capacity, allowed_manufacturers: (loc as any).allowed_manufacturers?.join(', ') || "", allowed_families: (loc as any).allowed_families?.join(', ') || "" }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
-                      <button onClick={() => setDeleteLocTarget(loc)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {pagedLocs.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
+              {pagedLocs.map((loc, i) => {
+                const isSelected = selectedLocIds.includes(loc._id);
+                return (
+                  <tr key={loc._id || i} className={`border-t border-border hover:bg-secondary/30 transition-colors ${isSelected ? 'bg-primary/5' : ''}`}>
+                    <td className="px-4 py-3 text-center">
+                      <button type="button" onClick={() => toggleSelectLoc(loc._id)} className="hover:text-foreground">
+                        {isSelected ? <CheckSquare className="size-4 text-primary" /> : <Square className="size-4 text-muted-foreground" />}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 font-semibold font-mono text-xs">{loc.code}</td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${zoneTypeColor[zones.find((z) => z.code === loc.zone)?.type ?? "storage"]}`}>{loc.zone}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-secondary text-foreground">
+                        {loc.locationType || loc.type || "PALLET"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {loc.product ? <div><div className="font-medium">{loc.product}</div><div className="text-xs text-muted-foreground font-mono">{loc.sku}</div></div> : <span className="text-muted-foreground text-xs">{t.locations.empty}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold font-mono">{loc.qty > 0 ? loc.qty : "—"}</td>
+                    <td className="px-4 py-3 text-center"><StatusBadge status={loc.status} /></td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handlePrintLocationLabels([loc])}
+                          title="Print Location Barcode Label (LOC-04)"
+                          className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
+                        >
+                          <Printer className="size-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditLocTarget(loc);
+                            setLocForm({
+                              zone: loc.zone,
+                              aisle: loc.aisle,
+                              shelf: loc.shelf,
+                              bin: loc.bin,
+                              sku: loc.sku || "",
+                              product: loc.product || "",
+                              capacity: loc.capacity,
+                              locationType: loc.locationType || loc.type || "PALLET",
+                              tempMin: loc.tempMin ?? 15,
+                              tempMax: loc.tempMax ?? 25,
+                              palletCapacity: loc.palletCapacity ?? 1,
+                              boxCapacity: loc.boxCapacity ?? 50,
+                              weightCapacity: loc.weightCapacity ?? 1000,
+                              allowedOwners: loc.allowedOwners?.join(', ') || "",
+                              active: loc.active !== false,
+                              allowed_manufacturers: (loc as any).allowed_manufacturers?.join(', ') || "",
+                              allowed_families: (loc as any).allowed_families?.join(', ') || ""
+                            });
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                        >
+                          <Edit3 className="size-3.5" />
+                        </button>
+                        <button onClick={() => setDeleteLocTarget(loc)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {pagedLocs.length === 0 && <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">{t.common.noResults}</td></tr>}
             </tbody>
           </table>
           <TablePagination pagination={pagination} page={page} onPageChange={setPage} />
         </div>
       )}
-      
+
+      {/* Rules Tab Error Boundary & Empty State (LOC-01) */}
       {view === "rules" && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {rules.map((rule, i) => (
+          {(Array.isArray(rules) && rules.length > 0) ? rules.map((rule, i) => (
             <div key={rule._id || i} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -340,7 +564,15 @@ export function Locations() {
                 </div>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="col-span-full p-12 text-center bg-card rounded-xl border border-border space-y-3">
+              <Boxes className="size-10 text-muted-foreground mx-auto opacity-40" />
+              <div className="font-bold text-base text-foreground">No rules configured. Go to Settings &gt; Storage Rules to create them.</div>
+              <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                Storage rules dynamically govern putaway location proposals based on product category, temperature limits, and client owner isolation.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -367,84 +599,37 @@ export function Locations() {
         <Field label={t.warehouses.capacity}><Input type="number" value={zoneForm.capacity} onChange={(e) => setZoneForm({ ...zoneForm, capacity: Number(e.target.value) })} /></Field>
       </Modal>
 
-      {/* Add Location Modal */}
-      <Modal open={showLoc} onClose={() => setShowLoc(false)} title={t.locations.addLocation} subtitle={t.locations.locationCode} footer={<><ModalCancel onClose={() => setShowLoc(false)} /><ModalSubmit onClick={handleAddLoc}>{t.common.create}</ModalSubmit></>}>
+      {/* Add / Edit Location Modal (LOC-03 Extended Properties) */}
+      <Modal open={showLoc || !!editLocTarget} onClose={() => { setShowLoc(false); setEditLocTarget(null); }} title={editLocTarget ? `${t.common.edit} ${t.common.location}` : t.locations.addLocation} subtitle="Configure bin, location type, capacity and temperature limits." footer={<><ModalCancel onClose={() => { setShowLoc(false); setEditLocTarget(null); }} /><ModalSubmit onClick={handleAddLoc}>{editLocTarget ? t.common.save : t.common.create}</ModalSubmit></>}>
         <Field label={t.common.zone} required><Select value={locForm.zone} onChange={(e) => setLocForm({ ...locForm, zone: e.target.value })}>
           {zones.map((z) => <option key={z.code} value={z.code}>{z.code} — {z.name}</option>)}
         </Select></Field>
         <Row>
           <Field label={t.locations.aisle} required><Input value={locForm.aisle} onChange={(e) => setLocForm({ ...locForm, aisle: e.target.value })} placeholder="01" /></Field>
-          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder={t.common?.a || "A"} /></Field>
-        </Row>
-        <Row>
+          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder="A" /></Field>
           <Field label={t.locations.bin}><Input value={locForm.bin} onChange={(e) => setLocForm({ ...locForm, bin: e.target.value })} placeholder="01" /></Field>
-          <Field label={t.warehouses.capacity}><Input type="number" value={locForm.capacity} onChange={(e) => setLocForm({ ...locForm, capacity: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
-          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder={t.common?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
-        </Row>
-        <div className="pt-2 border-t border-border mt-2 mb-2">
-          <p className="text-sm font-bold text-muted-foreground mb-3">{t.common.rules}</p>
-          <Row>
-            <Field label={t.common?.allowedManufacturers || "Allowed Manufacturers"}><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder={t.common?.samsungAppleCommaSeparated || "Samsung, Apple (comma separated)"} /></Field>
-            <Field label={t.common?.allowedFamilies || "Allowed Families"}><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder={t.common?.electronicsClothing || "Electronics, Clothing"} /></Field>
-          </Row>
-        </div>
-      </Modal>
-
-      {/* Edit Zone Modal */}
-      <Modal open={!!editZoneTarget} onClose={() => setEditZoneTarget(null)} title={`${t.common.edit} ${t.common.zone}`} footer={<><ModalCancel onClose={() => setEditZoneTarget(null)} /><ModalSubmit onClick={handleAddZone}>{t.common.save}</ModalSubmit></>}>
-        <Row>
-          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder={t.common?.pICKC || "PICK-C"} /></Field>
-          <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
-            {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
-          </Select></Field>
-        </Row>
-        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder={t.common?.pickingZoneC || "Picking Zone C"} /></Field>
-        <Row>
-          <Field label={t.locations.zoneType}><Select value={zoneForm.type} onChange={(e) => setZoneForm({ ...zoneForm, type: e.target.value })}>
-            {Object.keys(zoneTypeColor).map((typeKey) => (
-              <option key={typeKey} value={typeKey}>
-                {t.locations.types[typeKey as keyof typeof t.locations.types] ?? typeKey}
-              </option>
-            ))}
-          </Select></Field>
-          <Field label={t.locations.totalLocations}><Input type="number" value={zoneForm.locations} onChange={(e) => setZoneForm({ ...zoneForm, locations: Number(e.target.value) })} /></Field>
-        </Row>
-        <Field label={t.warehouses.capacity}><Input type="number" value={zoneForm.capacity} onChange={(e) => setZoneForm({ ...zoneForm, capacity: Number(e.target.value) })} /></Field>
-      </Modal>
-
-      {/* Delete Zone Modal */}
-      <Modal open={!!deleteZoneTarget} onClose={() => setDeleteZoneTarget(null)} title={`${t.common.delete} ${t.common.zone}`} width="sm" footer={<><ModalCancel onClose={() => setDeleteZoneTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteZone}>{t.common.delete}</ModalSubmit></>}>
-        <p className="text-sm text-muted-foreground">{t.warehouses.confirmDelete} <strong>{deleteZoneTarget?.code}</strong>? {t.warehouses.cannotUndo}</p>
-      </Modal>
-
-      {/* Edit Location Modal */}
-      <Modal open={!!editLocTarget} onClose={() => setEditLocTarget(null)} title={`${t.common.edit} ${t.common.location}`} footer={<><ModalCancel onClose={() => setEditLocTarget(null)} /><ModalSubmit onClick={handleAddLoc}>{t.common.save}</ModalSubmit></>}>
-        <Field label={t.common.zone} required><Select value={locForm.zone} onChange={(e) => setLocForm({ ...locForm, zone: e.target.value })}>
-          {zones.map((z) => <option key={z.code} value={z.code}>{z.code} — {z.name}</option>)}
-        </Select></Field>
-        <Row>
-          <Field label={t.locations.aisle} required><Input value={locForm.aisle} onChange={(e) => setLocForm({ ...locForm, aisle: e.target.value })} placeholder="01" /></Field>
-          <Field label={t.locations.shelf} required><Input value={locForm.shelf} onChange={(e) => setLocForm({ ...locForm, shelf: e.target.value })} placeholder={t.common?.a || "A"} /></Field>
+          <Field label="Location Type (LOC-03)">
+            <Select value={locForm.locationType} onChange={(e) => setLocForm({ ...locForm, locationType: e.target.value })}>
+              <option value="PALLET">PALLET</option>
+              <option value="SHELF">SHELF</option>
+              <option value="FLOOR">FLOOR</option>
+              <option value="STAGING">STAGING</option>
+              <option value="OVERFLOW">OVERFLOW</option>
+            </Select>
+          </Field>
+          <Field label="Weight Cap (kg)"><Input type="number" value={locForm.weightCapacity} onChange={(e) => setLocForm({ ...locForm, weightCapacity: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={t.locations.bin}><Input value={locForm.bin} onChange={(e) => setLocForm({ ...locForm, bin: e.target.value })} placeholder="01" /></Field>
-          <Field label={t.warehouses.capacity}><Input type="number" value={locForm.capacity} onChange={(e) => setLocForm({ ...locForm, capacity: Number(e.target.value) })} /></Field>
+          <Field label="Min Temp (°C)"><Input type="number" value={locForm.tempMin} onChange={(e) => setLocForm({ ...locForm, tempMin: Number(e.target.value) })} /></Field>
+          <Field label="Max Temp (°C)"><Input type="number" value={locForm.tempMax} onChange={(e) => setLocForm({ ...locForm, tempMax: Number(e.target.value) })} /></Field>
         </Row>
         <Row>
-          <Field label={`${t.inventory.sku} (optional)`}><Input value={locForm.sku} onChange={(e) => setLocForm({ ...locForm, sku: e.target.value })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
-          <Field label={t.inventory.productName}><Input value={locForm.product} onChange={(e) => setLocForm({ ...locForm, product: e.target.value })} placeholder={t.common?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>
+          <Field label="Pallet Cap"><Input type="number" value={locForm.palletCapacity} onChange={(e) => setLocForm({ ...locForm, palletCapacity: Number(e.target.value) })} /></Field>
+          <Field label="Box Cap"><Input type="number" value={locForm.boxCapacity} onChange={(e) => setLocForm({ ...locForm, boxCapacity: Number(e.target.value) })} /></Field>
         </Row>
-        <div className="pt-2 border-t border-border mt-2 mb-2">
-          <p className="text-sm font-bold text-muted-foreground mb-3">{t.common.rules}</p>
-          <Row>
-            <Field label={t.common?.allowedManufacturers || "Allowed Manufacturers"}><Input value={locForm.allowed_manufacturers} onChange={(e) => setLocForm({ ...locForm, allowed_manufacturers: e.target.value })} placeholder={t.common?.samsungAppleCommaSeparated || "Samsung, Apple (comma separated)"} /></Field>
-            <Field label={t.common?.allowedFamilies || "Allowed Families"}><Input value={locForm.allowed_families} onChange={(e) => setLocForm({ ...locForm, allowed_families: e.target.value })} placeholder={t.common?.electronicsClothing || "Electronics, Clothing"} /></Field>
-          </Row>
-        </div>
+        <Field label="Allowed 3PL Owners (comma-separated)"><Input value={locForm.allowedOwners} onChange={(e) => setLocForm({ ...locForm, allowedOwners: e.target.value })} placeholder="e.g. Apple Distribution 3PL, Acme Logistics 3PL" /></Field>
       </Modal>
 
       {/* Delete Location Modal */}

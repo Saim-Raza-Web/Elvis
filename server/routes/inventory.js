@@ -49,6 +49,60 @@ router.get('/alerts/low-stock', async (req, res, next) => {
   }
 });
 
+// GET autocomplete product search (F3-bis: SKU starts-with + Name contains)
+router.get('/search', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const query = (req.query.q || req.query.query || '').trim();
+
+    if (!query || query.length < 2) {
+      return res.json([]);
+    }
+
+    const qUpper = query.toUpperCase();
+    const products = await Model.find({ company: req.user.company });
+
+    const matches = [];
+    for (const p of products) {
+      const skuUpper = (p.sku || '').toUpperCase();
+      const nameUpper = (p.name || '').toUpperCase();
+
+      let rank = -1;
+      if (skuUpper === qUpper) {
+        rank = 1; // Exact SKU match
+      } else if (skuUpper.startsWith(qUpper)) {
+        rank = 2; // SKU starts-with match
+      } else if (nameUpper.includes(qUpper)) {
+        rank = 3; // Name contains match
+      }
+
+      if (rank > 0) {
+        matches.push({
+          rank,
+          sku: p.sku,
+          name: p.name || p.sku,
+          unitBarcode: p.unitBarcode || '',
+          caseBarcode: p.caseBarcode || '',
+          category: p.category || 'GEN',
+          temperature: p.temperature_range || p.temperature || (p.category === 'COLD' ? 'Refrigerated 2°C–8°C' : 'Ambient'),
+          qcProfile: p.qc_profile || p.qcProfile || (p.category === 'COLD' ? 'Cold Chain' : 'Standard QC'),
+          product: p
+        });
+      }
+    }
+
+    matches.sort((a, b) => a.rank - b.rank || a.sku.localeCompare(b.sku));
+    const results = matches.slice(0, 8).map(m => {
+      const { rank, ...rest } = m;
+      return rest;
+    });
+
+    res.json(results);
+  } catch (err) {
+    next(err);
+  }
+});
+
 
 // GET resolve barcode (Unified Barcode Resolver)
 router.get('/resolve-barcode/:barcode', async (req, res, next) => {

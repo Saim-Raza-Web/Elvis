@@ -14,6 +14,7 @@ import Incident from '../models/Incident.js';
 import QuarantineInventory from '../models/QuarantineInventory.js';
 import Product from '../models/Product.js';
 import PutawayTask from '../models/PutawayTask.js';
+import Company from '../models/Company.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
 import { proposeDestinationLocation } from '../services/locationProposalService.js';
 
@@ -469,12 +470,70 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       const expected = matchLine.expected_qty || 0;
       const remaining = expected - currentReceived;
 
-      if (qtyNum > remaining) {
+      // Check Blind Receiving setting from Company
+      const companyDoc = await Company.findById(req.user.company).session(session);
+      const isBlindReceiving = Boolean(companyDoc?.blindReceiving);
+
+      if (!isBlindReceiving && qtyNum > remaining) {
         await session.abortTransaction();
         session.endSession();
         return res.status(400).json({
           message: `Cannot receive ${qtyNum} units for SKU ${sku}. Maximum remaining expected quantity is ${remaining}.`
         });
+      }
+
+      // If Blind Receiving is ON and operator count differs from expected remaining
+      if (isBlindReceiving && qtyNum !== remaining) {
+        hasDiscrepancyInSession = true;
+        const discId = 'DISC-BLIND-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+        const incId = 'INC-BLIND-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+
+        await Discrepancy.create([{
+          discrepancyId: discId,
+          asnId: asn.asnId || asn.asnNumber,
+          asnNumber: asn.asnId || asn.asnNumber,
+          sku,
+          type: 'quantity_discrepancy',
+          expectedQty: remaining,
+          receivedQty: qtyNum,
+          damagedQty: Number(damagedQty) || 0,
+          difference: qtyNum - remaining,
+          notes: `Blind Receiving Discrepancy: Counted ${qtyNum} vs Expected ${remaining} for SKU '${sku}'`,
+          user: operator,
+          company: req.user.company
+        }], { session });
+
+        await Incident.create([{
+          incidentId: incId,
+          type: 'Discrepancy',
+          sku,
+          expectedSKU: sku,
+          scannedBarcode: sku,
+          location: asn.receivingDock || 'Dock 1',
+          warehouse,
+          asnReference: asn.poNumber || asn.po || asn.asnId,
+          asnId: asn.asnId || asn.asnNumber,
+          supplier: asn.supplier,
+          owner: asn.owner || 'Default Owner',
+          operator,
+          user: operator,
+          reported_by: operator,
+          reason: 'Blind Receiving Quantity Mismatch',
+          module: 'Receiving',
+          timestamp: new Date(),
+          status: 'open',
+          description: `Blind Receiving discrepancy on ASN ${asn.asnId}. Counted: ${qtyNum}, Expected: ${remaining}.`,
+          company: req.user.company
+        }], { session });
+
+        Notification.create([{
+          company: req.user.company,
+          kind: 'warning',
+          title: 'Blind Receiving Discrepancy',
+          body: `Blind Receiving discrepancy on ASN ${asn.asnId} for SKU ${sku}. Counted: ${qtyNum}, Expected: ${remaining}.`,
+        }], { session }).catch(() => {});
+
+        await logActivity(req, 'BLIND_RECEIVING_DISCREPANCY', 'ASN', `Blind Receiving count discrepancy detected on ASN ${asn.asnId} (SKU ${sku}: Counted ${qtyNum}, Expected ${remaining}).`, session);
       }
 
       // 1. Update ASN line received_qty

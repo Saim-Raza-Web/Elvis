@@ -89,6 +89,7 @@ import qcRoutes from './routes/qc.js';
 import putawayRoutes from './routes/putaway.js';
 import clientsRoutes from './routes/clients.js';
 import suppliersRoutes from './routes/suppliers.js';
+import categoriesRoutes from './routes/categories.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -134,6 +135,7 @@ mountModuleRoute('/api/v1/documents', documentsRoutes);
 mountModuleRoute('/api/v1/notifications', notificationsRoutes);
 mountModuleRoute('/api/v1/clients', clientsRoutes);
 mountModuleRoute('/api/v1/suppliers', suppliersRoutes);
+mountModuleRoute('/api/v1/categories', categoriesRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

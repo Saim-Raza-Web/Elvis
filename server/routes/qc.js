@@ -272,49 +272,128 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
 
     const operator = req.user.email || req.user.name || 'system';
     const warehouse = qItem.warehouse || 'MIA';
-    const qty = qItem.qty;
+    const totalQty = qItem.qty;
 
-    // 1. Pipeline Refinement: Move stock from qtyQuarantine -> qtyAwaitingPutaway
+    const {
+      approvedQty: rawApproved,
+      rejectionDestination,
+      arrivalTemp,
+      minTemp,
+      maxTemp,
+      humidityPct,
+      dataLogger,
+      tempRangeMin = 2,
+      tempRangeMax = 8,
+      overrideBlocked,
+      notes,
+      attachments
+    } = req.body;
+
+    // Check Cold Chain temperature bounds
+    const prodDoc = await Product.findOne({ sku: qItem.sku, company: req.user.company }).session(session);
+    const isColdChain = Boolean(prodDoc && (prodDoc.category === 'COLD' || prodDoc.qc_profile === 'Cold Chain'));
+
+    if (isColdChain && arrivalTemp !== undefined && arrivalTemp !== null && arrivalTemp !== '') {
+      const tempNum = Number(arrivalTemp);
+      const minBound = Number(tempRangeMin);
+      const maxBound = Number(tempRangeMax);
+
+      if (tempNum < minBound || tempNum > maxBound) {
+        if (!overrideBlocked && req.user.role !== 'admin' && req.user.role !== 'manager' && req.user.role !== 'qc_supervisor') {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(422).json({
+            message: `BLOCKED: Arrival temperature (${tempNum}°C) is outside configured Cold Chain range (${minBound}°C - ${maxBound}°C). Supervisor override required to approve.`
+          });
+        }
+      }
+    }
+
+    // Partial approval calculation
+    const approvedQty = rawApproved !== undefined ? Math.min(totalQty, Math.max(0, Number(rawApproved))) : totalQty;
+    const rejectedQty = totalQty - approvedQty;
+
+    if (approvedQty <= 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Approved quantity must be greater than 0. If rejecting all units, use Fail QC / RTV.' });
+    }
+
+    // 1. Pipeline Refinement: Move approvedQty from qtyQuarantine -> qtyAwaitingPutaway
     await InventoryBalance.findOneAndUpdate(
       { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
-      { $inc: { qtyQuarantine: -qty, qtyAwaitingPutaway: qty } },
+      { $inc: { qtyQuarantine: -totalQty, qtyAwaitingPutaway: approvedQty } },
       { upsert: true, new: true, session }
     );
 
-    // 2. Create QC_RELEASE Inventory Transaction
+    // 2. Create QC_RELEASE Inventory Transaction for approved stock
     await InventoryTransaction.create([{
       transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
       type: 'QC_RELEASE',
       sku: qItem.sku,
       warehouse,
-      qty,
+      qty: approvedQty,
       lotNumber: qItem.lotNumber,
       batchNumber: qItem.batchNumber,
       expiryDate: qItem.expiryDate,
       asnNumber: qItem.asnNumber || qItem.asnId,
       referenceId: qItem.inspectionId || qItem.quarantineId,
       user: operator,
+      notes: rejectedQty > 0 ? `Partial QC Pass: ${approvedQty} approved, ${rejectedQty} rejected (${rejectionDestination || 'Quarantine'})` : 'QC Released',
       company: req.user.company
     }], { session });
 
+    // Handle partial rejection transaction if applicable
+    if (rejectedQty > 0) {
+      await InventoryTransaction.create([{
+        transactionId: 'TXN-REJ-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+        type: 'QC_REJECTION',
+        sku: qItem.sku,
+        warehouse,
+        qty: rejectedQty,
+        lotNumber: qItem.lotNumber,
+        batchNumber: qItem.batchNumber,
+        asnNumber: qItem.asnNumber || qItem.asnId,
+        referenceId: qItem.inspectionId || qItem.quarantineId,
+        user: operator,
+        notes: `Partial QC Rejection: ${rejectedQty} units routed to ${rejectionDestination || 'Quarantine'}`,
+        company: req.user.company
+      }], { session });
+    }
+
     // 3. Update QuarantineInventory Status -> awaiting_putaway
     qItem.status = 'awaiting_putaway';
+    qItem.qty = approvedQty;
     await qItem.save({ session });
 
     if (qItem.inspectionId) {
       await QCInspection.findOneAndUpdate(
         { inspectionId: qItem.inspectionId, company: req.user.company },
-        { status: 'qc_passed', notes: req.body.notes || 'Inspection Passed' },
+        { 
+          status: 'qc_passed',
+          notes: notes || `Inspection Passed (${approvedQty} approved, ${rejectedQty} rejected)`,
+          arrivalTemp: arrivalTemp !== undefined ? Number(arrivalTemp) : undefined,
+          minTemp: minTemp !== undefined ? Number(minTemp) : undefined,
+          maxTemp: maxTemp !== undefined ? Number(maxTemp) : undefined,
+          humidityPct: humidityPct !== undefined ? Number(humidityPct) : undefined,
+          dataLogger: dataLogger || '',
+          tempRangeMin: Number(tempRangeMin),
+          tempRangeMax: Number(tempRangeMax),
+          approvedQty,
+          rejectedQty,
+          rejectionDestination: rejectionDestination || '',
+          attachments: Array.isArray(attachments) ? attachments : []
+        },
         { session }
       );
     }
 
-    // 4. DYNAMIC LOCATION PROPOSAL & AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001)
+    // 4. DYNAMIC LOCATION PROPOSAL & AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001) FOR APPROVED STOCK ONLY
     const proposed = await proposeDestinationLocation({
       company: req.user.company,
       warehouse,
       sku: qItem.sku,
-      qty,
+      qty: approvedQty,
       lotNumber: qItem.lotNumber,
       session
     });
