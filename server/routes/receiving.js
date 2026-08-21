@@ -203,11 +203,16 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET Next Auto-Generated PO Number
+
+// GET Next PO Number (Preview only — does not increment counter on preview)
 router.get('/next-po', async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
-    const poNumber = await nextPoNumber(req.user.company);
+    const currentYear = new Date().getFullYear();
+    const counterId = `po_${currentYear}`;
+    const counter = await Counter.findOne({ _id: counterId, company: req.user.company });
+    const nextSeq = (counter?.seq || 0) + 1;
+    const poNumber = `PO-${currentYear}-${String(nextSeq).padStart(5, '0')}`;
     res.json({ poNumber });
   } catch (err) { next(err); }
 });
@@ -251,19 +256,6 @@ router.get('/:id/discrepancies', async (req, res, next) => {
     }).sort({ createdAt: -1 });
 
     res.json(discrepancies);
-  } catch (err) { next(err); }
-});
-
-// GET Next PO Number
-router.get('/next-po', async (req, res, next) => {
-  try {
-    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
-    const currentYear = new Date().getFullYear();
-    const counterId = `po_${currentYear}`;
-    const counter = await Counter.findOne({ _id: counterId, company: req.user.company });
-    const nextSeq = (counter?.seq || 0) + 1;
-    const poNumber = `PO-${currentYear}-${String(nextSeq).padStart(5, '0')}`;
-    res.json({ poNumber });
   } catch (err) { next(err); }
 });
 
@@ -646,6 +638,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           company: req.user.company,
           warehouse,
           sku,
+          owner: itemOwner,
           qty: qtyNum,
           lotNumber: lotToSave,
           session
@@ -966,6 +959,36 @@ router.delete('/:id', requireOpsRole, async (req, res, next) => {
     await logActivity(req, 'DELETE', 'ASN', `Soft deleted & cancelled ASN ${item.asnId} (${item.supplier})`);
 
     res.json({ message: 'ASN cancelled and archived successfully (Soft Delete)' });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/receiving/reject-barcode — Create Incident on Barcode Rejection
+router.post('/reject-barcode', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { asnId, scannedBarcode, reason } = req.body;
+    const incidentId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+
+    const incident = await Incident.create({
+      incidentId,
+      company: req.user.company,
+      asnId: asnId || 'N/A',
+      scannedBarcode: scannedBarcode || 'UNKNOWN',
+      module: 'Receiving',
+      type: 'Rejected Barcode Scan',
+      reason: reason || 'Unexpected barcode scan rejected',
+      status: 'open',
+      createdAt: new Date()
+    });
+
+    await logActivity(req, 'BARCODE_REJECTED', 'RECEIVING', `Rejected barcode '${scannedBarcode}' for ASN '${asnId}'. Incident #${incidentId} logged.`);
+
+    res.json({
+      success: true,
+      message: `Barcode scan rejected. Incident #${incidentId} created. Zero inventory incremented.`,
+      incident
+    });
   } catch (err) { next(err); }
 });
 

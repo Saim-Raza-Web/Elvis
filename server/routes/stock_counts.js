@@ -53,19 +53,72 @@ router.post('/', requireOpsRole, async (req, res, next) => {
       }));
 
     const countId = `SC-${Date.now().toString().slice(-8)}`;
+    const countName = (name && String(name).trim()) || `${warehouse || 'MIA'} - ${(scope || 'Cycle').toUpperCase()} Count (${new Date().toISOString().slice(0, 10)})`;
+
     const item = await StockCount.create({
       countId,
-      name,
+      name: countName,
       scope: scope || 'zone',
       scopeValue,
-      warehouse,
+      warehouse: warehouse || 'MIA',
       status: 'open',
       lines,
-      startedBy: req.user.name,
+      startedBy: req.user.name || req.user.email || 'Admin',
       company: req.user.company
     });
 
     res.status(201).json(item);
+  } catch (err) { next(err); }
+});
+
+// UPDATE count session (status transition or items/lines update)
+router.put('/:id', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const count = await StockCount.findOne({ _id: req.params.id, company: req.user.company });
+    if (!count) return res.status(404).json({ message: 'Count session not found' });
+
+    if (req.body.status) {
+      // Map frontend status to backend enum
+      const statusMap = {
+        scheduled: 'open',
+        in_progress: 'in_progress',
+        review: 'pending_approval',
+        completed: 'closed',
+        cancelled: 'closed'
+      };
+      count.status = statusMap[req.body.status] || req.body.status;
+    }
+
+    if (req.body.items && Array.isArray(req.body.items)) {
+      count.lines = req.body.items.map(it => ({
+        sku: it.sku,
+        product: it.product || it.sku,
+        theoretical_qty: it.expected_qty ?? it.theoretical_qty ?? 0,
+        counted_qty: it.counted_qty ?? 0,
+        discrepancy: it.discrepancy ?? ((it.counted_qty ?? 0) - (it.expected_qty ?? it.theoretical_qty ?? 0)),
+        status: it.status || 'counted'
+      }));
+    }
+
+    // If completed/closed, apply adjustments
+    if (count.status === 'closed' || req.body.status === 'completed') {
+      for (const line of count.lines) {
+        if (line.status === 'counted' && line.discrepancy !== 0) {
+          await Product.findOneAndUpdate(
+            { sku: line.sku, company: req.user.company },
+            { $inc: { qty_available: line.discrepancy } }
+          );
+          line.status = 'adjusted';
+        }
+      }
+      count.status = 'closed';
+      count.approvedBy = req.user.name || req.user.email || 'Admin';
+      count.closedAt = new Date();
+    }
+
+    await count.save();
+    res.json(count);
   } catch (err) { next(err); }
 });
 

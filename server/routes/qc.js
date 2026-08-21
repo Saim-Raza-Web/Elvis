@@ -425,7 +425,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       sku: qItem.sku,
       productName: qItem.productName,
       warehouse,
-      qty,
+      qty: approvedQty,
       lotNumber: qItem.lotNumber,
       batchNumber: qItem.batchNumber,
       fromLocation: fromBinCode,
@@ -443,7 +443,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       type: 'PUTAWAY_CREATED',
       sku: qItem.sku,
       warehouse,
-      qty,
+      qty: approvedQty,
       asnNumber: qItem.asnNumber || qItem.asnId,
       referenceId: putawayId,
       user: operator,
@@ -451,21 +451,21 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
     }], { session });
 
     // Activity Log & Notifications
-    await logActivity(req, 'QC_PASSED', 'QC', `QC Passed for SKU ${qItem.sku} (${qty} units moved to Awaiting Putaway)`, session);
+    await logActivity(req, 'QC_PASSED', 'QC', `QC Passed for SKU ${qItem.sku} (${approvedQty} units moved to Awaiting Putaway)`, session);
     await logActivity(req, 'PUTAWAY_CREATED', 'PUTAWAY', `Generated Putaway Task ${putawayId} for SKU ${qItem.sku}`, session);
 
     Notification.create([{
       company: req.user.company,
       kind: 'success',
       title: 'QC Inspection Passed & Putaway Created',
-      body: `${qty} units of ${qItem.sku} passed QC and moved to Awaiting Putaway. Putaway Task ${putawayId} generated.`,
+      body: `${approvedQty} units of ${qItem.sku} passed QC and moved to Awaiting Putaway. Putaway Task ${putawayId} generated.`,
     }], { session }).catch(() => {});
 
     await session.commitTransaction();
     session.endSession();
 
     res.json({
-      message: `QC Passed for SKU ${qItem.sku}. Moved ${qty} units to Awaiting Putaway and generated Putaway Task ${putawayId}.`,
+      message: `QC Passed for SKU ${qItem.sku}. Moved ${approvedQty} units to Awaiting Putaway and generated Putaway Task ${putawayId}.`,
       quarantineItem: qItem,
       putawayTask: putawayTask[0]
     });

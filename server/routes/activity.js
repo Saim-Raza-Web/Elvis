@@ -86,32 +86,18 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// UPDATE
-router.put('/:id', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const item = await Model.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      req.body, 
-      { new: true }
-    );
-    if (!item) return res.status(404).json({ message: 'Not found' });
-    res.json(item);
-  } catch (err) {
-    next(err);
-  }
+// UPDATE — IMMUTABILITY ENFORCEMENT (HTTP 403 Forbidden)
+router.put('/:id', async (req, res) => {
+  return res.status(403).json({ message: 'Audit Trail Invariant: Audit records are append-only and cannot be updated.' });
 });
 
-// DELETE
-router.delete('/:id', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });
-    if (!item) return res.status(404).json({ message: 'Not found' });
-    res.json({ message: 'Deleted successfully' });
-  } catch (err) {
-    next(err);
-  }
+router.patch('/:id', async (req, res) => {
+  return res.status(403).json({ message: 'Audit Trail Invariant: Audit records are append-only and cannot be updated.' });
+});
+
+// DELETE — IMMUTABILITY ENFORCEMENT (HTTP 403 Forbidden)
+router.delete('/:id', async (req, res) => {
+  return res.status(403).json({ message: 'Audit Trail Invariant: Audit records are append-only and cannot be deleted.' });
 });
 
 export default router;

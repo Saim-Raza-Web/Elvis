@@ -70,13 +70,14 @@ async function logActivity(req, action, module, detail, session) {
 router.get('/propose-location', async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
-    const { sku, warehouse, qty = 1 } = req.query;
+    const { sku, warehouse, owner, qty = 1 } = req.query;
     if (!sku) return res.status(400).json({ message: 'sku query parameter is required' });
 
     const proposal = await proposeDestinationLocation({
       company: req.user.company,
       warehouse: String(warehouse || 'DEFAULT'),
       sku: String(sku),
+      owner: owner ? String(owner) : undefined,
       qty: Number(qty) || 1
     });
     res.json(proposal);
@@ -404,6 +405,24 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
 
       const product = await Product.findOne({ sku: task.sku, company: req.user.company }).session(session);
       if (product) {
+        // Point: FEFO Expiry Mandatory at Physical Putaway (ASN inheritance forbidden)
+        const isFefoPerishable = Boolean(
+          product.isPerishable ||
+          product.tracking_type === 'LOT_EXPIRY' ||
+          product.category?.toUpperCase().includes('COLD') ||
+          product.category?.toUpperCase().includes('PERISHABLE') ||
+          product.qc_profile?.toUpperCase().includes('COLD') ||
+          product.temperature_range?.toUpperCase().includes('REFRIGERATED') ||
+          product.temperature_range?.toUpperCase().includes('FROZEN')
+        );
+        if (isFefoPerishable && !req.body.expiryDate) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            message: `Physical Putaway Security Blocked: Physical operator verification of Expiry Date is mandatory at putaway confirmation for FEFO/perishable SKU '${task.sku}'. Inheriting unverified ASN expiry is forbidden.`
+          });
+        }
+
         if (product.isColdStorage && loc.zoneType !== 'COLD_STORAGE') {
           await session.abortTransaction();
           session.endSession();
@@ -416,8 +435,43 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
         }
       }
 
+      // HARD LOT INTEGRITY INVARIANT: ONE LOCATION = ONE LOT + ONE SKU + ONE OWNER
+      const existingInTargetBin = await InventoryBalance.find({
+        company: req.user.company,
+        bin: targetBinCode,
+        qtyAvailable: { $gt: 0 }
+      }).session(session);
+
+      if (existingInTargetBin.length > 0) {
+        if (existingInTargetBin.some(e => e.owner && taskOwner && e.owner !== taskOwner)) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({ message: `Lot Integrity Violation: Location ${targetBinCode} is occupied by another 3PL Owner ('${existingInTargetBin.find(e => e.owner !== taskOwner)?.owner}').` });
+        }
+        if (existingInTargetBin.some(e => e.sku && e.sku !== task.sku)) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({ message: `Lot Integrity Violation: Location ${targetBinCode} is occupied by another SKU ('${existingInTargetBin.find(e => e.sku !== task.sku)?.sku}').` });
+        }
+        const taskLot = task.lotNumber || 'DEFAULT-LOT';
+        if (existingInTargetBin.some(e => e.lotNumber && taskLot && e.lotNumber !== taskLot)) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({ message: `Lot Integrity Violation: Location ${targetBinCode} is occupied by another Lot Number ('${existingInTargetBin.find(e => e.lotNumber !== taskLot)?.lotNumber}').` });
+        }
+      }
+
       // Point 3: Atomic Concurrent Multi-Task Capacity Check inside Session Transaction
       const maxCapacity = Math.max(loc.capacity || 1000, loc.maxUnits || 1000, 1000);
+      const currentOcc = Number(loc.currentUnits ?? loc.qty ?? 0);
+      if (currentOcc + qty > maxCapacity) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: `Capacity Boundary Exceeded: Location '${targetBinCode}' capacity is ${maxCapacity} units. Current occupancy is ${currentOcc} units. Adding ${qty} units would exceed maximum capacity.`
+        });
+      }
+
       const updatedLoc = await Location.findOneAndUpdate(
         { _id: loc._id },
         {
@@ -454,10 +508,14 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       { upsert: true, new: true, session }
     );
 
-    // 4. Add EXACT qtyAvailable to Destination Location in InventoryBalance
+    // 4. Add EXACT qtyAvailable to Destination Location in InventoryBalance with physical verified expiry
+    const verifiedExpiry = req.body.expiryDate ? new Date(req.body.expiryDate) : task.expiryDate;
     await InventoryBalance.findOneAndUpdate(
       { company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, lotNumber: task.lotNumber || 'DEFAULT-LOT', bin: targetBinCode },
-      { $inc: { qtyAvailable: qty } },
+      { 
+        $inc: { qtyAvailable: qty },
+        ...(verifiedExpiry ? { $set: { expiryDate: verifiedExpiry } } : {})
+      },
       { upsert: true, new: true, session }
     );
 
@@ -589,6 +647,73 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     }
     next(err);
   }
+});
+
+// ── PUT /api/v1/putaway/:id/execute — Execute Putaway with Step 1 & 2 Checks ──
+router.put('/:id/execute', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { scannedLocation, executedQty } = req.body;
+    const task = await PutawayTask.findOne({
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { taskId: req.params.id }],
+      company: req.user.company
+    });
+
+    if (!task) return res.status(404).json({ message: 'Putaway task not found' });
+
+    const proposedLocation = (task.destinationBin || task.toLocation || '').trim();
+    const scannedBin = (scannedLocation || '').trim();
+
+    if (!scannedBin) {
+      return res.status(400).json({ message: `Step 1 Security Failure: Scan shelf/bin barcode is required. Expected: ${proposedLocation}.` });
+    }
+
+    if (scannedBin.toUpperCase() !== proposedLocation.toUpperCase()) {
+      return res.status(400).json({ message: `Wrong location. Scanned: ${scannedBin}. Expected: ${proposedLocation}.` });
+    }
+
+    const warehouse = task.warehouse || 'MIA';
+    const taskOwner = task.owner || 'Default Owner';
+    // HARD LOT INTEGRITY INVARIANT: ONE LOCATION = ONE LOT + ONE SKU + ONE OWNER
+    const existingInTargetBin = await InventoryBalance.find({
+      company: req.user.company,
+      bin: proposedLocation,
+      qtyAvailable: { $gt: 0 }
+    });
+
+    if (existingInTargetBin.length > 0) {
+      if (existingInTargetBin.some(e => e.owner && taskOwner && e.owner !== taskOwner)) {
+        return res.status(400).json({ message: `Lot Integrity Violation: Location ${proposedLocation} is occupied by another 3PL Owner ('${existingInTargetBin.find(e => e.owner !== taskOwner)?.owner}').` });
+      }
+      if (existingInTargetBin.some(e => e.sku && e.sku !== task.sku)) {
+        return res.status(400).json({ message: `Lot Integrity Violation: Location ${proposedLocation} is occupied by another SKU ('${existingInTargetBin.find(e => e.sku !== task.sku)?.sku}').` });
+      }
+      const taskLot = task.lotNumber || 'DEFAULT-LOT';
+      if (existingInTargetBin.some(e => e.lotNumber && taskLot && e.lotNumber !== taskLot)) {
+        return res.status(400).json({ message: `Lot Integrity Violation: Location ${proposedLocation} is occupied by another Lot Number ('${existingInTargetBin.find(e => e.lotNumber !== taskLot)?.lotNumber}').` });
+      }
+    }
+
+    // Update balances
+    await InventoryBalance.findOneAndUpdate(
+      { company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, bin: task.fromLocation || 'STAGING-A' },
+      { $inc: { qtyAwaitingPutaway: -qty } },
+      { upsert: true }
+    );
+
+    await InventoryBalance.findOneAndUpdate(
+      { company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, bin: proposedLocation },
+      { $inc: { qtyAvailable: qty } },
+      { upsert: true }
+    );
+
+    task.status = 'completed';
+    task.completedAt = new Date();
+    await task.save();
+
+    res.json({ success: true, message: `Putaway Task ${task.taskId} executed successfully.`, task });
+  } catch (err) { next(err); }
 });
 
 export default router;

@@ -707,7 +707,7 @@ export function Picking() {
         <Modal
           open={executeModalOpen}
           onClose={() => setExecuteModalOpen(false)}
-          title={`Execute B2B Pick Task (${selectedTask.taskId})`}
+          title={`Execute ${selectedTask.orderType || 'Outbound'} Pick Task (${selectedTask.taskId})`}
           subtitle={`Owner: ${selectedTask.owner} · Order: ${selectedTask.orderId}`}
           width="lg"
           footer={

@@ -1,13 +1,14 @@
 import Location from '../models/Location.js';
 import Product from '../models/Product.js';
 import StorageRule from '../models/StorageRule.js';
+import InventoryBalance from '../models/InventoryBalance.js';
 
 /**
  * Dynamic Location Proposal Engine (Module 03)
  * Calculates the optimal destination location based on Warehouse, Zone, Storage Rules,
  * Temperature/Cold Chain, Hazmat, Weight/Volume, Capacity, and Current Occupancy.
  */
-export async function proposeDestinationLocation({ company, warehouse = 'MIA', sku, qty = 1, lotNumber = '', session = null }) {
+export async function proposeDestinationLocation({ company, warehouse = 'MIA', sku, owner = null, qty = 1, lotNumber = '', session = null }) {
   if (!company || !sku) {
     return { proposedBin: `${warehouse}-STORAGE-01`, zone: 'Z-STORAGE' };
   }
@@ -92,12 +93,31 @@ export async function proposeDestinationLocation({ company, warehouse = 'MIA', s
     candidates = await allLocQuery;
   }
 
-  // 5. Filter Candidates by Capacity, Weight, Volume Constraints
-  const availableCandidates = candidates.filter(loc => {
+  // 5. Filter Candidates by Capacity, Weight, Volume Constraints & Hard Lot Integrity (1 Location = 1 Lot + 1 SKU + 1 Owner)
+  const filteredCandidates = [];
+
+  for (const loc of candidates) {
     const maxCap = loc.maxUnits || loc.capacity || 1000;
     const current = loc.currentUnits || 0;
-    return (maxCap - current) >= qty;
-  });
+    if ((maxCap - current) < qty) continue;
+
+    // Check existing balances in location for Lot Integrity
+    const balances = await InventoryBalance.find({
+      company,
+      bin: loc.code || loc.bin,
+      qtyAvailable: { $gt: 0 }
+    });
+
+    if (balances.length > 0) {
+      if (balances.some(b => b.owner && owner && b.owner !== owner)) continue; // Conflicting Owner
+      if (balances.some(b => b.sku && b.sku !== sku)) continue; // Conflicting SKU
+      if (balances.some(b => b.lotNumber && lotNumber && b.lotNumber !== lotNumber)) continue; // Conflicting Lot
+    }
+
+    filteredCandidates.push(loc);
+  }
+
+  const availableCandidates = filteredCandidates;
 
   // 6. Rank Candidates
   // Best choice: 1) Already has same SKU, 2) Most available space remaining

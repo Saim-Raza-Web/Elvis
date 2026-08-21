@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import { protect } from '../middleware/auth.js';
@@ -322,7 +323,15 @@ router.get('/delivery-note/:orderId', async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
 
-    const order = await Order.findOne({ _id: req.params.orderId, company: req.user.company });
+    const isHex = mongoose.Types.ObjectId.isValid(req.params.orderId);
+    const order = await Order.findOne({
+      $or: [
+        ...(isHex ? [{ _id: req.params.orderId }] : []),
+        { orderId: req.params.orderId },
+        { id: req.params.orderId }
+      ],
+      company: req.user.company
+    });
     if (!order) return res.status(404).json({ message: 'Order not found' });
 
     let company = null;

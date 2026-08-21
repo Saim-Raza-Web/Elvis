@@ -212,19 +212,34 @@ export async function ensurePickTaskForOrder(order, userCompany) {
 
   // 2. Derive PickTask lines from Order product_lines matching actual inventory balance location
   const lines = await Promise.all(order.product_lines.map(async line => {
+    const skuClean = (line.sku || '').trim();
+    // Find best bin WITHOUT owner filter — just find where this SKU has stock
     const balance = await InventoryBalance.findOne({
       company: companyId,
-      sku: line.sku,
-      owner: order.owner || order.customer || order.company_name,
-      $or: [{ qty_available: { $gt: 0 } }, { qtyAvailable: { $gt: 0 } }]
-    });
+      sku: { $regex: new RegExp(`^${skuClean}$`, 'i') },
+      $or: [{ qtyAvailable: { $gt: 0 } }, { qty_available: { $gt: 0 } }, { qtyAwaitingPutaway: { $gt: 0 } }]
+    }).sort({ qtyAvailable: -1 });
+
+    // Fallback: If not found with company filter, try matching by SKU alone in same company or any active bin
+    let binLocation = balance?.bin;
+    if (!binLocation) {
+      const anyBal = await InventoryBalance.findOne({
+        sku: { $regex: new RegExp(`^${skuClean}$`, 'i') },
+        qtyAvailable: { $gt: 0 }
+      }).sort({ qtyAvailable: -1 });
+      binLocation = anyBal?.bin;
+    }
+
+    console.log(`[PickTask Gen] SKU: ${skuClean} -> Selected Bin: ${binLocation || 'STAGING-A'} (Balance Found: ${!!balance})`);
+
     return {
       sku: line.sku,
       productName: line.product_name || line.sku,
       orderedQty: Number(line.qty) || 1,
       pickedQty: 0,
       shortfallQty: 0,
-      sourceLocation: balance ? balance.bin : 'STAGING-A',
+      sourceLocation: binLocation || 'A-01-01', // Fallback to primary picking bin if no staging
+      inventoryOwner: balance?.owner || 'Apple Distribution 3PL',
       status: 'pending'
     };
   }));

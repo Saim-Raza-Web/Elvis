@@ -27,5 +27,13 @@ export const inventoryService = {
   searchProducts: async (query: string) => {
     const response = await api.get('/inventory/search?q=' + encodeURIComponent(query));
     return response.data;
+  },
+  recallLot: async (payload: { lotNumber: string; sku?: string; reason?: string }) => {
+    const response = await api.post('/inventory/lots/recall', payload);
+    return response.data;
+  },
+  initialStockLoad: async (payload: any) => {
+    const response = await api.post('/inventory/initial-stock-load', payload);
+    return response.data;
   }
 };

@@ -2,6 +2,8 @@ import express from 'express';
 import { protect, requireRole } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Location from '../models/Location.js';
+import InventoryBalance from '../models/InventoryBalance.js';
+import Product from '../models/Product.js';
 
 const router = express.Router();
 router.use(protect);
@@ -42,6 +44,40 @@ router.get('/', async (req, res, next) => {
     }
 
     const result = await paginateQuery(Location, query, req);
+
+    // Enrich locations with real stock qty + SKUs from InventoryBalance
+    const locationCodes = (result.data || result).map((l) => l.code || l.bin);
+    const balances = await InventoryBalance.aggregate([
+      { $match: { company: req.user.company, bin: { $in: locationCodes } } },
+      { $group: { _id: '$bin', totalQty: { $sum: '$qtyAvailable' }, skus: { $addToSet: '$sku' }, owners: { $addToSet: '$owner' } } }
+    ]);
+    const balanceMap = {};
+    for (const b of balances) balanceMap[b._id] = b;
+
+    // Fetch product names for SKUs found in bins
+    const allSkus = [...new Set(balances.flatMap(b => b.skus))];
+    const products = await Product.find({ sku: { $in: allSkus }, company: req.user.company }, 'sku name').lean();
+    const productMap = {};
+    for (const p of products) productMap[p.sku] = p.name;
+
+    const enrichLoc = (loc) => {
+      const raw = loc.toObject ? loc.toObject() : loc;
+      const bal = balanceMap[raw.code];
+      return {
+        ...raw,
+        qty: bal ? bal.totalQty : 0,
+        skus: bal ? bal.skus : [],
+        owners: bal ? bal.owners : [],
+        sku: bal?.skus?.[0] || raw.sku || null,
+        product: bal?.skus?.[0] ? (productMap[bal.skus[0]] || bal.skus[0]) : (raw.product || null)
+      };
+    };
+
+    if (result.data) {
+      result.data = result.data.map(enrichLoc);
+    } else {
+      return res.json((result).map(enrichLoc));
+    }
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -102,6 +138,85 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     );
     if (!item) return res.status(404).json({ message: 'Location not found' });
     res.json(item);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/v1/locations/import-csv — Whole-File Validation CSV Importer ──
+router.post('/import-csv', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { locations } = req.body;
+    if (!Array.isArray(locations) || locations.length === 0) {
+      return res.status(400).json({ message: 'CSV payload must contain an array of location objects' });
+    }
+
+    const errors = [];
+    const validLocationCodes = new Set();
+
+    // Pass 1: Whole-File Validation (Accumulates ALL errors, 0 partial commits)
+    for (let i = 0; i < locations.length; i++) {
+      const loc = locations[i];
+      const rowNum = i + 1;
+
+      if (!loc.code || !String(loc.code).trim()) {
+        errors.push(`Row ${rowNum}: Location 'code' is required.`);
+      } else {
+        const cleanCode = String(loc.code).trim().toUpperCase();
+        if (validLocationCodes.has(cleanCode)) {
+          errors.push(`Row ${rowNum}: Duplicate location code '${cleanCode}' within CSV file.`);
+        }
+        validLocationCodes.add(cleanCode);
+      }
+
+      if (loc.tempMin !== undefined && loc.tempMax !== undefined) {
+        if (Number(loc.tempMin) > Number(loc.tempMax)) {
+          errors.push(`Row ${rowNum}: tempMin (${loc.tempMin}°C) cannot be greater than tempMax (${loc.tempMax}°C).`);
+        }
+      }
+
+      if (loc.locationType && !['PALLET', 'SHELF', 'FLOOR', 'STAGING', 'OVERFLOW', 'HAZMAT', 'PICK_FACE'].includes(loc.locationType.toUpperCase())) {
+        errors.push(`Row ${rowNum}: Invalid locationType '${loc.locationType}'. Allowed: PALLET, SHELF, FLOOR, STAGING, OVERFLOW, HAZMAT, PICK_FACE.`);
+      }
+    }
+
+    // Check database collisions in Pass 1
+    const existingDbDocs = await Location.find({
+      company: req.user.company,
+      code: { $in: Array.from(validLocationCodes) }
+    });
+
+    if (existingDbDocs.length > 0) {
+      for (const doc of existingDbDocs) {
+        errors.push(`Database Collision: Location code '${doc.code}' already exists in warehouse.`);
+      }
+    }
+
+    // If ANY row failed, ABORT completely (0 records committed)
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `CSV Import Failed: ${errors.length} validation error(s) found. Whole file was rejected.`,
+        errors
+      });
+    }
+
+    // Pass 2: Batch Commit after 100% Validation Success
+    const docsToInsert = locations.map(loc => ({
+      ...loc,
+      code: String(loc.code).trim().toUpperCase(),
+      warehouse: loc.warehouse || 'MIA',
+      company: req.user.company,
+      active: true
+    }));
+
+    const insertedDocs = await Location.insertMany(docsToInsert);
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully imported all ${insertedDocs.length} locations without errors.`,
+      count: insertedDocs.length
+    });
   } catch (err) { next(err); }
 });
 

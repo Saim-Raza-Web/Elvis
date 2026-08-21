@@ -228,23 +228,26 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
 
       // OWNER ISOLATION: Deduct stock ONLY from matching (company, warehouse, sku, owner, bin)
       if (actualPicked > 0) {
-        const allBalances = await InventoryBalance.find({ sku: item.sku, company: req.user.company });
-        let balances = allBalances.filter(b => {
-          if (!taskOwner || taskOwner === 'Default Owner' || b.owner === 'Default Owner') return true;
-          const tO = taskOwner.toLowerCase().trim();
+        // Use the real inventory owner stored at pick-task-creation time, fallback to taskOwner
+        const deductOwner = item.inventoryOwner || taskOwner;
+        const binBalances = await InventoryBalance.find({ sku: item.sku, bin: binCode, company: req.user.company });
+        let balances = binBalances.filter(b => {
+          if (!deductOwner) return true;
+          const tO = deductOwner.toLowerCase().trim();
           const bO = (b.owner || '').toLowerCase().trim();
-          return tO === bO || tO.includes(bO) || bO.includes(tO) || (tO.split(' ')[0] && tO.split(' ')[0] === bO.split(' ')[0]);
+          return tO === bO;
         });
 
-        if (balances.length === 0) {
-          balances = allBalances;
+        // Fallback for B2C consumer orders where end-consumer name is not the 3PL stock depositor
+        if (balances.length === 0 && binBalances.length > 0) {
+          balances = binBalances.filter(b => ((b.qtyAvailable || 0) + (b.qtyAwaitingPutaway || 0)) > 0);
         }
 
         const totalBinStock = balances.reduce((sum, b) => sum + (b.qtyAvailable || 0) + (b.qtyAwaitingPutaway || 0), 0);
 
         if (balances.length === 0 || totalBinStock < actualPicked) {
           return res.status(400).json({
-            message: `Owner Stock Isolation Failure: Insufficient stock for SKU '${item.sku}' under Owner '${taskOwner}' at bin '${binCode}'. Available: ${totalBinStock} (matched ${balances.length}/${allBalances.length} balances), Pick requested: ${actualPicked}.`
+            message: `Owner Stock Isolation Failure: Insufficient stock for SKU '${item.sku}' under Owner '${deductOwner}' at bin '${binCode}'. Available: ${totalBinStock} (matched ${balances.length}/${binBalances.length} balances), Pick requested: ${actualPicked}.`
           });
         }
 

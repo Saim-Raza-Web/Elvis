@@ -396,19 +396,24 @@ export async function generatePickDeliveryNotePDFBuffer(pickTask, order, dnNumbe
       const totalShortfall = pickTask.items.reduce((s, i) => s + (Number(i.shortfallQty) || 0), 0);
       const isPartial = totalShortfall > 0 || pickTask.status === 'partially_picked';
 
+      const isB2C = pickTask.orderType === 'B2C' || order?.order_type === 'B2C';
+      const title = isB2C ? 'OUTBOUND B2C DELIVERY NOTE' : 'OUTBOUND B2B DELIVERY NOTE';
+      const subtitle = isB2C ? 'OFFICIAL B2C / E-COMMERCE SHIPPING MANIFEST' : 'OFFICIAL B2B PICKING & SHIPPING MANIFEST';
+      const customerLabel = isB2C ? 'Customer / Recipient:' : 'Customer / Buyer:';
+
       // Header Banner
-      doc.fontSize(22).font('Helvetica-Bold').fillColor('#0f172a').text('OUTBOUND B2B DELIVERY NOTE', { align: 'left' });
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0284c7').text('OFFICIAL B2B PICKING & SHIPPING MANIFEST', { align: 'left' });
+      doc.fontSize(22).font('Helvetica-Bold').fillColor('#0f172a').text(title, { align: 'left' });
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0284c7').text(subtitle, { align: 'left' });
       doc.moveDown(0.5);
 
       // Metadata Block
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155');
       doc.text(`Document No: ${dnNumber}`);
       doc.font('Helvetica');
-      doc.text(`Order Number: ${pickTask.orderNumber || pickTask.orderId}`);
+      doc.text(`Order Number: ${pickTask.orderNumber || pickTask.orderId} (${isB2C ? 'B2C' : 'B2B'})`);
       doc.text(`Pick Task ID: ${pickTask.taskId}`);
-      doc.text(`Customer / Buyer: ${pickTask.customer || order?.customer || 'B2B Client'}`);
-      doc.text(`3PL Owner: ${pickTask.owner || 'Default Owner'}`);
+      doc.text(`${customerLabel} ${pickTask.customer || order?.customer || 'Client'}`);
+      doc.text(`3PL Stock Owner: ${pickTask.owner || 'Default Owner'}`);
       doc.text(`Warehouse: ${pickTask.warehouse || 'MIA'}`);
       doc.text(`Picking Operator: ${operator}`);
       doc.text(`Date & Time: ${new Date().toLocaleString()}`);

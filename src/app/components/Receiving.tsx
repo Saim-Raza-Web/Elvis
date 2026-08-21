@@ -115,7 +115,7 @@ const asnListService: ListService<ASN> = {
     const rawList = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
     return {
       data: rawList.map((d: any) => ({ ...d, id: d.asnId || d._id })),
-      pagination: data?.pagination || { page: 1, limit: 25, total: rawList.length, pages: 1 }
+      pagination: data?.pagination || { page: 1, limit: 25, total: rawList.length, totalPages: 1 }
     };
   }
 };
@@ -542,7 +542,7 @@ export function Receiving() {
         try {
           const token = localStorage.getItem("jwt_token");
           const r = await fetch(
-            `/api/v1/putaway/propose-location?sku=${encodeURIComponent(line.sku)}&warehouse=${encodeURIComponent(warehouse)}&qty=${line.remaining || 1}`,
+            `/api/v1/putaway/propose-location?sku=${encodeURIComponent(line.sku)}&warehouse=${encodeURIComponent(warehouse)}&owner=${encodeURIComponent(asn.owner || '')}&qty=${line.remaining || 1}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (r.ok) {
@@ -833,7 +833,7 @@ export function Receiving() {
               <RefreshCw className="size-4" />
             </button>
 
-            <PrimaryButton icon={Plus} onClick={() => { setForm(blankASN()); setEditTarget(null); setShowAdd(true); }}>
+            <PrimaryButton icon={Plus} onClick={handleOpenAddModal}>
               {t.common.new} ASN
             </PrimaryButton>
           </div>
@@ -854,7 +854,7 @@ export function Receiving() {
             <p className="text-xs text-muted-foreground max-w-sm mx-auto">
               Create an inbound ASN to register upcoming supplier shipments before physical arrival.
             </p>
-            <PrimaryButton icon={Plus} onClick={() => { setForm(blankASN()); setEditTarget(null); setShowAdd(true); }}>
+            <PrimaryButton icon={Plus} onClick={handleOpenAddModal}>
               {t.common.create} ASN
             </PrimaryButton>
           </div>
@@ -978,7 +978,7 @@ export function Receiving() {
           onClose={() => { if (!isSubmitting) setReceiveTarget(null); }}
           title={`Receiving Workspace: ${receiveTarget.asnId || receiveTarget.asnNumber}`}
           subtitle={`Supplier: ${receiveTarget.supplier} · Dock: ${receiveTarget.receivingDock} · PO: ${receiveTarget.poNumber || receiveTarget.po}`}
-          width="2xl"
+          width="xl"
           footer={
             <div className="flex items-center justify-between w-full">
               <div className="text-xs text-muted-foreground">

@@ -66,12 +66,14 @@ router.get('/search', async (req, res, next) => {
     for (const p of products) {
       const skuUpper = (p.sku || '').toUpperCase();
       const nameUpper = (p.name || '').toUpperCase();
+      const unitBCUpper = (p.unitBarcode || '').toUpperCase();
+      const caseBCUpper = (p.caseBarcode || '').toUpperCase();
 
       let rank = -1;
-      if (skuUpper === qUpper) {
-        rank = 1; // Exact SKU match
-      } else if (skuUpper.startsWith(qUpper)) {
-        rank = 2; // SKU starts-with match
+      if (skuUpper === qUpper || unitBCUpper === qUpper || caseBCUpper === qUpper) {
+        rank = 1; // Exact SKU or Barcode match
+      } else if (skuUpper.startsWith(qUpper) || unitBCUpper.startsWith(qUpper) || caseBCUpper.startsWith(qUpper)) {
+        rank = 2; // SKU or Barcode starts-with match
       } else if (nameUpper.includes(qUpper)) {
         rank = 3; // Name contains match
       }
@@ -199,6 +201,126 @@ async function validateBarcodes(companyId, body, currentId = null) {
     }
   }
 }
+
+// POST Atomic Lot Recall (< 2s performance requirement)
+router.post('/lots/recall', requireOpsRole, async (req, res, next) => {
+  const startTime = Date.now();
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { lotNumber, sku, reason } = req.body;
+    if (!lotNumber) return res.status(400).json({ message: 'lotNumber is required for recall' });
+
+    const query = { company: req.user.company, lotNumber };
+    if (sku) query.sku = sku;
+
+    // Single Atomic Bulk Update Transaction
+    const InventoryBalance = (await import('../models/InventoryBalance.js')).default;
+    const PickTask = (await import('../models/PickTask.js')).default;
+    const ActivityLog = (await import('../models/ActivityLog.js')).default;
+
+    const balResult = await InventoryBalance.updateMany(
+      query,
+      { $set: { isRecalled: true, isBlocked: true, recallReason: reason || 'Quality Hazard / Recall Event' } }
+    );
+
+    // Block pending picking tasks referencing recalled lot
+    const pickResult = await PickTask.updateMany(
+      { company: req.user.company, status: 'pending', 'items.lotNumber': lotNumber },
+      { $set: { status: 'blocked', blockReason: `Lot ${lotNumber} Recalled: ${reason || 'Quality Hazard'}` } }
+    );
+
+    const durationMs = Date.now() - startTime;
+
+    // Record immutable audit event
+    await ActivityLog.create({
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      action: 'LOT_RECALL_EXECUTED',
+      module: 'Inventory',
+      user: req.user.name || 'System Admin',
+      userId: req.user._id,
+      company: req.user.company,
+      details: `Atomic Lot Recall executed for Lot #${lotNumber}. ${balResult.modifiedCount} balances blocked, ${pickResult.modifiedCount} pick tasks suspended. Execution time: ${durationMs}ms.`
+    });
+
+    res.json({
+      success: true,
+      lotNumber,
+      balancesBlocked: balResult.modifiedCount,
+      pickTasksBlocked: pickResult.modifiedCount,
+      durationMs,
+      message: `Atomic Lot Recall completed cleanly in ${durationMs}ms.`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST Initial Stock Load (Bypasses Putaway Tasks)
+router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { warehouse, sku, bin, qty, owner, lotNumber, batchNumber, expiryDate } = req.body;
+    if (!sku || !bin || qty === undefined) {
+      return res.status(400).json({ message: 'sku, bin, and qty are required' });
+    }
+
+    const InventoryBalance = (await import('../models/InventoryBalance.js')).default;
+    const InventoryTransaction = (await import('../models/InventoryTransaction.js')).default;
+    const ActivityLog = (await import('../models/ActivityLog.js')).default;
+
+    // Hard Lot Integrity check: ONE LOCATION = ONE LOT + ONE SKU + ONE OWNER
+    const existing = await InventoryBalance.find({ company: req.user.company, bin, qtyAvailable: { $gt: 0 } });
+    if (existing.length > 0) {
+      if (existing.some(e => e.owner && owner && e.owner !== owner)) {
+        return res.status(400).json({ message: `Lot Integrity Violation: Location ${bin} is occupied by another 3PL Owner` });
+      }
+      if (existing.some(e => e.sku && e.sku !== sku)) {
+        return res.status(400).json({ message: `Lot Integrity Violation: Location ${bin} is occupied by another SKU` });
+      }
+      if (existing.some(e => e.lotNumber && lotNumber && e.lotNumber !== lotNumber)) {
+        return res.status(400).json({ message: `Lot Integrity Violation: Location ${bin} is occupied by another Lot Number` });
+      }
+    }
+
+    const balance = await InventoryBalance.findOneAndUpdate(
+      { company: req.user.company, warehouse: warehouse || 'MIA', sku, bin, owner: owner || 'Default 3PL' },
+      {
+        $inc: { qtyAvailable: Number(qty) },
+        $set: { lotNumber: lotNumber || 'INIT-LOT', batchNumber, expiryDate }
+      },
+      { upsert: true, new: true }
+    );
+
+    await InventoryTransaction.create({
+      transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      company: req.user.company,
+      type: 'RECEIVING',
+      sku,
+      qty: Number(qty),
+      fromLocation: 'SYSTEM_LOAD',
+      toLocation: bin,
+      owner: owner || 'Default 3PL',
+      lotNumber: lotNumber || 'INIT-LOT',
+      user: req.user.name || 'System Admin'
+    });
+
+    await ActivityLog.create({
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      action: 'INITIAL_STOCK_LOAD',
+      module: 'Inventory',
+      user: req.user.name || 'System Admin',
+      userId: req.user._id,
+      company: req.user.company,
+      details: `Loaded ${qty} units of ${sku} directly to ${bin} (Lot: ${lotNumber || 'INIT-LOT'}).`
+    });
+
+    res.status(201).json({ message: 'Initial stock loaded successfully', balance });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // CREATE
 router.post('/', requireOpsRole, async (req, res, next) => {

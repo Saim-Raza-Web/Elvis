@@ -9,6 +9,7 @@ import { usePaginatedList } from "../../hooks/usePaginatedList";
 import type { ListService } from "../../hooks/usePaginatedList";
 import { transfersService } from "../../services/transfers.service";
 import { warehousesService } from "../../services/warehouses.service";
+import { inventoryService } from "../../services/inventory.service";
 
 type Transfer = { _id: string; id: string; sku: string; product: string; qty: number; from_wh: string; from_loc: string; to_wh: string; to_loc: string; status: string; type: string; requestedBy: string; date: string; transferId?: string };
 
@@ -56,6 +57,24 @@ export function Transfers() {
   useEffect(() => {
     warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
   }, []);
+
+  const handleSkuLookup = async (val: string) => {
+    const cleanSku = val.trim().toUpperCase();
+    setForm(prev => ({ ...prev, sku: cleanSku }));
+    if (!cleanSku || cleanSku.length < 2) return;
+
+    try {
+      const res = await inventoryService.resolveBarcode(cleanSku);
+      if (res && res.found) {
+        const prodName = res.product?.name || res.product?.sku || res.productName || cleanSku;
+        setForm(prev => ({
+          ...prev,
+          sku: cleanSku,
+          product: prodName,
+        }));
+      }
+    } catch (_) {}
+  };
 
   // Listen for header button CustomEvent
   useEffect(() => {
@@ -180,7 +199,7 @@ export function Transfers() {
       {/* New Transfer Modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.transfers.newTransfer} subtitle={(t.common as any)?.moveStockBetweenLocations || "Move stock between locations"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleCreate}>{t.transfers.newTransfer}</ModalSubmit></>}>
         <Row>
-          <Field label={(t.common as any)?.sku || "SKU"} required><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={(t.common as any)?.sKUXXXX || "SKU-XXXX"} /></Field>
+          <Field label={(t.common as any)?.sku || "SKU"} required><Input value={form.sku} onChange={(e) => handleSkuLookup(e.target.value)} onBlur={(e) => handleSkuLookup(e.target.value)} placeholder={(t.common as any)?.sKUXXXX || "SKU-XXXX"} /></Field>
           <Field label={t.transfers.qty}><Input type="number" value={form.qty} onChange={(e) => setForm({ ...form, qty: Number(e.target.value) })} /></Field>
         </Row>
         <Field label={(t.common as any)?.productDescription || "Product description"}><Input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} placeholder={(t.common as any)?.autoFilledFromSKU || "Auto-filled from SKU"} /></Field>

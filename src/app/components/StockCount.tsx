@@ -10,11 +10,43 @@ import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList
 
 import { useLang } from "../LangContext";
 
+function mapStockCount(d: any): StockCount {
+  const lines = d.lines || d.items || [];
+  const items: StockCountItem[] = lines.map((l: any) => ({
+    sku: l.sku,
+    expected_qty: l.expected_qty ?? l.theoretical_qty ?? 0,
+    counted_qty: l.counted_qty ?? 0,
+    discrepancy: l.discrepancy ?? ((l.counted_qty ?? 0) - (l.expected_qty ?? l.theoretical_qty ?? 0)),
+    status: l.status || "pending",
+    notes: l.notes || ""
+  }));
+
+  const statusMap: Record<string, string> = {
+    open: "scheduled",
+    pending_approval: "review",
+    closed: "completed"
+  };
+
+  return {
+    ...d,
+    id: d.countId || d._id,
+    type: d.type || d.scope || "cycle",
+    status: statusMap[d.status] || d.status || "scheduled",
+    warehouse: d.warehouse || "MIA",
+    assigned_to: d.assigned_to || d.startedBy || "Admin",
+    scheduled_date: d.scheduled_date || d.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+    items,
+    total_discrepancy_items: items.filter(i => i.discrepancy !== 0 && i.status !== 'pending').length,
+    total_discrepancy_value: 0,
+    notes: d.notes || d.name || ""
+  };
+}
+
 const stockCountsListService: ListService<StockCount> = {
-  getAll: async (params) => (await stockCountsService.getAll(params)) as StockCount[],
+  getAll: async (params) => (await stockCountsService.getAll(params)).map((d: any) => mapStockCount(d)),
   getPage: async (params) => {
     const res = await stockCountsService.getPage(params);
-    return { data: res.data as StockCount[], pagination: res.pagination };
+    return { data: res.data.map((d: any) => mapStockCount(d)), pagination: res.pagination };
   },
 };
 
@@ -94,11 +126,13 @@ export function StockCount() {
     }
   }
 
-  async function handleStartCount(id: string) {
+  async function handleStartCount(countItem: StockCount) {
     try {
-      await stockCountsService.update(id, { status: "in_progress" });
+      const updated = await stockCountsService.update(countItem._id, { status: "in_progress" });
+      const mapped = mapStockCount(updated);
       toast.success(t.common?.operationSuccess || "Count session started");
-      loadData();
+      setActiveSession(mapped);
+      reload();
     } catch (err) {
       toast.error(t.common?.error || "Failed to start count");
     }
@@ -109,7 +143,7 @@ export function StockCount() {
       await stockCountsService.update(id, { status: "review" });
       toast.success(t.common?.operationSuccess || "Count session submitted for review");
       setActiveSession(null);
-      loadData();
+      reload();
     } catch (err) {
       toast.error(t.common?.error || "Failed to submit count");
     }
@@ -119,7 +153,7 @@ export function StockCount() {
     try {
       await stockCountsService.update(id, { status: "completed" });
       toast.success(t.common?.operationSuccess || "Count session resolved and completed");
-      loadData();
+      reload();
     } catch (err) {
       toast.error(t.common?.error || "Failed to resolve count");
     }
@@ -127,31 +161,53 @@ export function StockCount() {
 
   async function handleScan() {
     if (!activeSession) return;
-    if (!scanSku.trim()) { toast.error(t.common?.error || "Please enter a SKU"); return; }
+    const cleanSku = scanSku.trim().toUpperCase();
+    if (!cleanSku) { toast.error(t.common?.error || "Please enter a SKU"); return; }
 
-    const updatedItems = activeSession.items.map(item => {
-      if (item.sku.toLowerCase() === scanSku.trim().toLowerCase()) {
-        const newQty = item.counted_qty + scanQty;
-        const diff = newQty - item.expected_qty;
-        return {
-          ...item,
-          counted_qty: newQty,
-          discrepancy: diff,
-          status: diff === 0 ? "counted" : "discrepancy"
-        };
-      }
-      return item;
-    });
+    const itemExists = activeSession.items.some(item => item.sku.toUpperCase() === cleanSku);
+    let updatedItems: StockCountItem[];
+
+    if (itemExists) {
+      updatedItems = activeSession.items.map(item => {
+        if (item.sku.toUpperCase() === cleanSku) {
+          const newQty = (item.counted_qty || 0) + scanQty;
+          const diff = newQty - item.expected_qty;
+          return {
+            ...item,
+            counted_qty: newQty,
+            discrepancy: diff,
+            status: diff === 0 ? "counted" : "discrepancy"
+          };
+        }
+        return item;
+      });
+    } else {
+      updatedItems = [
+        ...activeSession.items,
+        {
+          sku: cleanSku,
+          expected_qty: 0,
+          counted_qty: scanQty,
+          discrepancy: scanQty,
+          status: "discrepancy",
+          notes: "Unplanned scan"
+        }
+      ];
+    }
 
     try {
       await stockCountsService.update(activeSession._id, { items: updatedItems });
-      toast.success(`Counted ${scanQty}x ${scanSku}`);
+      toast.success(`Counted ${scanQty}x ${cleanSku}`);
       setScanSku("");
       setScanQty(1);
       
       // Update local state immediately for fast scanning
-      setActiveSession({ ...activeSession, items: updatedItems as any });
-      
+      setActiveSession({
+        ...activeSession,
+        items: updatedItems,
+        total_discrepancy_items: updatedItems.filter(i => i.discrepancy !== 0).length
+      });
+      reload();
     } catch (err) {
       toast.error(t.common?.error || "Failed to record scan");
     }
@@ -222,7 +278,7 @@ export function StockCount() {
                 <td className="px-4 py-3 text-center"><StatusBadge status={c.status} /></td>
                 <td className="px-4 py-3 text-right">
                   {c.status === "scheduled" && (
-                    <PrimaryButton onClick={() => handleStartCount(c._id)} icon={Play}>Start</PrimaryButton>
+                    <PrimaryButton onClick={() => handleStartCount(c)} icon={Play}>Start</PrimaryButton>
                   )}
                   {c.status === "in_progress" && activeSession?._id !== c._id && (
                     <PrimaryButton onClick={() => setActiveSession(c)} icon={ScanLine}>Resume</PrimaryButton>

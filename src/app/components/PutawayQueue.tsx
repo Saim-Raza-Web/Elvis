@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { 
   Truck, Search, Filter, RefreshCw, Layers, ArrowRight, Package, Clock, CheckCircle2,
-  Scan, UserPlus, MapPin, Building2, AlertTriangle, ShieldCheck, Check, X, QrCode, Camera
+  Scan, UserPlus, MapPin, Building2, AlertTriangle, ShieldCheck, Check, X, QrCode, Camera, Calendar
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./AppShell";
@@ -73,6 +73,7 @@ export function PutawayQueue() {
   const [scannedTaskBarcode, setScannedTaskBarcode] = useState("");
   const [scannedBinBarcode, setScannedBinBarcode] = useState("");
   const [scannedSkuBarcode, setScannedSkuBarcode] = useState("");
+  const [scannedExpiryDate, setScannedExpiryDate] = useState("");
   const [executedQty, setExecutedQty] = useState<number>(0);
   const [selectedBin, setSelectedBin] = useState("");
   const [showCameraScanner, setShowCameraScanner] = useState(false);
@@ -139,6 +140,7 @@ export function PutawayQueue() {
     setScannedTaskBarcode("");
     setScannedBinBarcode("");
     setScannedSkuBarcode("");
+    setScannedExpiryDate("");
     setExecutedQty(task.qty || 1);
     setLocationError(null);
     setSkuError(null);
@@ -215,11 +217,12 @@ export function PutawayQueue() {
         scannedSkuBarcode: enteredSkuBarcode,
         destinationBin: enteredBin,
         executedQty: executedQty,
+        expiryDate: scannedExpiryDate || undefined,
         __v: selectedTask.__v
       });
 
       if (executedQty < selectedTask.qty) {
-        toast.success(`Partial putaway completed! ${executedQty} units placed in ${targetBin}. Remaining ${selectedTask.qty - executedQty} units placed in a new pending task.`);
+        toast.success(`Partial putaway completed! ${executedQty} units placed in ${enteredBin}. Remaining ${selectedTask.qty - executedQty} units placed in a new pending task.`);
       } else {
         toast.success(res.message || `Putaway Task ${selectedTask.taskId} completed!`);
       }
@@ -722,6 +725,23 @@ export function PutawayQueue() {
                     Note: Partial putaway of {executedQty} units. A second pending task of {selectedTask.qty - executedQty} units will be created automatically.
                   </p>
                 )}
+              </div>
+
+              {/* Step 4: Physical Expiry Date Confirmation (Mandatory for FEFO/Perishable Items) */}
+              <div>
+                <label className="block font-semibold mb-1 font-bold text-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="size-4 text-primary" /> Step 4: Verify Physical Packaging Expiry Date
+                  </span>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono font-bold">Mandatory for FEFO</span>
+                </label>
+                <input
+                  type="date"
+                  value={scannedExpiryDate}
+                  onChange={(e) => setScannedExpiryDate(e.target.value)}
+                  className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-xs font-mono font-bold"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">🔒 Compliance Policy: Operator must physically verify expiration date stamped on physical packaging. ASN fallback is blocked.</p>
               </div>
             </div>
 

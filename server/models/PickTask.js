@@ -7,6 +7,7 @@ const pickTaskLineSchema = new mongoose.Schema({
   pickedQty: { type: Number, default: 0 },
   shortfallQty: { type: Number, default: 0 },
   sourceLocation: { type: String, default: 'STAGING-A' },
+  inventoryOwner: { type: String, default: '' },
   status: { type: String, enum: ['pending', 'picked', 'partial', 'shortfall'], default: 'pending' }
 }, { _id: true });
 

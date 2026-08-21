@@ -59,7 +59,10 @@ export function Locations() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState("MIA");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"zones" | "locations" | "rules">("zones");
+  const [view, setView] = useState<"zones" | "locations" | "rules" | "simulators">("zones");
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
 
   // Selection & Barcode Label Printing (LOC-04)
   const [selectedLocIds, setSelectedLocIds] = useState<string[]>([]);
@@ -348,10 +351,10 @@ export function Locations() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: t.locations.totalZones, value: zones.length, icon: MapPin, color: "text-primary" },
-          { label: t.locations.totalLocations, value: zones.reduce((a, z) => a + z.locations, 0), icon: Boxes, color: "text-blue-500" },
-          { label: t.locations.occupied, value: `${Math.round(zones.reduce((a, z) => a + z.occupied, 0) / (zones.reduce((a, z) => a + z.locations, 0) || 1) * 100)}%`, icon: Warehouse, color: "text-amber-500" },
-          { label: t.locations.lowBlocked, value: locs.filter((l) => l.status === "low" || l.status === "blocked").length, icon: AlertTriangle, color: "text-destructive" },
+          { label: t.locations.totalZones, value: [...new Set(locs.map(l => l.zone).filter(Boolean))].length || zones.length, icon: MapPin, color: "text-primary" },
+          { label: t.locations.totalLocations, value: pagination?.total ?? locs.length, icon: Boxes, color: "text-blue-500" },
+          { label: t.locations.occupied, value: `${locs.length > 0 ? Math.round((locs.filter(l => (l.qty || 0) > 0).length / locs.length) * 100) : 0}%`, icon: Warehouse, color: "text-amber-500" },
+          { label: t.locations.lowBlocked, value: locs.filter((l) => l.status === "low" || l.status === "blocked" || l.status === "LOCKED").length, icon: AlertTriangle, color: "text-destructive" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -388,11 +391,20 @@ export function Locations() {
           <div className="flex rounded-lg border border-border overflow-hidden">
             <button onClick={() => setView("zones")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "zones" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.zone}s</button>
             <button onClick={() => setView("locations")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "locations" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.common.location}s</button>
-            <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{t.locations?.rules || "Rules"}</button>
+            <button onClick={() => setView("rules")} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === "rules" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Rules</button>
+            <button onClick={() => setView("simulators" as any)} className={`px-3 py-2 text-xs font-semibold transition-colors ${view === ("simulators" as any) ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>Simulators</button>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setShowCsvImport(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary border border-border hover:bg-secondary/80 font-bold text-xs transition-all"
+          >
+            Import CSV
+          </button>
+
           <PrimaryButton icon={Plus} onClick={() => view === "zones" ? setShowZone(true) : view === "locations" ? setShowLoc(true) : setShowRule(true)}>
-            {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : (t.locations?.addRule || "Add Rule")}
+            {view === "zones" ? t.locations.addZone : view === "locations" ? t.locations.addLocation : "Add Rule"}
           </PrimaryButton>
         </div>
       </div>
@@ -579,13 +591,13 @@ export function Locations() {
       {/* Add Zone Modal */}
       <Modal open={showZone} onClose={() => setShowZone(false)} title={t.locations.addZone} subtitle={t.locations.zoneName} footer={<><ModalCancel onClose={() => setShowZone(false)} /><ModalSubmit onClick={handleAddZone}>{t.common.create}</ModalSubmit></>}>
         <Row>
-          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder={t.common?.pICKC || "PICK-C"} /></Field>
+          <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
             {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
           </Select></Field>
         </Row>
-        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder={t.common?.pickingZoneC || "Picking Zone C"} /></Field>
+        <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>
         <Row>
           <Field label={t.locations.zoneType}><Select value={zoneForm.type} onChange={(e) => setZoneForm({ ...zoneForm, type: e.target.value })}>
             {Object.keys(zoneTypeColor).map((typeKey) => (
@@ -633,12 +645,12 @@ export function Locations() {
       </Modal>
 
       {/* Delete Location Modal */}
-      <Modal open={!!deleteLocTarget} onClose={() => setDeleteLocTarget(null)} title={t.common?.deleteLocation || "Delete Location"} width="sm" footer={<><ModalCancel onClose={() => setDeleteLocTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteLoc}>{t.common.delete}</ModalSubmit></>}>
+      <Modal open={!!deleteLocTarget} onClose={() => setDeleteLocTarget(null)} title="Delete Location" width="sm" footer={<><ModalCancel onClose={() => setDeleteLocTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDeleteLoc}>{t.common.delete}</ModalSubmit></>}>
         <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteLocTarget?.code}</strong>? This cannot be undone.</p>
       </Modal>
 
       {/* Delete Rule Confirm Modal */}
-      <Modal open={!!deleteRuleTarget} onClose={() => setDeleteRuleTarget(null)} title={t.common?.deleteStorageRule || "Delete Storage Rule"}>
+      <Modal open={!!deleteRuleTarget} onClose={() => setDeleteRuleTarget(null)} title="Delete Storage Rule">
         <div className="p-4 text-sm text-muted-foreground">
           Are you sure you want to delete the rule <strong>{deleteRuleTarget?.name}</strong>? This action cannot be undone.
         </div>
@@ -651,27 +663,27 @@ export function Locations() {
       {/* Rule Form Modal */}
       <Modal open={showRule || !!editRuleTarget} onClose={() => { setShowRule(false); setEditRuleTarget(null); }} title={editRuleTarget ? "Edit Storage Rule" : "New Storage Rule"}>
         <div className="space-y-4 p-4">
-          <Field label={t.common?.ruleName || "Rule Name"}>
-            <Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder={t.common?.eGHazardousMaterials || "e.g. Hazardous Materials"} />
+          <Field label="Rule Name">
+            <Input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })} placeholder="e.g. Hazardous Materials" />
           </Field>
           <Row>
-            <Field label={t.common?.conditionType || "Condition Type"}>
+            <Field label="Condition Type">
               <Select value={ruleForm.conditionType} onChange={(e) => setRuleForm({ ...ruleForm, conditionType: e.target.value })}>
-                <option value="category">{t.common?.category || "Category"}</option>
-                <option value="manufacturer">{t.common?.manufacturer || "Manufacturer"}</option>
-                <option value="owner">{t.common?.owner || "Owner"}</option>
-                <option value="brand">{t.common?.brand || "Brand"}</option>
+                <option value="category">Category</option>
+                <option value="manufacturer">Manufacturer</option>
+                <option value="owner">Owner</option>
+                <option value="brand">Brand</option>
               </Select>
             </Field>
-            <Field label={t.common?.conditionValue || "Condition Value"}>
-              <Input value={ruleForm.conditionValue} onChange={(e) => setRuleForm({ ...ruleForm, conditionValue: e.target.value })} placeholder={t.common?.eGElectronics || "e.g. Electronics"} />
+            <Field label="Condition Value">
+              <Input value={ruleForm.conditionValue} onChange={(e) => setRuleForm({ ...ruleForm, conditionValue: e.target.value })} placeholder="e.g. Electronics" />
             </Field>
           </Row>
           <Row>
-            <Field label={t.common?.targetZone || "Target Zone"}>
-              <Input value={ruleForm.targetZone} onChange={(e) => setRuleForm({ ...ruleForm, targetZone: e.target.value })} placeholder={t.common?.eGAisleA || "e.g. Aisle A"} />
+            <Field label="Target Zone">
+              <Input value={ruleForm.targetZone} onChange={(e) => setRuleForm({ ...ruleForm, targetZone: e.target.value })} placeholder="e.g. Aisle A" />
             </Field>
-            <Field label={t.common?.priority1100 || "Priority (1-100)"}>
+            <Field label="Priority (1-100)">
               <Input type="number" value={ruleForm.priority} onChange={(e) => setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) })} />
             </Field>
           </Row>
@@ -679,6 +691,61 @@ export function Locations() {
         <div className="flex gap-3 p-4 pt-0">
           <ModalCancel onClose={() => { setShowRule(false); setEditRuleTarget(null); }} />
           <ModalSubmit onClick={handleAddRule}>{t.common.save}</ModalSubmit>
+        </div>
+      </Modal>
+
+      {/* CSV Location Importer Modal */}
+      <Modal open={showCsvImport} onClose={() => { setShowCsvImport(false); setCsvErrors([]); }} title="CSV Location Importer (Whole-File Validation)" width="xl">
+        <div className="space-y-4 p-4">
+          <p className="text-xs text-muted-foreground">
+            Paste location JSON or CSV formatted objects. If <strong>ANY</strong> row contains errors (duplicate codes, invalid temperature bounds, or bad location types), the <strong>ENTIRE</strong> file will be rejected with 0 partial commits.
+          </p>
+
+          <textarea
+            rows={8}
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+            placeholder={`[\n  { "code": "A-01-01", "locationType": "SHELF", "tempMin": 15, "tempMax": 25 },\n  { "code": "PAL-01-01", "locationType": "PALLET", "palletCapacity": 1 }\n]`}
+            className="w-full p-3 bg-secondary/30 border border-border rounded-xl font-mono text-xs outline-none focus:border-primary"
+          />
+
+          {csvErrors.length > 0 && (
+            <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-xl space-y-1">
+              <div className="font-bold text-xs text-destructive flex items-center gap-1.5">
+                <AlertTriangle className="size-4 shrink-0" /> Whole-File Validation Failed ({csvErrors.length} errors):
+              </div>
+              <ul className="list-disc list-inside text-[11px] text-destructive space-y-0.5 max-h-32 overflow-y-auto font-mono">
+                {csvErrors.map((err, idx) => <li key={idx}>{err}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-3 p-4 pt-0">
+          <ModalCancel onClose={() => { setShowCsvImport(false); setCsvErrors([]); }} />
+          <ModalSubmit onClick={async () => {
+            try {
+              let parsed: any[];
+              try {
+                parsed = JSON.parse(csvText);
+              } catch (_) {
+                toast.error("Invalid JSON format. Please provide valid JSON array of objects.");
+                return;
+              }
+              const res = await locationsService.importCSV(parsed);
+              toast.success(res.message);
+              setShowCsvImport(false);
+              setCsvText("");
+              setCsvErrors([]);
+              loadData();
+            } catch (err: any) {
+              const errData = err.response?.data;
+              if (errData?.errors) {
+                setCsvErrors(errData.errors);
+              } else {
+                toast.error(errData?.message || err.message || "CSV import failed");
+              }
+            }
+          }}>Validate & Import Whole File</ModalSubmit>
         </div>
       </Modal>
 

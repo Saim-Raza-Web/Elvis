@@ -19,5 +19,9 @@ export const locationsService = {
   delete: async (id) => {
     const response = await api.delete('/locations/' + id);
     return response.data;
+  },
+  importCSV: async (locations: any[]) => {
+    const response = await api.post('/locations/import-csv', { locations });
+    return response.data;
   }
 };
