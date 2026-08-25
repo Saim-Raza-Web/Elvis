@@ -507,8 +507,8 @@ export function Billing() {
       <Modal
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        title="Create New Commercial Invoice"
-        subtitle="Select CRM Customer, configure multi-line products & services, and verify VAT calculations"
+        title={t.billing.createCommercialInvoice}
+        subtitle={t.billing.modalSubtitle}
         footer={
           <div className="flex items-center justify-between w-full">
             <ModalCancel onClose={() => setShowAdd(false)} />
@@ -518,14 +518,14 @@ export function Billing() {
                 onClick={() => handleCreate('draft')}
                 className="px-4 py-2 rounded-lg text-xs font-bold border border-border bg-card hover:bg-secondary transition-colors text-foreground"
               >
-                Save as Draft
+                {t.billing.saveAsDraft}
               </button>
               <button
                 type="button"
                 onClick={() => handleCreate('issued')}
                 className="px-4 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm"
               >
-                Issue & Finalize Invoice
+                {t.billing.issueAndFinalize}
               </button>
             </div>
           </div>
@@ -535,16 +535,16 @@ export function Billing() {
           {/* Section 1: Customer Selection */}
           <div className="p-3 bg-secondary/30 rounded-xl border border-border space-y-3">
             <div className="font-semibold text-xs text-foreground uppercase tracking-wide flex items-center gap-1.5">
-              <Building className="size-3.5 text-primary" /> 1. Select CRM Customer
+              <Building className="size-3.5 text-primary" /> {t.billing.selectCrmCustomer}
             </div>
 
             <Row>
-              <Field label="Authoritative CRM Customer" required>
+              <Field label={t.billing.authoritativeCustomer} required>
                 <Select
                   value={form.customerId}
                   onChange={(e) => handleSelectCustomer(e.target.value)}
                 >
-                  <option value="">-- Choose Customer from CRM Master --</option>
+                  <option value="">{t.billing.chooseCustomer}</option>
                   {customers.map(c => (
                     <option key={c._id} value={c._id}>
                       {c.name} {c.vatNumber ? `(${c.vatNumber})` : ''} — {c.email}
@@ -553,7 +553,7 @@ export function Billing() {
                 </Select>
               </Field>
 
-              <Field label="Recipient Email (Auto-populated)">
+              <Field label={t.billing.recipientEmail}>
                 <Input
                   value={form.customerEmail}
                   onChange={(e) => setForm({ ...form, customerEmail: e.target.value })}
@@ -574,24 +574,24 @@ export function Billing() {
           {/* Section 2: Dates & Terms */}
           <div className="p-3 bg-secondary/30 rounded-xl border border-border space-y-3">
             <div className="font-semibold text-xs text-foreground uppercase tracking-wide flex items-center gap-1.5">
-              <Calendar className="size-3.5 text-primary" /> 2. Invoice Dates & Terms
+              <Calendar className="size-3.5 text-primary" /> {t.billing.invoiceDatesAndTerms}
             </div>
             <Row>
-              <Field label="Issue Date" required>
+              <Field label={t.billing.issueDate} required>
                 <Input
                   type="date"
                   value={form.issuedDate}
                   onChange={(e) => setForm({ ...form, issuedDate: e.target.value })}
                 />
               </Field>
-              <Field label="Due Date">
+              <Field label={t.billing.dueDate}>
                 <Input
                   type="date"
                   value={form.dueDate}
                   onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                 />
               </Field>
-              <Field label="Payment Terms">
+              <Field label={t.crm.paymentTermsLabel}>
                 <Select
                   value={form.paymentTerms}
                   onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}
@@ -609,14 +609,14 @@ export function Billing() {
           <div className="p-3 bg-secondary/30 rounded-xl border border-border space-y-3">
             <div className="flex items-center justify-between">
               <div className="font-semibold text-xs text-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <FileText className="size-3.5 text-primary" /> 3. Invoice Products & Services ({form.lines.length} Line{form.lines.length > 1 ? 's' : ''})
+                <FileText className="size-3.5 text-primary" /> {t.billing.invoiceProductsAndServices} ({form.lines.length} Line{form.lines.length > 1 ? 's' : ''})
               </div>
               <button
                 type="button"
                 onClick={addLine}
                 className="px-2.5 py-1 bg-primary/10 hover:bg-primary/20 text-primary rounded-md text-xs font-bold transition-colors flex items-center gap-1"
               >
-                <Plus className="size-3" /> Add Item Line
+                <Plus className="size-3" /> {t.billing.addItemLine}
               </button>
             </div>
 
@@ -632,14 +632,14 @@ export function Billing() {
                           onClick={() => updateLine(idx, { itemType: 'product' })}
                           className={`px-2 py-0.5 font-bold ${line.itemType === 'product' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
                         >
-                          Product
+                          {t.billing.itemTypeProduct}
                         </button>
                         <button
                           type="button"
                           onClick={() => updateLine(idx, { itemType: 'service', sku: '' })}
                           className={`px-2 py-0.5 font-bold ${line.itemType === 'service' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
                         >
-                          Service
+                          {t.billing.itemTypeService}
                         </button>
                       </div>
                     </div>
@@ -665,7 +665,7 @@ export function Billing() {
                     {/* SKU Selection or Code */}
                     {line.itemType === 'product' ? (
                       <div className="col-span-4">
-                        <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">SKU Catalog</label>
+                        <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.skuCatalog}</label>
                         <Select
                           value={line.sku}
                           onChange={(e) => handleProductPick(idx, e.target.value)}
@@ -680,7 +680,7 @@ export function Billing() {
                       </div>
                     ) : (
                       <div className="col-span-4">
-                        <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">Service Code</label>
+                        <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.serviceCode}</label>
                         <Input
                           value={line.sku}
                           onChange={(e) => updateLine(idx, { sku: e.target.value })}
@@ -691,7 +691,7 @@ export function Billing() {
 
                     {/* Description */}
                     <div className="col-span-8">
-                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">Description</label>
+                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.description}</label>
                       <Input
                         value={line.description}
                         onChange={(e) => updateLine(idx, { description: e.target.value })}
@@ -701,7 +701,7 @@ export function Billing() {
 
                     {/* Quantity */}
                     <div className="col-span-3">
-                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">Quantity</label>
+                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.quantity}</label>
                       <Input
                         type="number"
                         step="1"
@@ -713,7 +713,7 @@ export function Billing() {
 
                     {/* Unit Price */}
                     <div className="col-span-3">
-                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">Unit Price (€)</label>
+                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.unitPrice}</label>
                       <Input
                         type="number"
                         step="0.01"
@@ -725,7 +725,7 @@ export function Billing() {
 
                     {/* Tax Rate */}
                     <div className="col-span-3">
-                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">VAT Rate</label>
+                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.vatRate}</label>
                       <Select
                         value={line.taxRate !== undefined ? line.taxRate : 21}
                         onChange={(e) => updateLine(idx, { taxRate: Number(e.target.value) })}
@@ -739,7 +739,7 @@ export function Billing() {
 
                     {/* Discount */}
                     <div className="col-span-3">
-                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">Discount %</label>
+                      <label className="text-[10px] text-muted-foreground block mb-0.5 font-semibold">{t.billing.discount}</label>
                       <Input
                         type="number"
                         min="0"
@@ -758,10 +758,10 @@ export function Billing() {
           <div className="bg-gradient-to-r from-card to-secondary/30 p-4 rounded-xl border border-border flex justify-between items-center text-xs">
             <div className="space-y-1">
               <div className="text-muted-foreground">
-                Subtotal (Excl. Tax): <strong>€{liveSummary.subtotal.toFixed(2)}</strong>
+                {t.billing.subtotalExclTax}: <strong>€{liveSummary.subtotal.toFixed(2)}</strong>
               </div>
               <div className="text-muted-foreground">
-                Total VAT: <strong>€{liveSummary.totalTax.toFixed(2)}</strong>
+                {t.billing.totalVat}: <strong>€{liveSummary.totalTax.toFixed(2)}</strong>
               </div>
               <div className="text-[11px] text-muted-foreground">
                 {Object.entries(liveSummary.taxMap).map(([rate, val]) => (
@@ -773,7 +773,7 @@ export function Billing() {
             </div>
 
             <div className="text-right">
-              <div className="text-xs uppercase font-bold text-muted-foreground">Total Payable</div>
+              <div className="text-xs uppercase font-bold text-muted-foreground">{t.billing.totalPayable}</div>
               <div className="text-2xl font-black text-primary font-mono">
                 €{liveSummary.grandTotal.toFixed(2)}
               </div>
@@ -798,7 +798,7 @@ export function Billing() {
                   onClick={() => handleDownloadPdf(selectedInvoice)}
                   className="px-4 py-2 rounded-lg text-xs font-bold bg-secondary hover:bg-secondary/80 transition-colors flex items-center gap-1.5"
                 >
-                  <Download className="size-3.5" /> Download PDF
+                  <Download className="size-3.5" /> {t.billing.downloadPdf}
                 </button>
                 {selectedInvoice.status !== "paid" && selectedInvoice.status !== "cancelled" && (
                   <button
@@ -806,7 +806,7 @@ export function Billing() {
                     onClick={() => handleSend(selectedInvoice)}
                     className="px-4 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 transition-opacity flex items-center gap-1.5"
                   >
-                    <Send className="size-3.5" /> Send to Customer
+                    <Send className="size-3.5" /> {t.billing.sendToCustomer}
                   </button>
                 )}
                 {(selectedInvoice.status === "issued" || selectedInvoice.status === "sent") && (
@@ -815,7 +815,7 @@ export function Billing() {
                     onClick={() => handleMarkPaid(selectedInvoice)}
                     className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-1.5 shadow-sm"
                   >
-                    <Check className="size-3.5" /> Mark as Paid
+                    <Check className="size-3.5" /> {t.billing.markAsPaid}
                   </button>
                 )}
               </div>
@@ -843,11 +843,11 @@ export function Billing() {
                   <tr>
                     <th className="text-left p-2.5">#</th>
                     <th className="text-left p-2.5">SKU / Code</th>
-                    <th className="text-left p-2.5">Description</th>
-                    <th className="text-right p-2.5">Qty</th>
-                    <th className="text-right p-2.5">Price</th>
-                    <th className="text-right p-2.5">Tax %</th>
-                    <th className="text-right p-2.5">Line Total</th>
+                    <th className="text-left p-2.5">{t.billing.description}</th>
+                    <th className="text-right p-2.5">{t.billing.quantity}</th>
+                    <th className="text-right p-2.5">{t.billing.unitPrice}</th>
+                    <th className="text-right p-2.5">{t.billing.vatRate}</th>
+                    <th className="text-right p-2.5">{t.common.total}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -868,11 +868,11 @@ export function Billing() {
 
             <div className="p-3 bg-secondary/30 rounded-lg flex justify-between items-center text-xs">
               <div>
-                <div>Subtotal: <strong>€{selectedInvoice.subtotal.toFixed(2)}</strong></div>
-                <div>VAT / Tax: <strong>€{selectedInvoice.totalTax.toFixed(2)}</strong></div>
+                <div>{t.billing.subtotalExclTax}: <strong>€{selectedInvoice.subtotal.toFixed(2)}</strong></div>
+                <div>{t.billing.totalVat}: <strong>€{selectedInvoice.totalTax.toFixed(2)}</strong></div>
               </div>
               <div className="text-right">
-                <div className="text-muted-foreground uppercase text-[10px]">Grand Total</div>
+                <div className="text-muted-foreground uppercase text-[10px]">{t.billing.totalPayable}</div>
                 <div className="text-xl font-bold font-mono text-primary">€{selectedInvoice.grandTotal.toFixed(2)}</div>
               </div>
             </div>

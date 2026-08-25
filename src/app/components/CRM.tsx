@@ -558,13 +558,13 @@ export function CRM() {
       <Modal
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        title={editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : "New CRM Customer Profile") : "Edit CRM Customer Profile"}
-        subtitle="Manage authoritative company details, VAT tax registration, billing/shipping addresses, and payment terms"
+        title={editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.newCustomerProfile) : t.crm.editCustomerProfile}
+        subtitle={t.crm.modalSubtitle}
         footer={
           <>
             <ModalCancel onClose={() => setShowAdd(false)} />
             <ModalSubmit onClick={handleSave}>
-              {editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : "Save Customer") : "Save Changes"}
+              {editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.saveCustomer) : t.crm.saveChanges}
             </ModalSubmit>
           </>
         }
@@ -574,10 +574,10 @@ export function CRM() {
             {/* Modal Internal Tabs */}
             <div className="flex border-b border-border pb-1 gap-2 text-xs font-semibold">
               {[
-                { id: "general", label: "General & Contact" },
-                { id: "billing", label: "Billing & Tax" },
-                { id: "shipping", label: "Shipping Address" },
-                { id: "financial", label: "Payment & Terms" }
+                { id: "general", label: t.crm.tabGeneral },
+                { id: "billing", label: t.crm.tabBilling },
+                { id: "shipping", label: t.crm.tabShipping },
+                { id: "financial", label: t.crm.tabFinancial }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -593,23 +593,23 @@ export function CRM() {
             {activeTab === "general" && (
               <div className="space-y-3">
                 <Row>
-                  <Field label="Customer / Company Name" required>
+                  <Field label={t.crm.companyNameLabel} required>
                     <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme International S.A." />
                   </Field>
-                  <Field label="Contact Person">
+                  <Field label={t.crm.contactPersonLabel}>
                     <Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="John Smith" />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="Email Address (For Invoicing & Notifications)" required>
+                  <Field label={t.crm.emailLabel} required>
                     <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="billing@acme.com" />
                   </Field>
-                  <Field label="Contact Phone">
+                  <Field label={t.crm.phoneLabel}>
                     <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+34 912 345 678" />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="Customer Tier">
+                  <Field label={t.crm.tierLabel}>
                     <Select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as any })}>
                       <option value="bronze">Bronze Tier</option>
                       <option value="silver">Silver Tier</option>
@@ -617,15 +617,15 @@ export function CRM() {
                       <option value="platinum">Platinum Tier</option>
                     </Select>
                   </Field>
-                  <Field label="Account Status">
+                  <Field label={t.crm.statusLabel}>
                     <Select value={form.active ? "true" : "false"} onChange={(e) => setForm({ ...form, active: e.target.value === "true" })}>
-                      <option value="true">Active (Eligible for Invoicing)</option>
-                      <option value="false">Inactive / Suspended</option>
+                      <option value="true">{t.crm.activeStatus}</option>
+                      <option value="false">{t.crm.inactiveStatus}</option>
                     </Select>
                   </Field>
                 </Row>
-                <Field label="Internal Notes">
-                  <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Key account requirements or notes…" />
+                <Field label={t.crm.notesLabel}>
+                  <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder={t.crm.notesPlaceholder} />
                 </Field>
               </div>
             )}
@@ -633,36 +633,36 @@ export function CRM() {
             {activeTab === "billing" && (
               <div className="space-y-3">
                 <Row>
-                  <Field label="VAT / Tax ID (CIF / NIF / EIN)">
+                  <Field label={t.crm.vatNumberLabel}>
                     <Input value={form.vatNumber} onChange={(e) => setForm({ ...form, vatNumber: e.target.value })} placeholder="ES-B12345678" />
                   </Field>
-                  <Field label="Country">
+                  <Field label={t.crm.countryLabel}>
                     <Select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
                       {["ES", "US", "DE", "FR", "IT", "GB", "NL", "SE", "PT", "MX"].map((c) => <option key={c} value={c}>{c}</option>)}
                     </Select>
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="Billing Street Name">
+                  <Field label={t.crm.billingStreet}>
                     <Input value={form.billingAddress.street} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, street: e.target.value } })} placeholder="Calle Mayor" />
                   </Field>
-                  <Field label="Street / Building Number">
+                  <Field label={t.crm.buildingNumber}>
                     <Input value={form.billingAddress.number} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, number: e.target.value } })} placeholder="45, Floor 3" />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="City">
+                  <Field label={t.crm.cityLabel}>
                     <Input value={form.billingAddress.city} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, city: e.target.value } })} placeholder="Madrid" />
                   </Field>
-                  <Field label="Postcode / Zip Code">
+                  <Field label={t.crm.postcodeLabel}>
                     <Input value={form.billingAddress.postcode} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, postcode: e.target.value } })} placeholder="28001" />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="State / Region">
+                  <Field label={t.crm.regionLabel}>
                     <Input value={form.billingAddress.region} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, region: e.target.value } })} placeholder="Comunidad de Madrid" />
                   </Field>
-                  <Field label="Billing Country">
+                  <Field label={t.crm.billingCountryLabel}>
                     <Input value={form.billingAddress.country} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, country: e.target.value } })} placeholder="Spain" />
                   </Field>
                 </Row>
@@ -672,26 +672,26 @@ export function CRM() {
             {activeTab === "shipping" && (
               <div className="space-y-3">
                 <Row>
-                  <Field label="Shipping Street Name">
+                  <Field label={t.crm.shippingStreet}>
                     <Input value={form.shippingAddress.street} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, street: e.target.value } })} placeholder="Avenida de la Industria" />
                   </Field>
-                  <Field label="Building / Dock Number">
+                  <Field label={t.crm.shippingBuildingNumber}>
                     <Input value={form.shippingAddress.number} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, number: e.target.value } })} placeholder="Nave 12" />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="City">
+                  <Field label={t.crm.shippingCity}>
                     <Input value={form.shippingAddress.city} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, city: e.target.value } })} placeholder="Getafe" />
                   </Field>
-                  <Field label="Postcode / Zip Code">
+                  <Field label={t.crm.shippingPostcode}>
                     <Input value={form.shippingAddress.postcode} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, postcode: e.target.value } })} placeholder="28906" />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="State / Region">
+                  <Field label={t.crm.shippingRegion}>
                     <Input value={form.shippingAddress.region} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, region: e.target.value } })} placeholder="Madrid" />
                   </Field>
-                  <Field label="Shipping Country">
+                  <Field label={t.crm.shippingCountryLabel}>
                     <Input value={form.shippingAddress.country} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, country: e.target.value } })} placeholder="Spain" />
                   </Field>
                 </Row>
@@ -701,7 +701,7 @@ export function CRM() {
             {activeTab === "financial" && (
               <div className="space-y-3">
                 <Row>
-                  <Field label="Default Payment Terms">
+                  <Field label={t.crm.paymentTermsLabel}>
                     <Select value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}>
                       <option value="Due on Receipt">Due on Receipt (Immediate)</option>
                       <option value="Net 15">Net 15 (15 days)</option>
@@ -710,11 +710,11 @@ export function CRM() {
                       <option value="Net 90">Net 90 (90 days)</option>
                     </Select>
                   </Field>
-                  <Field label="Customer Bank IBAN (Remittance)">
+                  <Field label={t.crm.ibanLabel}>
                     <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder="ES91 2100 0418 4502 0005 1332" />
                   </Field>
                 </Row>
-                <Field label="Bank / SWIFT Details">
+                <Field label={t.crm.bankInfoLabel}>
                   <Input value={form.bankInfo} onChange={(e) => setForm({ ...form, bankInfo: e.target.value })} placeholder="Banco Santander / SANESMMXXX" />
                 </Field>
               </div>
@@ -723,10 +723,10 @@ export function CRM() {
         ) : (
           <div className="space-y-3">
             <Row>
-              <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.companyInc || "Company Inc."} /></Field>
-              <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder={t.common?.fullName || "Full name"} /></Field>
+              <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Company Inc." /></Field>
+              <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="Full name" /></Field>
             </Row>
-            <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={t.common?.contactCompanyCom || "contact@company.com"} /></Field>
+            <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="contact@company.com" /></Field>
           </div>
         )}
       </Modal>
