@@ -106,4 +106,7 @@ export const ROUTE_MODULE_MAP = {
   admin: 'admin',
   dashboard: 'dashboard',
   documents: 'inventory',
+  clients: 'inventory',
+  suppliers: 'inventory',
+  categories: 'inventory',
 };

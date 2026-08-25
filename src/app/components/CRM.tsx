@@ -1,15 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
-import { Users, Search, Plus, Mail, Phone, ShoppingCart, Star, Calendar, TrendingUp, Edit3, Trash2 } from "lucide-react";
+import { Users, Search, Plus, Mail, Phone, ShoppingCart, Star, Calendar, TrendingUp, Edit3, Trash2, Building2, MapPin, CreditCard, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
-import { crmService } from "../../services/crm.service";
+import { crmService, Customer, CustomerAddress } from "../../services/crm.service";
 import { leadsService } from "../../services/leads.service";
 
-type Customer = { _id: string; id: string; name: string; contact: string; email: string; phone: string; country: string; orders: number; total_spend: number; status: string; tier: string; last_activity: string };
 type Lead = { _id: string; id: string; name: string; contact: string; email: string; value: number; stage: string; probability: number; assignee: string; last_contact: string };
 
 const pipeline = ["contacted", "qualified", "demo", "proposal", "negotiation", "closed"];
@@ -31,12 +30,52 @@ const tierColors: Record<string, string> = {
 };
 
 function mapCustomer(d: any): Customer {
-  return { ...d, id: d._id, orders: d.orders || 0, total_spend: d.total_spend || 0, last_activity: d.last_activity?.slice(0, 10) || "—" };
+  return {
+    ...d,
+    id: d._id,
+    orders: d.orders || 0,
+    total_spend: d.total_spend || 0,
+    last_activity: d.last_activity?.slice(0, 10) || "—",
+    active: d.active !== false,
+    billingAddress: d.billingAddress || {},
+    shippingAddress: d.shippingAddress || {}
+  };
 }
 
 function mapLead(d: any): Lead {
   return { ...d, id: d.leadId || d._id, value: d.value || 0, probability: d.probability || 0, last_contact: d.last_contact?.slice(0, 10) || "—" };
 }
+
+const defaultCustomerForm = () => ({
+  name: "",
+  contact: "",
+  email: "",
+  phone: "",
+  vatNumber: "",
+  country: "ES",
+  paymentTerms: "Net 30",
+  iban: "",
+  bankInfo: "",
+  tier: "bronze" as "bronze" | "silver" | "gold" | "platinum",
+  notes: "",
+  active: true,
+  billingAddress: {
+    street: "",
+    number: "",
+    city: "",
+    postcode: "",
+    region: "",
+    country: "Spain"
+  },
+  shippingAddress: {
+    street: "",
+    number: "",
+    city: "",
+    postcode: "",
+    region: "",
+    country: "Spain"
+  }
+});
 
 export function CRM() {
   const { t } = useLang();
@@ -46,7 +85,8 @@ export function CRM() {
   const [showAdd, setShowAdd] = useState(false);
   const [editMode, setEditMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" });
+  const [form, setForm] = useState(defaultCustomerForm());
+  const [activeTab, setActiveTab] = useState<"general" | "billing" | "shipping" | "financial">("general");
 
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
 
@@ -80,71 +120,171 @@ export function CRM() {
 
   // Listen for header button CustomEvent
   useEffect(() => {
-    const handler = () => { setForm({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" }); setEditMode("add"); setShowAdd(true); };
+    const handler = () => {
+      setForm(defaultCustomerForm());
+      setEditMode("add");
+      setActiveTab("general");
+      setShowAdd(true);
+    };
     window.addEventListener("open-add-customer", handler);
     return () => window.removeEventListener("open-add-customer", handler);
   }, []);
 
   async function handleSave() {
-    if (!form.name || !form.email) { toast.error(t.common?.error || "Company name and email required."); return; }
+    if (!form.name || !form.email) {
+      toast.error(t.common?.error || "Customer / Company name and email are required.");
+      return;
+    }
+
     try {
       if (editMode === "add") {
         if (view === "leads" || view === "pipeline") {
-          await leadsService.create({ name: form.name, contact: form.contact, email: form.email, value: 0, stage: "contacted", probability: 20, assignee: "Admin", last_contact: new Date().toISOString().slice(0, 10) });
+          await leadsService.create({
+            name: form.name,
+            contact: form.contact,
+            email: form.email,
+            value: 0,
+            stage: "contacted",
+            probability: 20,
+            assignee: "Admin",
+            last_contact: new Date().toISOString().slice(0, 10)
+          });
           toast.success(t.crm.leadAdded.replace("{name}", form.name));
         } else {
-          await crmService.create({ name: form.name, contact: form.contact, email: form.email, phone: form.phone, country: form.country, orders: 0, total_spend: 0, status: "active", tier: form.tier, last_activity: new Date().toISOString().slice(0, 10) });
+          await crmService.create({
+            name: form.name,
+            contact: form.contact,
+            email: form.email,
+            phone: form.phone,
+            vatNumber: form.vatNumber,
+            country: form.country,
+            paymentTerms: form.paymentTerms,
+            iban: form.iban,
+            bankInfo: form.bankInfo,
+            tier: form.tier,
+            notes: form.notes,
+            active: form.active,
+            status: form.active ? "active" : "inactive",
+            billingAddress: form.billingAddress,
+            shippingAddress: form.shippingAddress,
+            orders: 0,
+            total_spend: 0,
+            last_activity: new Date().toISOString().slice(0, 10)
+          });
           toast.success(t.crm.customerAdded.replace("{name}", form.name));
         }
       } else {
         if (view === "leads" || view === "pipeline") {
-          await leadsService.update(editingId!, { name: form.name, contact: form.contact, email: form.email });
+          await leadsService.update(editingId!, {
+            name: form.name,
+            contact: form.contact,
+            email: form.email
+          });
           toast.success(t.common?.operationSuccess || "Lead updated.");
         } else {
-          await crmService.update(editingId!, { name: form.name, contact: form.contact, email: form.email, phone: form.phone, country: form.country, tier: form.tier });
+          await crmService.update(editingId!, {
+            name: form.name,
+            contact: form.contact,
+            email: form.email,
+            phone: form.phone,
+            vatNumber: form.vatNumber,
+            country: form.country,
+            paymentTerms: form.paymentTerms,
+            iban: form.iban,
+            bankInfo: form.bankInfo,
+            tier: form.tier,
+            notes: form.notes,
+            active: form.active,
+            status: form.active ? "active" : "inactive",
+            billingAddress: form.billingAddress,
+            shippingAddress: form.shippingAddress
+          });
           toast.success(t.common?.operationSuccess || "Customer updated.");
         }
       }
       setShowAdd(false);
       reloadAll();
-    } catch (err) { toast.error(t.common?.error || "Failed to save record"); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t.common?.error || "Failed to save record");
+    }
   }
 
   async function handleDeleteCustomer(id: string) {
-    if (!confirm("Delete customer?")) return;
+    if (!confirm("Are you sure you want to delete this customer?")) return;
     try {
       await crmService.delete(id);
       toast.success(t.common?.operationSuccess || "Customer deleted.");
       reloadAll();
-    } catch (err) { toast.error(t.common?.error || "Failed to delete customer"); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t.common?.error || "Failed to delete customer");
+    }
   }
 
   async function handleDeleteLead(id: string) {
-    if (!confirm("Delete lead?")) return;
+    if (!confirm("Are you sure you want to delete this lead?")) return;
     try {
       await leadsService.delete(id);
       toast.success(t.common?.operationSuccess || "Lead deleted.");
       reloadAll();
-    } catch (err) { toast.error(t.common?.error || "Failed to delete lead"); }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || t.common?.error || "Failed to delete lead");
+    }
   }
 
   function openEditCustomer(c: Customer) {
     setEditMode("edit");
     setEditingId(c._id);
-    setForm({ name: c.name, contact: c.contact, email: c.email, phone: c.phone, country: c.country, tier: c.tier });
+    setForm({
+      name: c.name || "",
+      contact: c.contact || "",
+      email: c.email || "",
+      phone: c.phone || "",
+      vatNumber: c.vatNumber || "",
+      country: c.country || "ES",
+      paymentTerms: c.paymentTerms || "Net 30",
+      iban: c.iban || "",
+      bankInfo: c.bankInfo || "",
+      tier: c.tier || "bronze",
+      notes: c.notes || "",
+      active: c.active !== false,
+      billingAddress: {
+        street: c.billingAddress?.street || "",
+        number: c.billingAddress?.number || "",
+        city: c.billingAddress?.city || "",
+        postcode: c.billingAddress?.postcode || "",
+        region: c.billingAddress?.region || "",
+        country: c.billingAddress?.country || "Spain"
+      },
+      shippingAddress: {
+        street: c.shippingAddress?.street || "",
+        number: c.shippingAddress?.number || "",
+        city: c.shippingAddress?.city || "",
+        postcode: c.shippingAddress?.postcode || "",
+        region: c.shippingAddress?.region || "",
+        country: c.shippingAddress?.country || "Spain"
+      }
+    });
+    setActiveTab("general");
     setShowAdd(true);
   }
 
   function openEditLead(l: Lead) {
     setEditMode("edit");
     setEditingId(l._id);
-    setForm({ name: l.name, contact: l.contact, email: l.email, phone: "", country: "US", tier: "bronze" });
+    setForm({
+      ...defaultCustomerForm(),
+      name: l.name,
+      contact: l.contact,
+      email: l.email
+    });
     setShowAdd(true);
   }
 
   function openAddModal() {
     setEditMode("add");
-    setForm({ name: "", contact: "", email: "", phone: "", country: "US", tier: "bronze" });
+    setEditingId(null);
+    setForm(defaultCustomerForm());
+    setActiveTab("general");
     setShowAdd(true);
   }
 
@@ -155,7 +295,9 @@ export function CRM() {
       await leadsService.update(draggedLead._id, { stage });
       toast.success(`Lead moved to ${stage}`);
       reloadAll();
-    } catch (err) { toast.error(t.common?.error || "Failed to move lead"); }
+    } catch (err) {
+      toast.error(t.common?.error || "Failed to move lead");
+    }
     setDraggedLead(null);
   }
 
@@ -172,13 +314,16 @@ export function CRM() {
           { label: t.crm.pipelineValue, value: `€${(pipelineValue / 1000).toFixed(0)}k`, icon: Star, color: "text-amber-500" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
-            <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">{s.label}</span>
+              <s.icon className={`size-4 ${s.color}`} />
+            </div>
             <div className="font-bold" style={{ fontSize: "1.5rem", fontFamily: "JetBrains Mono, monospace" }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* View tabs */}
+      {/* View tabs & Actions */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex rounded-lg border border-border overflow-hidden">
           {[
@@ -186,57 +331,136 @@ export function CRM() {
             { id: "leads", label: t.crm.leads },
             { id: "pipeline", label: t.crm.pipeline },
           ].map((tab) => (
-            <button key={tab.id} onClick={() => setView(tab.id as any)} className={`px-4 py-2 text-sm font-semibold transition-colors ${view === tab.id ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{tab.label}</button>
+            <button
+              key={tab.id}
+              onClick={() => setView(tab.id as any)}
+              className={`px-4 py-2 text-sm font-semibold transition-colors ${view === tab.id ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
+            >
+              {tab.label}
+            </button>
           ))}
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t.common.search + "…"} className="pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors w-48" style={{ fontSize: "0.875rem" }} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, VAT, email…"
+              className="pl-9 pr-4 py-2 bg-card border border-border rounded-lg outline-none focus:border-primary/50 transition-colors w-56"
+              style={{ fontSize: "0.875rem" }}
+            />
           </div>
-          <PrimaryButton icon={Plus} onClick={openAddModal}>{view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer}</PrimaryButton>
+          <PrimaryButton icon={Plus} onClick={openAddModal}>
+            {view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer}
+          </PrimaryButton>
         </div>
       </div>
 
+      {/* Customers Cards View */}
       {view === "customers" && (
         <>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {customers.map((c, i) => (
-            <div key={c.id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-sm font-bold text-primary-foreground">{c.name.slice(0, 2).toUpperCase()}</div>
-                  <div>
-                    <div className="font-semibold">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">{c.contact}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {customers.map((c, i) => (
+              <div key={c.id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in flex flex-col justify-between" style={{ animationDelay: `${i * 40}ms` }}>
+                <div>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-sm font-bold text-primary-foreground">
+                        {c.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-base flex items-center gap-2">
+                          {c.name}
+                          {!c.active && (
+                            <span className="text-[10px] bg-destructive/15 text-destructive px-1.5 py-0.5 rounded font-bold">INACTIVE</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{c.contact || "No Contact Person"}</div>
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${tierColors[c.tier]}`}>
+                      {c.tier}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 mb-4 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Mail className="size-3 text-primary" />
+                      <span className="font-medium text-foreground">{c.email}</span>
+                    </div>
+                    {c.vatNumber && (
+                      <div className="flex items-center gap-2">
+                        <FileText className="size-3 text-amber-500" />
+                        <span>VAT: <strong className="text-foreground">{c.vatNumber}</strong></span>
+                      </div>
+                    )}
+                    {c.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="size-3" />
+                        <span>{c.phone}</span>
+                      </div>
+                    )}
+                    {c.billingAddress?.city && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="size-3 text-sky-500" />
+                        <span>{c.billingAddress.city}, {c.billingAddress.country || c.country}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="size-3 text-emerald-500" />
+                      <span>Terms: <strong>{c.paymentTerms || "Net 30"}</strong></span>
+                    </div>
                   </div>
                 </div>
-                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${tierColors[c.tier]}`}>{c.tier}</span>
+
+                <div>
+                  <div className="grid grid-cols-3 gap-2 text-xs border-t border-border pt-3">
+                    <div className="text-center">
+                      <div className="text-muted-foreground">{t.crm.totalOrders}</div>
+                      <div className="font-bold mt-0.5">{c.orders}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-muted-foreground">{t.crm.spend}</div>
+                      <div className="font-bold mt-0.5">€{(c.total_spend / 1000).toFixed(0)}k</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-muted-foreground">{t.common.status}</div>
+                      <div className="mt-0.5">
+                        <StatusBadge status={c.active ? "active" : "inactive"} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-border/50">
+                    <button
+                      onClick={() => openEditCustomer(c)}
+                      className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary flex items-center gap-1 text-xs"
+                      title="Edit Customer Profile"
+                    >
+                      <Edit3 className="size-3.5" /> Edit Profile
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCustomer(c._id)}
+                      className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"
+                      title="Delete Customer"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1.5 mb-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="size-3" />{c.email}</div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground"><Phone className="size-3" />{c.phone}</div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground"><Calendar className="size-3" />{t.crm.lastActivity}: {c.last_activity}</div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-xs border-t border-border pt-3">
-                <div className="text-center"><div className="text-muted-foreground">{t.crm.totalOrders}</div><div className="font-bold mt-0.5">{c.orders}</div></div>
-                <div className="text-center"><div className="text-muted-foreground">{t.crm.spend}</div><div className="font-bold mt-0.5">€{(c.total_spend / 1000).toFixed(0)}k</div></div>
-                <div className="text-center"><div className="text-muted-foreground">{t.common.status}</div><div className="mt-0.5"><StatusBadge status={c.status} /></div></div>
-              </div>
-              <div className="flex items-center justify-end gap-1 mt-3">
-                <button onClick={() => openEditCustomer(c)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
-                <button onClick={() => handleDeleteCustomer(c._id)} className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground"><Trash2 className="size-3.5" /></button>
-              </div>
-            </div>
-          ))}
-          {customers.length === 0 && !customersLoading && (
-            <div className="col-span-full text-center py-16 text-muted-foreground">{t.common.noResults}</div>
-          )}
-        </div>
-        <TablePagination pagination={customerPagination} page={customerPage} onPageChange={setCustomerPage} />
+            ))}
+
+            {customers.length === 0 && !customersLoading && (
+              <div className="col-span-full text-center py-16 text-muted-foreground">{t.common.noResults}</div>
+            )}
+          </div>
+          <TablePagination pagination={customerPagination} page={customerPage} onPageChange={setCustomerPage} />
         </>
       )}
 
+      {/* Leads Table View */}
       {view === "leads" && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
@@ -282,6 +506,7 @@ export function CRM() {
         </div>
       )}
 
+      {/* Pipeline View */}
       {view === "pipeline" && (
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-3 min-w-max">
@@ -329,24 +554,180 @@ export function CRM() {
         </div>
       )}
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer) : "Edit Record"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : t.crm.addCustomer) : "Save Changes"}</ModalSubmit></>}>
-        <Row>
-          <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.companyInc || "Company Inc."} /></Field>
-          <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder={t.common?.fullName || "Full name"} /></Field>
-        </Row>
-        <Row>
-          <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={t.common?.contactCompanyCom || "contact@company.com"} /></Field>
-          {(view === "customers") && <Field label={t.common.phone}><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 555 000 0000" /></Field>}
-        </Row>
-        {(view === "customers") && (
-          <Row>
-            <Field label={t.crm.country}><Select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
-              {["US","DE","FR","ES","IT","GB","NL","SE","PT","BR"].map((c) => <option key={c}>{c}</option>)}
-            </Select></Field>
-            <Field label={t.crm.tier}><Select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
-              <option value="bronze">{t.common?.bronze || "Bronze"}</option><option value="silver">{t.common?.silver || "Silver"}</option><option value="gold">{t.common?.gold || "Gold"}</option><option value="platinum">{t.common?.platinum || "Platinum"}</option>
-            </Select></Field>
-          </Row>
+      {/* Customer / Lead Create & Edit Modal */}
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title={editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : "New CRM Customer Profile") : "Edit CRM Customer Profile"}
+        subtitle="Manage authoritative company details, VAT tax registration, billing/shipping addresses, and payment terms"
+        footer={
+          <>
+            <ModalCancel onClose={() => setShowAdd(false)} />
+            <ModalSubmit onClick={handleSave}>
+              {editMode === "add" ? (view === "leads" || view === "pipeline" ? t.crm.addLead : "Save Customer") : "Save Changes"}
+            </ModalSubmit>
+          </>
+        }
+      >
+        {view === "customers" ? (
+          <div className="space-y-4">
+            {/* Modal Internal Tabs */}
+            <div className="flex border-b border-border pb-1 gap-2 text-xs font-semibold">
+              {[
+                { id: "general", label: "General & Contact" },
+                { id: "billing", label: "Billing & Tax" },
+                { id: "shipping", label: "Shipping Address" },
+                { id: "financial", label: "Payment & Terms" }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-t-md transition-colors ${activeTab === tab.id ? "border-b-2 border-primary text-primary font-bold bg-primary/5" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {activeTab === "general" && (
+              <div className="space-y-3">
+                <Row>
+                  <Field label="Customer / Company Name" required>
+                    <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme International S.A." />
+                  </Field>
+                  <Field label="Contact Person">
+                    <Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="John Smith" />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="Email Address (For Invoicing & Notifications)" required>
+                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="billing@acme.com" />
+                  </Field>
+                  <Field label="Contact Phone">
+                    <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+34 912 345 678" />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="Customer Tier">
+                    <Select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as any })}>
+                      <option value="bronze">Bronze Tier</option>
+                      <option value="silver">Silver Tier</option>
+                      <option value="gold">Gold Tier</option>
+                      <option value="platinum">Platinum Tier</option>
+                    </Select>
+                  </Field>
+                  <Field label="Account Status">
+                    <Select value={form.active ? "true" : "false"} onChange={(e) => setForm({ ...form, active: e.target.value === "true" })}>
+                      <option value="true">Active (Eligible for Invoicing)</option>
+                      <option value="false">Inactive / Suspended</option>
+                    </Select>
+                  </Field>
+                </Row>
+                <Field label="Internal Notes">
+                  <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Key account requirements or notes…" />
+                </Field>
+              </div>
+            )}
+
+            {activeTab === "billing" && (
+              <div className="space-y-3">
+                <Row>
+                  <Field label="VAT / Tax ID (CIF / NIF / EIN)">
+                    <Input value={form.vatNumber} onChange={(e) => setForm({ ...form, vatNumber: e.target.value })} placeholder="ES-B12345678" />
+                  </Field>
+                  <Field label="Country">
+                    <Select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
+                      {["ES", "US", "DE", "FR", "IT", "GB", "NL", "SE", "PT", "MX"].map((c) => <option key={c} value={c}>{c}</option>)}
+                    </Select>
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="Billing Street Name">
+                    <Input value={form.billingAddress.street} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, street: e.target.value } })} placeholder="Calle Mayor" />
+                  </Field>
+                  <Field label="Street / Building Number">
+                    <Input value={form.billingAddress.number} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, number: e.target.value } })} placeholder="45, Floor 3" />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="City">
+                    <Input value={form.billingAddress.city} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, city: e.target.value } })} placeholder="Madrid" />
+                  </Field>
+                  <Field label="Postcode / Zip Code">
+                    <Input value={form.billingAddress.postcode} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, postcode: e.target.value } })} placeholder="28001" />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="State / Region">
+                    <Input value={form.billingAddress.region} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, region: e.target.value } })} placeholder="Comunidad de Madrid" />
+                  </Field>
+                  <Field label="Billing Country">
+                    <Input value={form.billingAddress.country} onChange={(e) => setForm({ ...form, billingAddress: { ...form.billingAddress, country: e.target.value } })} placeholder="Spain" />
+                  </Field>
+                </Row>
+              </div>
+            )}
+
+            {activeTab === "shipping" && (
+              <div className="space-y-3">
+                <Row>
+                  <Field label="Shipping Street Name">
+                    <Input value={form.shippingAddress.street} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, street: e.target.value } })} placeholder="Avenida de la Industria" />
+                  </Field>
+                  <Field label="Building / Dock Number">
+                    <Input value={form.shippingAddress.number} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, number: e.target.value } })} placeholder="Nave 12" />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="City">
+                    <Input value={form.shippingAddress.city} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, city: e.target.value } })} placeholder="Getafe" />
+                  </Field>
+                  <Field label="Postcode / Zip Code">
+                    <Input value={form.shippingAddress.postcode} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, postcode: e.target.value } })} placeholder="28906" />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label="State / Region">
+                    <Input value={form.shippingAddress.region} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, region: e.target.value } })} placeholder="Madrid" />
+                  </Field>
+                  <Field label="Shipping Country">
+                    <Input value={form.shippingAddress.country} onChange={(e) => setForm({ ...form, shippingAddress: { ...form.shippingAddress, country: e.target.value } })} placeholder="Spain" />
+                  </Field>
+                </Row>
+              </div>
+            )}
+
+            {activeTab === "financial" && (
+              <div className="space-y-3">
+                <Row>
+                  <Field label="Default Payment Terms">
+                    <Select value={form.paymentTerms} onChange={(e) => setForm({ ...form, paymentTerms: e.target.value })}>
+                      <option value="Due on Receipt">Due on Receipt (Immediate)</option>
+                      <option value="Net 15">Net 15 (15 days)</option>
+                      <option value="Net 30">Net 30 (30 days - Standard)</option>
+                      <option value="Net 60">Net 60 (60 days)</option>
+                      <option value="Net 90">Net 90 (90 days)</option>
+                    </Select>
+                  </Field>
+                  <Field label="Customer Bank IBAN (Remittance)">
+                    <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder="ES91 2100 0418 4502 0005 1332" />
+                  </Field>
+                </Row>
+                <Field label="Bank / SWIFT Details">
+                  <Input value={form.bankInfo} onChange={(e) => setForm({ ...form, bankInfo: e.target.value })} placeholder="Banco Santander / SANESMMXXX" />
+                </Field>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <Row>
+              <Field label={t.common.company} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.companyInc || "Company Inc."} /></Field>
+              <Field label={t.crm.contact}><Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder={t.common?.fullName || "Full name"} /></Field>
+            </Row>
+            <Field label={t.common.email} required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={t.common?.contactCompanyCom || "contact@company.com"} /></Field>
+          </div>
         )}
       </Modal>
     </div>

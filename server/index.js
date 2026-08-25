@@ -9,6 +9,7 @@ import { ROUTE_MODULE_MAP } from './config/permissions.js';
 
 // Load environment variables
 dotenv.config();
+dotenv.config({ path: './server/.env' });
 mongoose.set('bufferCommands', false);
 
 const app = express();
