@@ -9,10 +9,18 @@ interface ModalProps {
   subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
-  width?: "sm" | "md" | "lg" | "xl";
+  width?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "full";
 }
 
-const widthMap = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", xl: "max-w-2xl" };
+const widthMap = {
+  sm: "max-w-sm",
+  md: "max-w-md",
+  lg: "max-w-lg",
+  xl: "max-w-2xl",
+  "2xl": "max-w-4xl",
+  "3xl": "max-w-5xl",
+  full: "max-w-6xl"
+};
 
 export function Modal({ open, onClose, title, subtitle, children, footer, width = "md" }: ModalProps) {
   useEffect(() => {
