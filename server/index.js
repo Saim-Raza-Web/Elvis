@@ -91,6 +91,7 @@ import putawayRoutes from './routes/putaway.js';
 import clientsRoutes from './routes/clients.js';
 import suppliersRoutes from './routes/suppliers.js';
 import categoriesRoutes from './routes/categories.js';
+import integrationsRoutes from './routes/integrations.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -115,6 +116,7 @@ mountModuleRoute('/api/v1/picking', pickingRoutes);
 mountModuleRoute('/api/v1/packing', packingRoutes);
 mountModuleRoute('/api/v1/orders', ordersRoutes);
 mountModuleRoute('/api/v1/ecommerce', ecommerceRoutes);
+app.use('/api/v1/integrations', integrationsRoutes);
 mountModuleRoute('/api/v1/shipping', shippingRoutes);
 mountModuleRoute('/api/v1/carriers', carriersRoutes);
 mountModuleRoute('/api/v1/returns', returnsRoutes);

@@ -85,12 +85,85 @@ export interface JournalEntry {
 }
 
 export interface AccountItem {
+  _id?: string;
+  accountCode?: string;
   name: string;
   category: string;
+  accountType?: string;
+  isPostingAccount?: boolean;
+  hierarchyLevel?: number;
+  allowSubAccounts?: boolean;
   balance: number;
   debitTotal: number;
   creditTotal: number;
   change: number;
+}
+
+export interface ChartOfAccountRecord {
+  _id: string;
+  accountCode: string;
+  accountName: string;
+  accountType: 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+  category: string;
+  parentAccountId?: { _id: string; accountCode: string; accountName: string } | null;
+  parentAccountCode?: string;
+  hierarchyLevel: number;
+  allowSubAccounts: boolean;
+  isPostingAccount: boolean;
+  supplierId?: { _id: string; name: string; email?: string; taxId?: string } | null;
+  active: boolean;
+  description?: string;
+  balance?: number;
+  debitTotal?: number;
+  creditTotal?: number;
+}
+
+export interface ImportPreviewRow {
+  rowNumber: number;
+  accountCode: string;
+  accountName: string;
+  accountType: string;
+  parentAccountCode: string;
+  allowSubAccounts: boolean;
+  isPostingAccount: boolean;
+  status: 'VALID' | 'INVALID';
+  action: 'NEW' | 'UPDATE';
+  issues: string[];
+}
+
+export interface ImportPreviewResponse {
+  totalRows: number;
+  validCount: number;
+  invalidCount: number;
+  newCount: number;
+  updateCount: number;
+  previewRows: ImportPreviewRow[];
+  errors: { rowNumber: number; accountCode: string; reason: string }[];
+}
+
+export interface ImportExecuteResponse {
+  importId: string;
+  totalRows: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  log?: any;
+}
+
+export interface ChartOfAccountImportLog {
+  _id: string;
+  importId: string;
+  fileName: string;
+  importMode: 'create_new_only' | 'update_existing' | 'dry_run';
+  totalRows: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  errorDetails: { rowNumber: number; accountCode: string; reason: string }[];
+  importedBy: string;
+  createdAt: string;
 }
 
 export interface AccountingListResult {
@@ -106,99 +179,143 @@ export interface AccountingListResult {
   };
 }
 
-function parseAccountingResponse(body: unknown): AccountingListResult {
-  const payload = body as {
-    transactions?: PaginatedResult<Record<string, unknown>> | Record<string, unknown>[];
-    accounts?: AccountItem[];
-    stats?: AccountingListResult['stats'];
-  };
-
-  if (payload.transactions && !Array.isArray(payload.transactions) && 'data' in payload.transactions) {
-    return {
-      transactions: {
-        data: payload.transactions.data,
-        pagination: payload.transactions.pagination ?? null,
-      },
-      accounts: payload.accounts ?? [],
-      stats: payload.stats
-    };
-  }
-
-  const list = Array.isArray(payload.transactions)
-    ? payload.transactions
-    : Array.isArray(payload)
-      ? payload
-      : [];
-
-  return {
-    transactions: { data: list, pagination: null },
-    accounts: payload.accounts ?? [],
-    stats: payload.stats
-  };
-}
-
 export const accountingService = {
-  // Overview & Ledger
-  getAll: async (params: Record<string, unknown> = {}) => {
-    const response = await api.get('/accounting', { params: { ...params, all: true } });
-    return parseAccountingResponse(response.data);
-  },
-  getPage: async (params: Record<string, unknown> = {}): Promise<AccountingListResult> => {
-    const response = await api.get('/accounting', { params });
-    return parseAccountingResponse(response.data);
+  // ── Overview ─────────────────────────────────────────────────────────────
+  async getOverview(params?: Record<string, any>): Promise<AccountingListResult> {
+    const res = await api.get('/accounting', { params });
+    return res.data;
   },
 
-  // Supplier Bills
-  getBills: async (params: Record<string, unknown> = {}) => {
-    const response = await api.get('/accounting/bills', { params });
-    return response.data;
-  },
-  getBillById: async (id: string): Promise<SupplierBill> => {
-    const response = await api.get(`/accounting/bills/${id}`);
-    return response.data;
-  },
-  createBill: async (data: Partial<SupplierBill>) => {
-    const response = await api.post('/accounting/bills', data);
-    return response.data;
-  },
-  updateBill: async (id: string, data: Partial<SupplierBill>) => {
-    const response = await api.put(`/accounting/bills/${id}`, data);
-    return response.data;
-  },
-  postBill: async (id: string) => {
-    const response = await api.post(`/accounting/bills/${id}/post`);
-    return response.data;
-  },
-  payBill: async (id: string, data: { amount: number; paymentMethod?: string; paymentAccount?: string; reference?: string; notes?: string; date?: string }) => {
-    const response = await api.post(`/accounting/bills/${id}/pay`, data);
-    return response.data;
-  },
-  reverseBill: async (id: string, data: { reason?: string }) => {
-    const response = await api.post(`/accounting/bills/${id}/reverse`, data);
-    return response.data;
-  },
-  deleteBill: async (id: string) => {
-    const response = await api.delete(`/accounting/bills/${id}`);
-    return response.data;
+  // ── Chart of Accounts ───────────────────────────────────────────────────
+  async getAccounts(params?: { search?: string; postingOnly?: boolean }): Promise<ChartOfAccountRecord[]> {
+    const res = await api.get('/accounting/accounts', { params });
+    return res.data;
   },
 
-  // Journal Entries
-  getJournalEntries: async (params: Record<string, unknown> = {}) => {
-    const response = await api.get('/accounting/journal-entries', { params });
-    return response.data;
+  async getNextAccountCode(params: { parentAccountId?: string; parentAccountCode?: string }): Promise<{
+    parentCode: string;
+    parentName: string;
+    suggestedCode: string;
+    hierarchyLevel: number;
+    accountType: string;
+    category: string;
+  }> {
+    const res = await api.post('/accounting/accounts/next-code', params);
+    return res.data;
   },
-  getJournalEntryById: async (id: string): Promise<JournalEntry> => {
-    const response = await api.get(`/accounting/journal-entries/${id}`);
-    return response.data;
+
+  async createAccount(data: {
+    accountCode: string;
+    accountName: string;
+    accountType: string;
+    category?: string;
+    parentAccountId?: string | null;
+    parentAccountCode?: string;
+    allowSubAccounts?: boolean;
+    isPostingAccount?: boolean;
+    description?: string;
+    supplierId?: string | null;
+  }): Promise<ChartOfAccountRecord> {
+    const res = await api.post('/accounting/accounts', data);
+    return res.data;
   },
-  createJournalEntry: async (data: Partial<JournalEntry>) => {
-    const response = await api.post('/accounting/journal-entries', data);
-    return response.data;
+
+  async updateAccount(id: string, data: Partial<ChartOfAccountRecord>): Promise<ChartOfAccountRecord> {
+    const res = await api.put(`/accounting/accounts/${id}`, data);
+    return res.data;
   },
-  reverseJournalEntry: async (id: string, data: { reason?: string }) => {
-    const response = await api.post(`/accounting/journal-entries/${id}/reverse`, data);
-    return response.data;
+
+  async deleteAccount(id: string): Promise<{ message: string }> {
+    const res = await api.delete(`/accounting/accounts/${id}`);
+    return res.data;
   },
+
+  async previewAccountImport(data: {
+    rows: any[];
+    columnMapping?: Record<string, string>;
+  }): Promise<ImportPreviewResponse> {
+    const res = await api.post('/accounting/accounts/import/preview', data);
+    return res.data;
+  },
+
+  async executeAccountImport(data: {
+    rows: any[];
+    columnMapping?: Record<string, string>;
+    importMode?: 'create_new_only' | 'update_existing';
+    fileName?: string;
+  }): Promise<ImportExecuteResponse> {
+    const res = await api.post('/accounting/accounts/import/execute', data);
+    return res.data;
+  },
+
+  async getImportHistory(): Promise<ChartOfAccountImportLog[]> {
+    const res = await api.get('/accounting/accounts/import/history');
+    return res.data;
+  },
+
+  // ── Supplier Bills ───────────────────────────────────────────────────────
+  async getBills(params?: Record<string, any>): Promise<PaginatedResult<SupplierBill>> {
+    const res = await api.get('/accounting/bills', { params });
+    return res.data;
+  },
+
+  async getBill(id: string): Promise<SupplierBill> {
+    const res = await api.get(`/accounting/bills/${id}`);
+    return res.data;
+  },
+
+  async createBill(data: Partial<SupplierBill>): Promise<SupplierBill> {
+    const res = await api.post('/accounting/bills', data);
+    return res.data;
+  },
+
+  async updateBill(id: string, data: Partial<SupplierBill>): Promise<SupplierBill> {
+    const res = await api.put(`/accounting/bills/${id}`, data);
+    return res.data;
+  },
+
+  async postBill(id: string): Promise<{ message: string; bill: SupplierBill }> {
+    const res = await api.post(`/accounting/bills/${id}/post`);
+    return res.data;
+  },
+
+  async recordPayment(billId: string, paymentData: {
+    amount: number;
+    date?: string;
+    paymentMethod?: string;
+    paymentAccount?: string;
+    reference?: string;
+    notes?: string;
+  }): Promise<{ message: string; bill: SupplierBill }> {
+    const res = await api.post(`/accounting/bills/${billId}/payments`, paymentData);
+    return res.data;
+  },
+
+  async reverseBill(id: string, reason: string): Promise<{ message: string; bill: SupplierBill }> {
+    const res = await api.post(`/accounting/bills/${id}/reverse`, { reason });
+    return res.data;
+  },
+
+  // ── Journal Entries ──────────────────────────────────────────────────────
+  async getJournalEntries(params?: Record<string, any>): Promise<PaginatedResult<JournalEntry>> {
+    const res = await api.get('/accounting/journal-entries', { params });
+    return res.data;
+  },
+
+  async createJournalEntry(data: {
+    date?: string;
+    reference?: string;
+    description: string;
+    lines: JournalLine[];
+  }): Promise<JournalEntry> {
+    const res = await api.post('/accounting/journal-entries', data);
+    return res.data;
+  },
+
+  async reverseJournalEntry(id: string, reason: string): Promise<{ message: string; reversalEntry: JournalEntry }> {
+    const res = await api.post(`/accounting/journal-entries/${id}/reverse`, { reason });
+    return res.data;
+  }
 };
 
-export type { PaginationMeta };
+export default accountingService;

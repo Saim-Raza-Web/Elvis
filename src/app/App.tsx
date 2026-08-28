@@ -45,8 +45,13 @@ export default function App() {
   const [isDark, setIsDark] = useState(true);
   const [lang, setLang] = useState<Lang>("en");
 
-  // Restore session from localStorage via authService
+  // Restore session from localStorage via authService & check URL query params
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlPage = params.get("page") as Page | null;
+    if (urlPage) {
+      setCurrentPage(urlPage);
+    }
     if (authService.isAuthenticated()) {
       setScreen("app");
     }

@@ -119,7 +119,6 @@ export function AppShell({
   const [companyList, setCompanyList] = useState<any[]>([]);
   const [activeCompany, setActiveCompany] = useState<any>({ name: "Loading...", role: "OWNER" });
   const [notifs, setNotifs] = useState<any[]>([]);
-  const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [searchVal, setSearchVal] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -152,11 +151,6 @@ export function AppShell({
   const userRole = currentUser?.role as string | undefined;
   const navSections = filterNavSections(buildNavSections(t.nav), userRole);
   const langs: Lang[] = ["en", "es", "fr", "it"];
-
-  useEffect(() => {
-    const timer = setInterval(() => setClock(new Date().toLocaleTimeString()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   async function markAllRead() {
     try {
@@ -379,7 +373,7 @@ export function AppShell({
           </div>
         </aside>
 
-        <main className="flex-1 min-w-0 pb-14">
+        <main className="flex-1 min-w-0 pb-6">
           <header className="flex items-end justify-between border-b border-border px-4 lg:px-8 py-6 gap-4 flex-wrap animate-fade-in-up">
             <div>
               <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-foreground">{pageTitle}</h1>
@@ -390,23 +384,6 @@ export function AppShell({
           <div className="p-4 lg:p-8">{children}</div>
         </main>
       </div>
-
-      <footer className="fixed bottom-0 left-0 right-0 h-9 bg-primary text-primary-foreground/80 text-[10px] flex items-center justify-between px-4 lg:px-6 z-50" style={{ fontFamily: "JetBrains Mono, monospace" }}>
-        <div className="flex items-center gap-3 lg:gap-4">
-          <div className="flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-success animate-pulse-dot" />
-            <span>{t.common.systemOnline}</span>
-          </div>
-          <div className="w-px h-3 bg-primary-foreground/20 hidden sm:block" />
-          <span className="hidden sm:inline">v4.2.0-stable</span>
-          <div className="w-px h-3 bg-primary-foreground/20 hidden md:block" />
-          <span className="hidden md:inline text-primary-foreground/60">{activeCompany.name}</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="hidden md:inline">☁ {t.common.cloudSync}</span>
-          <span>{clock}</span>
-        </div>
-      </footer>
 
       {sidebarOpen && <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
     </div>

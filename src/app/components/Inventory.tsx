@@ -260,7 +260,7 @@ export function Inventory() {
                   </td>
                 </tr>
               ))}
-              {replenishment.length === 0 && <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">All products are adequately stocked! ✅</td></tr>}
+              {replenishment.length === 0 && <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">All products are adequately stocked.</td></tr>}
             </tbody>
           </table>
         </div>

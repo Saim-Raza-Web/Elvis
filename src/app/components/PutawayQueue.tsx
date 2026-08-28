@@ -651,7 +651,7 @@ export function PutawayQueue() {
                       : 'bg-secondary/30 border-border text-muted-foreground'
                   }`}
                 />
-                <p className="text-[10px] text-muted-foreground mt-0.5">🔒 Scan-Only: Manual text typing disabled. Please scan shelf barcode via camera or hardware scanner.</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Scan-Only: Manual text typing disabled. Please scan shelf barcode via camera or hardware scanner.</p>
                 {locationError && (
                   <div className="text-[11px] font-bold text-destructive flex items-center gap-1 mt-1">
                     <X className="size-3.5 shrink-0" /> {locationError}
@@ -741,7 +741,7 @@ export function PutawayQueue() {
                   onChange={(e) => setScannedExpiryDate(e.target.value)}
                   className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-xs font-mono font-bold"
                 />
-                <p className="text-[10px] text-muted-foreground mt-0.5">🔒 Compliance Policy: Operator must physically verify expiration date stamped on physical packaging. ASN fallback is blocked.</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Compliance Policy: Operator must physically verify expiration date stamped on physical packaging. ASN fallback is blocked.</p>
               </div>
             </div>
 

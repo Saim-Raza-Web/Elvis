@@ -1,15 +1,58 @@
 import api from './api';
 
+export interface SupplierAddress {
+  street?: string;
+  number?: string;
+  city?: string;
+  postcode?: string;
+  region?: string;
+  country?: string;
+}
+
+export interface SupplierPaymentInfo {
+  defaultPaymentTerms?: string;
+  iban?: string;
+  bankName?: string;
+  swiftBic?: string;
+  paymentNotes?: string;
+}
+
+export interface SupplierAccountingInfo {
+  ledgerAccountId?: string | null;
+  accountCode?: string;
+  accountName?: string;
+}
+
+export interface SupplierMetrics {
+  totalBills?: number;
+  totalBilled?: number;
+  totalPaid?: number;
+  outstandingBalance?: number;
+}
+
 export type Supplier = {
   _id: string;
   name: string;
+  supplierType?: string;
   taxId?: string;
   country?: string;
+  taxRegistrationNotes?: string;
   contact?: string;
   email?: string;
   phone?: string;
+  website?: string;
+  billingAddress?: SupplierAddress;
+  shippingAddress?: SupplierAddress;
+  paymentInfo?: SupplierPaymentInfo;
+  accountingInfo?: SupplierAccountingInfo;
   defaultCarrier?: string;
+  preferredCarrier?: string;
   leadTime?: number;
+  notes?: string;
+  active?: boolean;
+  metrics?: SupplierMetrics;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export const suppliersService = {
@@ -17,7 +60,11 @@ export const suppliersService = {
     const response = await api.get('/suppliers', { params });
     return Array.isArray(response.data) ? response.data : ((response.data as any)?.suppliers || []);
   },
-  create: async (data: Partial<Supplier>): Promise<Supplier> => {
+  getById: async (id: string): Promise<Supplier> => {
+    const response = await api.get(`/suppliers/${id}`);
+    return response.data;
+  },
+  create: async (data: Partial<Supplier> & { createLedgerAccount?: boolean }): Promise<Supplier> => {
     const response = await api.post('/suppliers', data);
     return response.data;
   },
@@ -30,3 +77,5 @@ export const suppliersService = {
     return response.data;
   },
 };
+
+export default suppliersService;

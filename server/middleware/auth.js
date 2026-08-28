@@ -19,6 +19,13 @@ export const protect = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ message: 'User belonging to this token no longer exists' });
     }
+    if (!req.user.company) {
+      const Company = (await import('../models/Company.js')).default;
+      const fallbackCompany = await Company.findOne({});
+      if (fallbackCompany) {
+        req.user.company = fallbackCompany._id;
+      }
+    }
     next();
   } catch (error) {
     res.status(401).json({ message: 'Not authorized, token failed' });

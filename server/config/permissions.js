@@ -99,6 +99,7 @@ export const ROUTE_MODULE_MAP = {
   crm: 'orders',
   leads: 'orders',
   ecommerce: 'orders',
+  integrations: 'orders',
   billing: 'billing',
   accounting: 'billing',
   reports: 'reports',

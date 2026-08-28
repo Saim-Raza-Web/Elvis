@@ -528,7 +528,7 @@ export function QCWorkspace() {
                         placeholder="e.g. 45"
                       />
                       {Number(form.humidityPct) > 85 && (
-                        <span className="text-[10px] text-amber-500 font-bold block mt-1">⚠️ High Humidity Warning (&gt;85%)</span>
+                        <span className="text-[10px] text-amber-500 font-bold block mt-1">High Humidity Warning (&gt;85%)</span>
                       )}
                     </Field>
                     <Field label="Data Logger Model & Serial #">
@@ -656,7 +656,7 @@ export function QCWorkspace() {
                     {form.attachments.map((att, aIdx) => (
                       <div key={aIdx} className="relative group rounded-lg overflow-hidden border border-border bg-card p-1 text-[10px]">
                         {att.fileType?.startsWith("video") ? (
-                          <div className="bg-secondary p-2 rounded text-center font-bold">🎬 Video File</div>
+                          <div className="bg-secondary p-2 rounded text-center font-bold">Video File</div>
                         ) : (
                           <img src={att.url} alt={att.filename} className="w-full h-16 object-cover rounded" />
                         )}

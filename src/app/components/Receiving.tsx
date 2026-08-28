@@ -1096,7 +1096,7 @@ export function Receiving() {
                           )}
                           {blindReceiving && (
                             <span className="text-amber-500 font-bold bg-amber-500/10 px-2.5 py-1 rounded-md text-xs border border-amber-500/20">
-                              🔒 BLIND RECEIVING MODE: Expected & Remaining Quantities Hidden
+                              BLIND RECEIVING MODE: Expected & Remaining Quantities Hidden
                             </span>
                           )}
                         </div>

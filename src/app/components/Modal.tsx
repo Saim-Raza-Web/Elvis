@@ -5,7 +5,7 @@ import { useLang } from "../LangContext";
 interface ModalProps {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
   subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
@@ -16,8 +16,8 @@ const widthMap = {
   sm: "max-w-sm",
   md: "max-w-md",
   lg: "max-w-lg",
-  xl: "max-w-2xl",
-  "2xl": "max-w-4xl",
+  xl: "max-w-xl",
+  "2xl": "max-w-3xl",
   "3xl": "max-w-5xl",
   full: "max-w-6xl"
 };
