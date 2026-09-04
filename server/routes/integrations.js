@@ -432,9 +432,11 @@ router.get('/stores/:id/sync-history', protect, async (req, res, next) => {
     }
 
     const filter = {
-      company: req.user.company,
-      connectedStore: req.params.id
+      company: req.user.company
     };
+    if (req.params.id !== 'all') {
+      filter.connectedStore = req.params.id;
+    }
 
     const result = await paginateQuery(IntegrationSyncLog, filter, req, { sort: { createdAt: -1 } });
     res.json(result);

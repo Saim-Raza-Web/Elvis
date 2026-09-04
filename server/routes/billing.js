@@ -11,6 +11,10 @@ import Transaction from '../models/Transaction.js';
 import { calculateInvoice } from '../services/invoiceCalculationEngine.js';
 import { generateInvoicePDFBuffer } from '../services/invoicePdfService.js';
 import { sendInvoiceEmail, isValidEmail } from '../services/emailService.js';
+import VeriFactuRecord from '../models/VeriFactuRecord.js';
+import SIIRecord from '../models/SIIRecord.js';
+import ComplianceConfig from '../models/ComplianceConfig.js';
+import { aeatService } from '../services/aeat.service.js';
 
 const router = express.Router();
 
@@ -171,6 +175,55 @@ router.post('/', async (req, res, next) => {
       } catch (txnErr) {
         console.warn('Accounting ledger record warning:', txnErr.message);
       }
+
+      // --- Compliance Integration (VeriFactu / SII) ---
+      try {
+        const compConfig = await ComplianceConfig.findOne({ company: req.user.company });
+        if (compConfig) {
+          if (compConfig.verifactuEnabled) {
+            const hashData = await aeatService.generateVeriFactuHash(req.user.company, {
+              issuerNif: req.user.company, // Fallback, normally from Company config
+              invoiceNumber: invoice.invoiceNumber,
+              date: invoice.issuedDate.toISOString().split('T')[0],
+              type: 'F1',
+              totalAmount: invoice.grandTotal
+            });
+            const vfRecord = await VeriFactuRecord.create({
+              company: req.user.company,
+              invoiceId: invoice._id,
+              recordType: 'ISSUED',
+              invoiceNumber: invoice.invoiceNumber,
+              issueDate: invoice.issuedDate,
+              issuerTaxId: 'TBD', // In real app get from Company profile
+              totalAmount: invoice.grandTotal,
+              taxAmount: invoice.totalTax,
+              previousRecordHash: hashData.previousHash,
+              currentHash: hashData.hash,
+              status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
+              lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
+            });
+          }
+          if (compConfig.siiEnabled) {
+            await SIIRecord.create({
+              company: req.user.company,
+              invoiceId: invoice._id,
+              recordType: 'ISSUED',
+              invoiceNumber: invoice.invoiceNumber,
+              invoiceDate: invoice.issuedDate,
+              taxPeriod: `${new Date(invoice.issuedDate).getFullYear()}-${String(new Date(invoice.issuedDate).getMonth() + 1).padStart(2, '0')}`,
+              counterpartyTaxId: invoice.customerVat || 'GENERIC',
+              counterpartyName: invoice.customerName,
+              taxBase: invoice.subtotal,
+              taxAmount: invoice.totalTax,
+              totalAmount: invoice.grandTotal,
+              status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
+              lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Compliance record creation failed:', err.message);
+      }
     }
 
     res.status(201).json(invoice);
@@ -330,6 +383,55 @@ router.post('/:id/issue', async (req, res, next) => {
       console.warn('Accounting ledger warning:', txnErr.message);
     }
 
+    // --- Compliance Integration (VeriFactu / SII) ---
+    try {
+      const compConfig = await ComplianceConfig.findOne({ company: req.user.company });
+      if (compConfig) {
+        if (compConfig.verifactuEnabled) {
+          const hashData = await aeatService.generateVeriFactuHash(req.user.company, {
+            issuerNif: req.user.company, // Fallback, normally from Company config
+            invoiceNumber: invoice.invoiceNumber,
+            date: invoice.issuedDate.toISOString().split('T')[0],
+            type: 'F1',
+            totalAmount: invoice.grandTotal
+          });
+          const vfRecord = await VeriFactuRecord.create({
+            company: req.user.company,
+            invoiceId: invoice._id,
+            recordType: 'ISSUED',
+            invoiceNumber: invoice.invoiceNumber,
+            issueDate: invoice.issuedDate,
+            issuerTaxId: 'TBD', // In real app get from Company profile
+            totalAmount: invoice.grandTotal,
+            taxAmount: invoice.totalTax,
+            previousRecordHash: hashData.previousHash,
+            currentHash: hashData.hash,
+            status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
+            lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
+          });
+        }
+        if (compConfig.siiEnabled) {
+          await SIIRecord.create({
+            company: req.user.company,
+            invoiceId: invoice._id,
+            recordType: 'ISSUED',
+            invoiceNumber: invoice.invoiceNumber,
+            invoiceDate: invoice.issuedDate,
+            taxPeriod: `${new Date(invoice.issuedDate).getFullYear()}-${String(new Date(invoice.issuedDate).getMonth() + 1).padStart(2, '0')}`,
+            counterpartyTaxId: invoice.customerVat || 'GENERIC',
+            counterpartyName: invoice.customerName,
+            taxBase: invoice.subtotal,
+            taxAmount: invoice.totalTax,
+            totalAmount: invoice.grandTotal,
+            status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
+            lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Compliance record creation failed:', err.message);
+    }
+
     await invoice.save();
     res.json({ message: `Invoice ${invoice.invoiceNumber} successfully issued.`, invoice });
   } catch (err) {
@@ -378,7 +480,6 @@ router.post('/:id/send', async (req, res, next) => {
     }
 
     // 3. Dispatch Email via Service
-    const simulateFailure = Boolean(req.body.simulateFailure);
     let dispatchResult;
     try {
       dispatchResult = await sendInvoiceEmail({
@@ -389,10 +490,15 @@ router.post('/:id/send', async (req, res, next) => {
         currency: company?.currency || 'EUR',
         pdfBuffer,
         companyName: company?.name || 'Elvis Logistics S.L.',
-        simulateFailure
       });
     } catch (sendErr) {
-      // Record failed transmission in history, but DO NOT mark invoice as sent
+      if (sendErr.code === 'SMTP_NOT_CONFIGURED') {
+        return res.status(503).json({
+          message: 'Email delivery is not configured on this server. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM environment variables.',
+          code: 'SMTP_NOT_CONFIGURED'
+        });
+      }
+      // Record failed transmission in history but DO NOT mark invoice as sent
       invoice.emailHistory.push({
         sentAt: new Date(),
         sentTo: recipientEmail,
@@ -400,7 +506,6 @@ router.post('/:id/send', async (req, res, next) => {
         error: sendErr.message
       });
       await invoice.save();
-
       return res.status(500).json({
         message: `Email Dispatch Failed: ${sendErr.message}`,
         error: sendErr.message

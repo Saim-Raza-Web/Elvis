@@ -1,5 +1,6 @@
 import express from 'express';
 import { protect, requireRole } from '../middleware/auth.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/StorageRule.js';
 import Product from '../models/Product.js';
@@ -8,6 +9,7 @@ import { pickingEngine } from '../services/pickingEngine.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
 
@@ -16,7 +18,14 @@ router.post('/simulate-putaway', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { warehouse, sku, category, owner, lotNumber, expiryDate, qty, isHazmat, tempRequirement } = req.body;
+    if (req.context && req.context.warehouses && req.context.warehouses.length > 1) {
+      return res.status(400).json({ message: 'Multiple warehouses provided. This endpoint requires exactly one warehouse.' });
+    }
+    const warehouse = req.context?.warehouse?.code;
+    const { sku, category, owner, lotNumber, expiryDate, qty, isHazmat, tempRequirement } = req.body;
+    
+    if (!warehouse) return res.status(400).json({ message: 'Warehouse is required' });
+
     const result = await putawayEngine.evaluatePutawayLocation({
       companyId: req.user.company,
       warehouse,
@@ -41,7 +50,14 @@ router.post('/simulate-picking', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { warehouse, sku, owner, qtyNeeded, strategy, minPickUnit } = req.body;
+    if (req.context && req.context.warehouses && req.context.warehouses.length > 1) {
+      return res.status(400).json({ message: 'Multiple warehouses provided. This endpoint requires exactly one warehouse.' });
+    }
+    const warehouse = req.context?.warehouse?.code;
+    const { sku, owner, qtyNeeded, strategy, minPickUnit } = req.body;
+    
+    if (!warehouse) return res.status(400).json({ message: 'Warehouse is required' });
+
     const result = await pickingEngine.evaluatePickAllocation({
       companyId: req.user.company,
       warehouse,

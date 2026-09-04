@@ -71,6 +71,24 @@ const companyAccountingConfigSchema = new mongoose.Schema({
   defaultSalesRevenueAccountCode: { type: String, default: '700.000.001' },
   defaultSalesRevenueAccountName: { type: String, default: 'Product Sales' },
 
+  // ── Inventory Asset ────────────────────────────────────────────────────────────
+  defaultInventoryAssetAccountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ChartOfAccount',
+    default: null
+  },
+  defaultInventoryAssetAccountCode: { type: String, default: '300' },
+  defaultInventoryAssetAccountName: { type: String, default: 'Merchandise Inventory' },
+
+  // ── GRNI (Liability) ──────────────────────────────────────────────────────────
+  defaultGRNIAccountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ChartOfAccount',
+    default: null
+  },
+  defaultGRNIAccountCode: { type: String, default: '400.9' },
+  defaultGRNIAccountName: { type: String, default: 'Goods Received Not Invoiced (GRNI)' },
+
   // ── Purchase Expense ─────────────────────────────────────────────────────────
   defaultPurchaseExpenseAccountId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -79,6 +97,15 @@ const companyAccountingConfigSchema = new mongoose.Schema({
   },
   defaultPurchaseExpenseAccountCode: { type: String, default: '600' },
   defaultPurchaseExpenseAccountName: { type: String, default: 'Purchases of Merchandise' },
+
+  // ── COGS (Cost of Goods Sold) ────────────────────────────────────────────────
+  defaultCOGSAccountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ChartOfAccount',
+    default: null
+  },
+  defaultCOGSAccountCode: { type: String, default: '610' },
+  defaultCOGSAccountName: { type: String, default: 'Cost of Goods Sold (Variation)' },
 
   // ── Configuration Metadata ───────────────────────────────────────────────────
   configuredBy: { type: String, default: 'System' },

@@ -2,6 +2,7 @@ import Location from '../models/Location.js';
 import StorageRule from '../models/StorageRule.js';
 import InventoryBalance from '../models/InventoryBalance.js';
 import Product from '../models/Product.js';
+import { evaluateConditions } from '../utils/conditionEvaluator.js';
 
 /**
  * DECOUPLED PUTAWAY ENGINE
@@ -42,51 +43,81 @@ export const putawayEngine = {
     });
 
     // 2. Fetch active storage rules sorted by priority (1 = highest)
-    const activeRules = await StorageRule.find({ company: companyId, isActive: true }).sort({ priority: 1 });
+    // Phase 3: Enforce warehouse scoping and PUTAWAY ruleType
+    const activeRules = await StorageRule.find({ 
+      company: companyId, 
+      warehouse,
+      ruleType: 'PUTAWAY',
+      isActive: true 
+    }).sort({ priority: 1 });
+    
     trace.push({
       step: 'Rules Fetch',
       status: 'INFO',
-      message: `Found ${activeRules.length} active storage rules configured.`
+      message: `Found ${activeRules.length} active PUTAWAY storage rules for warehouse ${warehouse}.`
     });
 
-    // 3. Determine target zone / criteria from rules
+    // 3. Determine target zone / criteria from rules using conditions[] AND logic
     let targetZone = null;
-    let targetLocType = null;
+    let targetLocation = null;
     let appliedRuleName = 'Default Storage Policy';
     let appliedPriority = 999;
+    let appliedAction = 'none';
+
+    // Construct evaluation context based on payload
+    const evalContext = {
+      category: prodCategory,
+      owner,
+      tempRequirement,
+      sku,
+      qty,
+      isHazmat,
+      expiryDate,
+      lotNumber
+    };
+    console.log('[DEBUG] evalContext:', evalContext);
 
     for (const rule of activeRules) {
-      let matched = false;
-      if (rule.conditionType === 'category' && rule.conditionValue === prodCategory) matched = true;
-      if (rule.conditionType === 'owner' && rule.conditionValue === owner) matched = true;
-      if (rule.conditionType === 'brand' && rule.conditionValue === prodCategory) matched = true;
-
-      if (matched) {
+      console.log('[DEBUG] Evaluating rule:', rule.name, 'conditions:', rule.conditions);
+      if (evaluateConditions(rule.conditions, evalContext)) {
         targetZone = rule.targetZone;
-        targetLocType = rule.targetLocationType;
+        targetLocation = rule.targetLocation;
         appliedRuleName = rule.name;
         appliedPriority = rule.priority;
+        appliedAction = rule.action || 'send_to_zone';
         trace.push({
           step: 'Rule Match',
           status: 'MATCHED',
-          message: `Rule Priority ${rule.priority} ("${rule.name}") matched: Target Zone = ${targetZone || 'Any'}, Type = ${targetLocType || 'Any'}`
+          message: `Rule Priority ${rule.priority} ("${rule.name}") matched: Action = ${appliedAction}`
         });
-        break;
+        break; // First match wins (highest priority)
       }
     }
 
     // 4. Fetch candidate locations in warehouse
     const locQuery = { company: companyId, active: { $ne: false } };
     if (warehouse) locQuery.warehouse = warehouse;
-    if (targetZone) locQuery.zone = targetZone;
-    if (targetLocType) locQuery.locationType = targetLocType;
+    
+    // Explicit fixed location overrides zone targeting
+    if (targetLocation) {
+      locQuery._id = targetLocation;
+    } else if (targetZone) {
+      locQuery.zone = targetZone;
+    }
+
+    if (appliedAction === 'send_to_pick_face') {
+      locQuery.locationType = { $in: ['PICK_FACE', 'pick_face'] };
+    } else if (appliedAction === 'send_to_zone_reserve_only') {
+      locQuery.locationType = { $nin: ['PICK_FACE', 'pick_face'] }; // usually RESERVE or PALLET_RACK
+    }
 
     let candidateLocations = await Location.find(locQuery).sort({ code: 1 });
-    if (candidateLocations.length === 0 && targetZone) {
+    
+    if (candidateLocations.length === 0 && targetZone && appliedAction !== 'fixed_location') {
       trace.push({
         step: 'Fallback Search',
         status: 'WARNING',
-        message: `No active locations found in target zone "${targetZone}". Falling back to all warehouse locations.`
+        message: `No active locations found matching target criteria. Falling back to all warehouse locations.`
       });
       candidateLocations = await Location.find({ company: companyId, active: { $ne: false }, warehouse }).sort({ code: 1 });
     }
@@ -94,7 +125,7 @@ export const putawayEngine = {
     trace.push({
       step: 'Candidate Pool',
       status: 'INFO',
-      message: `Evaluates ${candidateLocations.length} candidate locations for eligibility constraints.`
+      message: `Evaluating ${candidateLocations.length} candidate locations for eligibility constraints.`
     });
 
     // 5. Evaluate each location against physical constraints & Lot Integrity
@@ -172,10 +203,13 @@ export const putawayEngine = {
       });
 
       return {
-        selectedLocation: locCode,
+        success: true,
+        proposedBin: loc.code,
+        selectedLocation: loc.code,
+        zone: loc.zone,
+        locationId: loc._id,
         ruleApplied: appliedRuleName,
         rulePriority: appliedPriority,
-        zone: loc.zone,
         locationType: loc.locationType,
         trace
       };
@@ -190,10 +224,13 @@ export const putawayEngine = {
     });
 
     return {
+      success: true,
+      proposedBin: defaultBin,
       selectedLocation: defaultBin,
+      locationId: candidateLocations[0]?._id,
       ruleApplied: 'Default Fallback Policy',
       rulePriority: 9999,
-      zone: 'MAIN',
+      zone: candidateLocations[0]?.zone || 'MAIN',
       locationType: 'SHELF',
       trace
     };

@@ -102,6 +102,7 @@ export const ROUTE_MODULE_MAP = {
   integrations: 'orders',
   billing: 'billing',
   accounting: 'billing',
+  'fiscal-periods': 'billing',
   reports: 'reports',
   settings: 'settings',
   admin: 'admin',

@@ -77,7 +77,7 @@ import settingsRoutes from './routes/settings.js';
 import activityRoutes from './routes/activity.js';
 import adminRoutes from './routes/admin.js';
 import dashboardRoutes from './routes/dashboard.js';
-import asnRoutes from './routes/asn.js';
+// asnRoutes removed
 import leadsRoutes from './routes/leads.js';
 import carrierRulesRoutes from './routes/carrier_rules.js';
 import incidentsRoutes from './routes/incidents.js';
@@ -92,6 +92,9 @@ import clientsRoutes from './routes/clients.js';
 import suppliersRoutes from './routes/suppliers.js';
 import categoriesRoutes from './routes/categories.js';
 import integrationsRoutes from './routes/integrations.js';
+import purchaseOrdersRoutes from './routes/purchase_orders.js';
+import complianceRoutes from './routes/compliance.js';
+import fiscalPeriodsRoutes from './routes/fiscal_periods.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -110,7 +113,7 @@ mountModuleRoute('/api/v1/inventory', inventoryRoutes);
 mountModuleRoute('/api/v1/receiving', receivingRoutes);
 mountModuleRoute('/api/v1/qc', qcRoutes);
 mountModuleRoute('/api/v1/putaway', putawayRoutes);
-mountModuleRoute('/api/v1/asn', asnRoutes);
+// asnRoutes removed in Phase 5: consolidated into receiving.js
 mountModuleRoute('/api/v1/transfers', transfersRoutes);
 mountModuleRoute('/api/v1/picking', pickingRoutes);
 mountModuleRoute('/api/v1/packing', packingRoutes);
@@ -139,6 +142,9 @@ mountModuleRoute('/api/v1/notifications', notificationsRoutes);
 mountModuleRoute('/api/v1/clients', clientsRoutes);
 mountModuleRoute('/api/v1/suppliers', suppliersRoutes);
 mountModuleRoute('/api/v1/categories', categoriesRoutes);
+mountModuleRoute('/api/v1/purchase-orders', purchaseOrdersRoutes);
+mountModuleRoute('/api/v1/compliance', complianceRoutes);
+mountModuleRoute('/api/v1/fiscal-periods', fiscalPeriodsRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

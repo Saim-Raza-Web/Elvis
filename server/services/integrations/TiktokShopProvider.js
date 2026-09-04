@@ -208,6 +208,11 @@ export class TiktokShopProvider extends BaseIntegrationProvider {
           customerEmail: 'lucia.morales@example.es',
           date: new Date('2026-08-26T20:45:00Z'),
           status: 'pending',
+          // B2B: TikTok Shop sandbox — buyer_tax_info not available in test mode
+          isB2B: false,
+          b2bClassificationSource: 'tiktok_sandbox_default',
+          companyName: '',
+          vatNumber: '',
           items: [
             { sku: 'TTS-SUNSCREEN-SPF50', name: 'Viral Glow Watermelon Hydrating Sunscreen SPF50+ (50ml)', quantity: 2, price: 19.99, total: 39.98 }
           ],
@@ -234,32 +239,52 @@ export class TiktokShopProvider extends BaseIntegrationProvider {
     });
 
     const orders = res.data?.data?.order_list || [];
-    return orders.map(o => ({
-      externalOrderId: String(o.order_id),
-      orderNumber: `#TTS-${o.order_id}`,
-      customerName: o.recipient_address?.name || 'TikTok Shop Buyer',
-      customerEmail: o.buyer_email || 'buyer@tiktok.com',
-      date: new Date(o.create_time * 1000 || Date.now()),
-      status: 'pending',
-      items: (o.item_list || []).map(i => ({
-        sku: i.seller_sku || `TTS-SKU-${i.sku_id}`,
-        name: i.product_name,
-        quantity: parseInt(i.quantity, 10) || 1,
-        price: parseFloat(i.sku_price) || 0,
-        total: parseFloat(i.item_tax_exclusive_amount || i.sku_price) || 0
-      })),
-      subtotal: parseFloat(o.item_tax_exclusive_amount || o.payment_info?.total_amount) || 0,
-      taxTotal: parseFloat(o.tax_amount || 0) || 0,
-      grandTotal: parseFloat(o.payment_info?.total_amount) || 0,
-      deliveryAddress: {
-        street: o.recipient_address?.address_line1 || '',
-        number: '',
-        city: o.recipient_address?.city || '',
-        postcode: o.recipient_address?.postal_code || '',
-        region: o.recipient_address?.region || '',
-        country: o.recipient_address?.region_code || 'Spain'
+    return orders.map(o => {
+      // TikTok Shop Order API includes buyer_tax_info for EU B2B orders
+      const taxInfo    = o.buyer_tax_info || {};
+      const companyName = taxInfo.company_name || '';
+      const vatNumber   = taxInfo.tax_id || taxInfo.vat_id || '';
+      let isB2B = false;
+      let b2bClassificationSource = 'tiktok_api_no_b2b_field';
+      if (vatNumber) {
+        isB2B = true;
+        b2bClassificationSource = 'tiktok_buyer_tax_info_vat';
+      } else if (companyName) {
+        isB2B = true;
+        b2bClassificationSource = 'tiktok_buyer_tax_info_company';
       }
-    }));
+
+      return {
+        externalOrderId: String(o.order_id),
+        orderNumber: `#TTS-${o.order_id}`,
+        customerName: o.recipient_address?.name || 'TikTok Shop Buyer',
+        customerEmail: o.buyer_email || 'buyer@tiktok.com',
+        date: new Date(o.create_time * 1000 || Date.now()),
+        status: 'pending',
+        isB2B,
+        b2bClassificationSource,
+        companyName,
+        vatNumber,
+        items: (o.item_list || []).map(i => ({
+          sku: i.seller_sku || `TTS-SKU-${i.sku_id}`,
+          name: i.product_name,
+          quantity: parseInt(i.quantity, 10) || 1,
+          price: parseFloat(i.sku_price) || 0,
+          total: parseFloat(i.item_tax_exclusive_amount || i.sku_price) || 0
+        })),
+        subtotal: parseFloat(o.item_tax_exclusive_amount || o.payment_info?.total_amount) || 0,
+        taxTotal: parseFloat(o.tax_amount || 0) || 0,
+        grandTotal: parseFloat(o.payment_info?.total_amount) || 0,
+        deliveryAddress: {
+          street: o.recipient_address?.address_line1 || '',
+          number: '',
+          city: o.recipient_address?.city || '',
+          postcode: o.recipient_address?.postal_code || '',
+          region: o.recipient_address?.region || '',
+          country: o.recipient_address?.region_code || 'Spain'
+        }
+      };
+    });
   }
 
   async updateExternalInventory(store, sku, availableQty) {
@@ -273,5 +298,61 @@ export class TiktokShopProvider extends BaseIntegrationProvider {
       headers: { 'x-tts-access-token': token }
     });
     return { success: true, updatedSku: sku, newLevel: availableQty, mode: 'live' };
+  }
+
+  /**
+   * Verifies TikTok Shop webhook signature.
+   *
+   * TikTok Shop computes HMAC-SHA256 over the string:
+   *   timestamp + nonce + rawBody
+   * and delivers it hex-encoded in the `x-tts-signature` header.
+   * Additional headers: `x-tts-timestamp`, `x-tts-nonce`
+   *
+   * SECURITY: Rejects all webhooks when no signing secret is configured.
+   */
+  verifyWebhookSignature(req, secret) {
+    if (!secret) {
+      console.error('[TiktokShopProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const signatureHeader = req.headers['x-tts-signature'];
+      if (!signatureHeader) {
+        console.error('[TiktokShopProvider] Webhook rejected: missing x-tts-signature header.');
+        return false;
+      }
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[TiktokShopProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const timestamp = req.headers['x-tts-timestamp'] || '';
+      const nonce = req.headers['x-tts-nonce'] || '';
+      // TikTok canonical message: timestamp + nonce + rawBody (as UTF-8)
+      const message = `${timestamp}${nonce}${rawBody.toString('utf8')}`;
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(message)
+        .digest('hex');
+      const sigBuffer = Buffer.from(signatureHeader.toLowerCase(), 'hex');
+      const expectedBuffer = Buffer.from(expectedSig, 'hex');
+      if (sigBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
+    } catch (err) {
+      console.error('[TiktokShopProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses TikTok Shop webhook payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: body.message?.message_id || req.headers['x-tts-nonce'] || String(Date.now()),
+      topic: body.type || body.event_type || 'tiktok.notification',
+      payload: body
+    };
   }
 }

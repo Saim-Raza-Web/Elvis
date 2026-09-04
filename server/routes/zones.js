@@ -1,10 +1,13 @@
 import express from 'express';
 import { protect, requireRole } from '../middleware/auth.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/Zone.js';
 
 const router = express.Router();
+
 router.use(protect);
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
 
@@ -12,7 +15,17 @@ const requireOpsRole = requireRole('admin', 'manager');
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const result = await paginateQuery(Model, { company: req.user.company }, req);
+    const query = { company: req.user.company };
+
+    if (req.context && req.context.warehouse) {
+      if (req.context.warehouse.invalid) {
+        query.warehouse = null; // force no results
+      } else {
+        query.warehouse = req.context.warehouse.id;
+      }
+    }
+
+    const result = await paginateQuery(Model, query, req);
     res.json(result);
   } catch (err) {
     next(err);
@@ -36,6 +49,11 @@ router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
+
+    if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
+      data.warehouse = req.context.warehouse.id;
+    }
+
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {

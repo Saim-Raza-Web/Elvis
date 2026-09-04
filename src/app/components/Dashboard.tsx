@@ -155,7 +155,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (p: string) => void }) 
                     </div>
                     <div className="flex justify-between mt-0.5">
                       <span className="text-[10px] text-muted-foreground">{w.code}</span>
-                      <span className="text-[10px] text-muted-foreground">{(w.used || 0).toLocaleString()} / {w.capacity.toLocaleString()}</span>
+                      <span className="text-[10px] text-muted-foreground">{(w.used || 0).toLocaleString()} / {(w.capacity || 0).toLocaleString()}</span>
                     </div>
                   </div>
                 );

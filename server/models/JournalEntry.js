@@ -69,4 +69,29 @@ journalEntrySchema.index({ company: 1, 'sourceDocument.docNumber': 1 });
 // Index for ObjectId-based account lookups
 journalEntrySchema.index({ company: 1, 'lines.accountId': 1 });
 
+journalEntrySchema.pre('save', async function(options) {
+  if (!this.isNew) {
+    return;
+  }
+  
+  const session = options?.session || null;
+  // If we don't have a session, we can't reliably validate transaction boundaries, but we should still check.
+  // Actually, all Phase 8A accounting runs in a session. 
+  const FiscalPeriod = mongoose.model('FiscalPeriod');
+  
+  const period = await FiscalPeriod.findOne({
+    company: this.company,
+    startDate: { $lte: this.date },
+    endDate: { $gt: this.date }
+  }).session(session);
+
+  if (!period) {
+    throw new Error(`No fiscal period defined for posting date ${this.date.toISOString().split('T')[0]}.`);
+  }
+  
+  if (period.status === 'CLOSED') {
+    throw new Error(`Cannot post Journal Entry into CLOSED fiscal period: ${period.name}.`);
+  }
+});
+
 export default mongoose.model('JournalEntry', journalEntrySchema);

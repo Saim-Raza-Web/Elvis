@@ -12,10 +12,12 @@ import Notification from '../models/Notification.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Product from '../models/Product.js';
 import ASN from '../models/ASN.js';
-import { proposeDestinationLocation } from '../services/locationProposalService.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
+import { putawayEngine } from '../services/putawayEngine.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
 
@@ -114,8 +116,8 @@ router.get('/', async (req, res, next) => {
       query.status = req.query.status;
     }
 
-    if (req.query.warehouse) {
-      query.warehouse = req.query.warehouse;
+    if (req.context && req.context.warehouses) {
+      query.warehouse = { $in: req.context.warehouses.map(w => w.code) };
     }
 
     const result = await paginateQuery(QuarantineInventory, query, req);
@@ -321,7 +323,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
 
     // 1. Pipeline Refinement: Move approvedQty from qtyQuarantine -> qtyAwaitingPutaway
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
+      { company: req.user.company, warehouse, sku: qItem.sku, owner: qItem.owner, ownerType: qItem.ownerType, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
       { $inc: { qtyQuarantine: -totalQty, qtyAwaitingPutaway: approvedQty } },
       { upsert: true, new: true, session }
     );
@@ -347,7 +349,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
     if (rejectedQty > 0) {
       await InventoryTransaction.create([{
         transactionId: 'TXN-REJ-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
-        type: 'QC_REJECTION',
+        type: 'QC_FAIL',
         sku: qItem.sku,
         warehouse,
         qty: rejectedQty,
@@ -389,13 +391,12 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
     }
 
     // 4. DYNAMIC LOCATION PROPOSAL & AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001) FOR APPROVED STOCK ONLY
-    const proposed = await proposeDestinationLocation({
-      company: req.user.company,
-      warehouse,
+    const proposed = await putawayEngine.evaluatePutawayLocation({
+      companyId: req.user.company,
+      warehouse: qItem.warehouse,
       sku: qItem.sku,
       qty: approvedQty,
-      lotNumber: qItem.lotNumber,
-      session
+      lotNumber: qItem.lotNumber
     });
 
     const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
@@ -422,6 +423,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       asnNumber: qItem.asnNumber,
       supplier: itemSupplier,
       owner: itemOwner,
+      ownerType: qItem.ownerType || 'UNKNOWN',
       sku: qItem.sku,
       productName: qItem.productName,
       warehouse,
@@ -603,7 +605,7 @@ router.post('/:id/return', requireOpsRole, async (req, res, next) => {
 
     // Remove from Quarantine Balance
     await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse, sku: qItem.sku, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
+      { company: req.user.company, warehouse, sku: qItem.sku, owner: qItem.owner, ownerType: qItem.ownerType, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
       { $inc: { qtyQuarantine: -qty } },
       { upsert: true, new: true, session }
     );

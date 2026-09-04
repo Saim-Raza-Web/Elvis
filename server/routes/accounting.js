@@ -12,6 +12,7 @@ import Counter from '../models/Counter.js';
 import ChartOfAccount from '../models/ChartOfAccount.js';
 import ChartOfAccountImportLog from '../models/ChartOfAccountImportLog.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
+import InventoryCost from '../models/InventoryCost.js';
 
 const router = express.Router();
 
@@ -110,19 +111,25 @@ async function ensureChartOfAccountsInitialized(companyId) {
       hierarchyLevel = (codeMap[item.parentAccountCode].hierarchyLevel || 0) + 1;
     }
 
-    const created = await ChartOfAccount.create({
-      accountCode: item.accountCode,
-      accountName: item.accountName,
-      accountType: item.accountType,
-      category: item.category,
-      parentAccountId: parentId,
-      parentAccountCode: item.parentAccountCode || '',
-      hierarchyLevel,
-      allowSubAccounts: item.allowSubAccounts !== undefined ? item.allowSubAccounts : true,
-      isPostingAccount: item.isPostingAccount !== undefined ? item.isPostingAccount : true,
-      company: companyId
-    });
-    codeMap[item.accountCode] = created;
+    try {
+      const created = await ChartOfAccount.create({
+        accountCode: item.accountCode,
+        accountName: item.accountName,
+        accountType: item.accountType,
+        category: item.category,
+        parentAccountId: parentId,
+        parentAccountCode: item.parentAccountCode || '',
+        hierarchyLevel,
+        allowSubAccounts: item.allowSubAccounts !== undefined ? item.allowSubAccounts : true,
+        isPostingAccount: item.isPostingAccount !== undefined ? item.isPostingAccount : true,
+        company: companyId
+      });
+      codeMap[item.accountCode] = created;
+    } catch (e) {
+      if (e.code !== 11000) throw e;
+      // If it's a duplicate key, another request already inserted it. Just fetch it.
+      codeMap[item.accountCode] = await ChartOfAccount.findOne({ company: companyId, accountCode: item.accountCode });
+    }
   }
 }
 
@@ -1818,6 +1825,341 @@ router.delete('/journal-entries/:id', async (req, res) => {
   return res.status(400).json({
     message: 'Posted accounting journal entries cannot be deleted to preserve financial audit integrity. Please use the Reversal action instead.'
   });
+});
+
+// ── Phase 8B.2 Account Balance & Trial Balance ──────────────────────────────
+
+// Helper to determine exact dates from either a fiscal period or explicit range
+async function resolveReportingDates(req) {
+  const { fiscalPeriodId, startDate, endDate } = req.query;
+
+  if (fiscalPeriodId) {
+    if (startDate || endDate) {
+      throw new Error('Provide either fiscalPeriodId OR (startDate and endDate), not both.');
+    }
+    const FiscalPeriod = mongoose.model('FiscalPeriod');
+    const period = await FiscalPeriod.findOne({ _id: fiscalPeriodId, company: req.user.company });
+    if (!period) {
+      throw new Error('Fiscal period not found or unauthorized.');
+    }
+    return { start: period.startDate, end: period.endDate, periodName: period.name };
+  }
+
+  if (!startDate || !endDate) {
+    throw new Error('Must provide fiscalPeriodId or both startDate and endDate.');
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (isNaN(start) || isNaN(end)) {
+    throw new Error('Invalid date format.');
+  }
+
+  if (start >= end) {
+    throw new Error('startDate must be strictly before endDate.');
+  }
+
+  return { start, end, periodName: 'Custom Range' };
+}
+
+// Helper for the core Trial Balance aggregation pipeline
+async function executeTrialBalanceAggregation(companyId, start, end, specificAccountId = null) {
+  const matchStage = {
+    company: companyId,
+    status: { $in: ['posted', 'reversed'] },
+    date: { $lt: end }
+  };
+
+  if (specificAccountId) {
+    matchStage['lines.accountId'] = new mongoose.Types.ObjectId(specificAccountId);
+  }
+
+  const pipeline = [
+    { $match: matchStage },
+    { $unwind: '$lines' }
+  ];
+
+  if (specificAccountId) {
+    pipeline.push({
+      $match: {
+        'lines.accountId': new mongoose.Types.ObjectId(specificAccountId)
+      }
+    });
+  }
+
+  pipeline.push(
+    {
+      $group: {
+        _id: '$lines.accountId',
+        openingDebit: { $sum: { $cond: [{ $lt: ['$date', start] }, '$lines.debit', 0] } },
+        openingCredit: { $sum: { $cond: [{ $lt: ['$date', start] }, '$lines.credit', 0] } },
+        periodDebit: { $sum: { $cond: [{ $gte: ['$date', start] }, '$lines.debit', 0] } },
+        periodCredit: { $sum: { $cond: [{ $gte: ['$date', start] }, '$lines.credit', 0] } },
+        accountCodeSnapshot: { $last: '$lines.accountCodeSnapshot' },
+        accountNameSnapshot: { $last: '$lines.accountNameSnapshot' }
+      }
+    },
+    {
+      $lookup: {
+        from: 'chartofaccounts',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'accountDetails'
+      }
+    },
+    {
+      $unwind: {
+        path: '$accountDetails',
+        preserveNullAndEmptyArrays: true
+      }
+    }
+  );
+
+  const rawResults = await JournalEntry.aggregate(pipeline);
+
+  let totals = {
+    openingDebit: 0,
+    openingCredit: 0,
+    periodDebit: 0,
+    periodCredit: 0,
+    closingDebit: 0,
+    closingCredit: 0
+  };
+
+  const balances = rawResults.map(r => {
+    const openingDebit = r.openingDebit || 0;
+    const openingCredit = r.openingCredit || 0;
+    const periodDebit = r.periodDebit || 0;
+    const periodCredit = r.periodCredit || 0;
+    
+    const closingDebit = openingDebit + periodDebit;
+    const closingCredit = openingCredit + periodCredit;
+
+    totals.openingDebit += openingDebit;
+    totals.openingCredit += openingCredit;
+    totals.periodDebit += periodDebit;
+    totals.periodCredit += periodCredit;
+    totals.closingDebit += closingDebit;
+    totals.closingCredit += closingCredit;
+
+    let acctCode = '';
+    let acctName = '';
+    let acctType = 'Unknown';
+    let isDebitNormal = true; // default safe fallback
+
+    if (r.accountDetails) {
+      acctCode = r.accountDetails.accountCode;
+      acctName = r.accountDetails.accountName;
+      acctType = r.accountDetails.accountType;
+    } else {
+      acctCode = r.accountCodeSnapshot || 'UNK';
+      acctName = r.accountNameSnapshot || 'Unknown/Deleted Account';
+    }
+
+    if (['Liability', 'Equity', 'Revenue'].includes(acctType)) {
+      isDebitNormal = false;
+    }
+
+    const normalizedClosingBalance = isDebitNormal
+      ? (closingDebit - closingCredit)
+      : (closingCredit - closingDebit);
+
+    return {
+      accountId: r._id,
+      accountCode: acctCode,
+      accountName: acctName,
+      accountType: acctType,
+      opening: { debit: openingDebit, credit: openingCredit },
+      movement: { debit: periodDebit, credit: periodCredit },
+      closing: { debit: closingDebit, credit: closingCredit },
+      normalizedClosingBalance
+    };
+  });
+
+  return { balances, totals };
+}
+
+// GET /api/v1/accounting/trial-balance
+router.get('/trial-balance', async (req, res, next) => {
+  try {
+    const { start, end, periodName } = await resolveReportingDates(req);
+    const { balances, totals } = await executeTrialBalanceAggregation(req.user.company, start, end);
+
+    // Double Entry Check
+    totals.openingDifference = totals.openingDebit - totals.openingCredit;
+    totals.periodDifference = totals.periodDebit - totals.periodCredit;
+    totals.closingDifference = totals.closingDebit - totals.closingCredit;
+
+    res.json({
+      company: req.user.company,
+      periodName,
+      startDate: start,
+      endDate: end,
+      balances,
+      totals,
+      baseCurrency: 'Company Base Currency (No FX)'
+    });
+  } catch (err) {
+    if (err.message.includes('fiscalPeriodId') || err.message.includes('strictly before') || err.message.includes('Invalid date') || err.message.includes('unauthorized')) {
+      return res.status(400).json({ message: err.message });
+    }
+    next(err);
+  }
+});
+
+// GET /api/v1/accounting/account-balance
+router.get('/account-balance', async (req, res, next) => {
+  try {
+    const { accountId } = req.query;
+    if (!accountId) {
+      return res.status(400).json({ message: 'accountId is required' });
+    }
+
+    const { start, end, periodName } = await resolveReportingDates(req);
+    const { balances } = await executeTrialBalanceAggregation(req.user.company, start, end, accountId);
+
+    const accountBalance = balances.length > 0 ? balances[0] : {
+      accountId,
+      accountCode: '',
+      accountName: 'No Activity',
+      accountType: 'Unknown',
+      opening: { debit: 0, credit: 0 },
+      movement: { debit: 0, credit: 0 },
+      closing: { debit: 0, credit: 0 },
+      normalizedClosingBalance: 0
+    };
+
+    res.json({
+      company: req.user.company,
+      periodName,
+      startDate: start,
+      endDate: end,
+      balance: accountBalance,
+      baseCurrency: 'Company Base Currency (No FX)'
+    });
+  } catch (err) {
+    if (err.message.includes('fiscalPeriodId') || err.message.includes('strictly before') || err.message.includes('Invalid date') || err.message.includes('unauthorized')) {
+      return res.status(400).json({ message: err.message });
+    }
+    next(err);
+  }
+});
+
+// GET /api/v1/accounting/inventory-reconciliation
+router.get('/inventory-reconciliation', async (req, res, next) => {
+  try {
+    const company = req.user.company;
+    const now = new Date();
+
+    // 1. Resolve Configured Inventory Asset Account
+    const config = await CompanyAccountingConfig.findOne({ company });
+    if (!config || !config.defaultInventoryAssetAccountId) {
+      return res.status(400).json({
+        company,
+        status: 'CONFIG_ERROR',
+        difference: 0,
+        wmsInventoryValue: 0,
+        glInventoryAssetValue: 0,
+        details: { message: 'Missing defaultInventoryAssetAccountId configuration.' },
+        exceptions: []
+      });
+    }
+
+    const accountId = config.defaultInventoryAssetAccountId;
+    const coa = await ChartOfAccount.findOne({ _id: accountId, company });
+    if (!coa) {
+      return res.status(400).json({
+        company,
+        status: 'CONFIG_ERROR',
+        difference: 0,
+        wmsInventoryValue: 0,
+        glInventoryAssetValue: 0,
+        details: { message: 'Configured Inventory Asset ChartOfAccount does not exist or belongs to a foreign company.' },
+        exceptions: []
+      });
+    }
+
+    // 2. Aggregate WMS Value (InventoryCost)
+    // First check for UNKNOWN owners
+    const unknownCount = await InventoryCost.countDocuments({ company, ownerType: 'UNKNOWN' });
+    let exceptions = [];
+    if (unknownCount > 0) {
+      exceptions.push({
+        type: 'OWNERSHIP_INTEGRITY_ERROR',
+        message: `${unknownCount} InventoryCost records have UNKNOWN ownerType.`
+      });
+    }
+
+    const invalidValueCount = await InventoryCost.countDocuments({ company, totalValue: { $lt: 0 } });
+    if (invalidValueCount > 0) {
+      exceptions.push({
+        type: 'VALUATION_INTEGRITY_ERROR',
+        message: `${invalidValueCount} InventoryCost records have negative totalValue.`
+      });
+    }
+
+    if (exceptions.length > 0) {
+      return res.status(409).json({
+        company,
+        status: exceptions[0].type,
+        difference: 0,
+        wmsInventoryValue: 0,
+        glInventoryAssetValue: 0,
+        details: { message: 'Database integrity violations detected.' },
+        exceptions
+      });
+    }
+
+    const wmsAggr = await InventoryCost.aggregate([
+      { $match: { company, ownerType: 'COMPANY' } },
+      {
+        $group: {
+          _id: null,
+          totalValue: { $sum: '$totalValue' },
+          poolCount: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const wmsInventoryValue = wmsAggr.length > 0 ? (Math.round(wmsAggr[0].totalValue * 10000) / 10000) : 0;
+    const poolCount = wmsAggr.length > 0 ? wmsAggr[0].poolCount : 0;
+
+    // 3. GL Inventory Asset Value
+    const start = new Date(0); // far past
+    const { balances } = await executeTrialBalanceAggregation(company, start, now, accountId);
+    
+    let glInventoryAssetValue = 0;
+    if (balances.length > 0) {
+      glInventoryAssetValue = balances[0].normalizedClosingBalance;
+    }
+
+    // 4. Calculate Difference
+    const difference = Math.round((wmsInventoryValue - glInventoryAssetValue) * 10000) / 10000;
+
+    // 5. Status Classification
+    let status = 'RECONCILED';
+    if (difference > 0) status = 'WMS_GREATER_THAN_GL';
+    if (difference < 0) status = 'GL_GREATER_THAN_WMS';
+
+    return res.json({
+      company,
+      reconciliationDate: now,
+      wmsInventoryValue,
+      glInventoryAssetValue,
+      difference,
+      status,
+      discrepancyClassification: status,
+      details: {
+        inventoryCostPoolCount: poolCount,
+        glAccountId: accountId
+      },
+      exceptions
+    });
+
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

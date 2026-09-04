@@ -22,9 +22,12 @@ api.interceptors.response.use(
   (response: any) => response,
   (error: any) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('jwt_token');
-      localStorage.removeItem('user');
-      window.location.href = '/';
+      const isAuthRoute = error.config?.url?.includes('/auth/login') || error.config?.url?.includes('/auth/register');
+      if (!isAuthRoute) {
+        localStorage.removeItem('jwt_token');
+        localStorage.removeItem('user');
+        window.location.href = '/';
+      }
     }
     return Promise.reject(error);
   }

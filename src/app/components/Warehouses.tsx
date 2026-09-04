@@ -37,7 +37,7 @@ export function Warehouses() {
   const searchLower = search.toLowerCase();
 
   const { items: warehouses, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<WH>(
-    warehousesService,
+    warehousesService as any,
     {
       apiParams: { search: searchLower || undefined },
       deps: [search],
@@ -144,7 +144,7 @@ export function Warehouses() {
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-[10px] text-muted-foreground">{(w.used || 0).toLocaleString()} used</span>
-                  <span className="text-[10px] text-muted-foreground">{w.capacity.toLocaleString()} total</span>
+                  <span className="text-[10px] text-muted-foreground">{(w.capacity || 0).toLocaleString()} total</span>
                 </div>
               </div>
 
@@ -177,13 +177,13 @@ export function Warehouses() {
       {/* Add modal */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.warehouses.addWarehouse} subtitle={t.pages.warehouses.sub} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>{t.common.create}</ModalSubmit></>}>
         <Row>
-          <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={t.common?.miamiHub || "Miami Hub"} /></Field>
-          <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase().slice(0, 4) }))} placeholder={t.common?.mIA || "MIA"} /></Field>
+          <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={(t.common as any)?.miamiHub || "Miami Hub"} /></Field>
+          <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase().slice(0, 4) }))} placeholder={(t.common as any)?.mIA || "MIA"} /></Field>
         </Row>
         <Row>
-          <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder={t.common?.miamiFL || "Miami, FL"} /></Field>
+          <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder={(t.common as any)?.miamiFL || "Miami, FL"} /></Field>
           <Field label={t.warehouses.country}><Select value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}>
-            <option>{t.common?.uS || "US"}</option><option>{t.common?.dE || "DE"}</option><option>{t.common?.fR || "FR"}</option><option>{t.common?.eS || "ES"}</option><option>{t.common?.iT || "IT"}</option><option>{t.common?.gB || "GB"}</option>
+            <option>{(t.common as any)?.uS || "US"}</option><option>{(t.common as any)?.dE || "DE"}</option><option>{(t.common as any)?.fR || "FR"}</option><option>{(t.common as any)?.eS || "ES"}</option><option>{(t.common as any)?.iT || "IT"}</option><option>{(t.common as any)?.gB || "GB"}</option>
           </Select></Field>
         </Row>
         <Row>
@@ -191,7 +191,7 @@ export function Warehouses() {
           <Field label={t.warehouses.temp}><Input value={form.temp} onChange={(e) => setForm((f) => ({ ...f, temp: e.target.value }))} placeholder="20°C" /></Field>
         </Row>
         <Row>
-          <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} placeholder={t.common?.fullName || "Full name"} /></Field>
+          <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} placeholder={(t.common as any)?.fullName || "Full name"} /></Field>
           <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
             <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
           </Select></Field>
@@ -201,13 +201,13 @@ export function Warehouses() {
       {/* Edit modal */}
       <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title={t.warehouses.editWarehouse} subtitle={editTarget?.name} footer={<><ModalCancel onClose={() => setEditTarget(null)} /><ModalSubmit onClick={handleSave}>{t.common.save}</ModalSubmit></>}>
         <Row>
-          <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={t.common?.miamiHub || "Miami Hub"} /></Field>
-          <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase().slice(0, 4) }))} placeholder={t.common?.mIA || "MIA"} /></Field>
+          <Field label={t.common.name} required><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={(t.common as any)?.miamiHub || "Miami Hub"} /></Field>
+          <Field label={t.warehouses.code} required hint={t.warehouses.codeHint}><Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase().slice(0, 4) }))} placeholder={(t.common as any)?.mIA || "MIA"} /></Field>
         </Row>
         <Row>
-          <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder={t.common?.miamiFL || "Miami, FL"} /></Field>
+          <Field label={t.common.location}><Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder={(t.common as any)?.miamiFL || "Miami, FL"} /></Field>
           <Field label={t.warehouses.country}><Select value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}>
-            <option>{t.common?.uS || "US"}</option><option>{t.common?.dE || "DE"}</option><option>{t.common?.fR || "FR"}</option><option>{t.common?.eS || "ES"}</option><option>{t.common?.iT || "IT"}</option><option>{t.common?.gB || "GB"}</option>
+            <option>{(t.common as any)?.uS || "US"}</option><option>{(t.common as any)?.dE || "DE"}</option><option>{(t.common as any)?.fR || "FR"}</option><option>{(t.common as any)?.eS || "ES"}</option><option>{(t.common as any)?.iT || "IT"}</option><option>{(t.common as any)?.gB || "GB"}</option>
           </Select></Field>
         </Row>
         <Row>
@@ -215,7 +215,7 @@ export function Warehouses() {
           <Field label={t.warehouses.temp}><Input value={form.temp} onChange={(e) => setForm((f) => ({ ...f, temp: e.target.value }))} placeholder="20°C" /></Field>
         </Row>
         <Row>
-          <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} placeholder={t.common?.fullName || "Full name"} /></Field>
+          <Field label={t.warehouses.manager}><Input value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} placeholder={(t.common as any)?.fullName || "Full name"} /></Field>
           <Field label={t.common.status}><Select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
             <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
           </Select></Field>

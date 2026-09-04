@@ -12,6 +12,7 @@ const inventoryBalanceSchema = new mongoose.Schema({
   qtyAwaitingPutaway: { type: Number, default: 0, min: [0, 'Awaiting putaway quantity cannot be negative'] },
   qtyReserved: { type: Number, default: 0, min: [0, 'Reserved quantity cannot be negative'] },
   owner: { type: String, default: 'Default Owner' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'], required: true, default: 'UNKNOWN' },
   lotNumber: { type: String, default: '' },
   batchNumber: { type: String, default: '' },
   expiryDate: { type: Date },

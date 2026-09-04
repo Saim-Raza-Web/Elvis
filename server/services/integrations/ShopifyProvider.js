@@ -304,13 +304,32 @@ export class ShopifyProvider extends BaseIntegrationProvider {
       timeout: 15000
     });
 
-    return (res.data.orders || []).map(o => ({
+    return (res.data.orders || []).map(o => {
+      let isB2B = false;
+      let b2bClassificationSource = 'default';
+      let companyName = o.billing_address?.company || o.shipping_address?.company || o.customer?.default_address?.company || '';
+      let vatNumber = ''; // VAT is typically in metafields in Shopify; fallback to company presence
+
+      if (companyName) {
+        isB2B = true;
+        b2bClassificationSource = 'shopify_company_field';
+      }
+      if (o.customer?.tax_exempt) {
+        isB2B = true;
+        b2bClassificationSource = 'shopify_tax_exempt_flag';
+      }
+
+      return {
       externalOrderId: String(o.id),
       orderNumber: o.name || `#${o.order_number}`,
       customerName: o.customer ? `${o.customer.first_name || ''} ${o.customer.last_name || ''}`.trim() : (o.shipping_address?.name || 'Shopify Customer'),
       customerEmail: o.email || o.customer?.email || 'shopify-order@example.com',
       date: new Date(o.created_at || Date.now()),
       status: 'pending',
+      isB2B,
+      b2bClassificationSource,
+      companyName,
+      vatNumber,
       items: (o.line_items || []).map(li => ({
         sku: li.sku || `SP-LINE-${li.id}`,
         name: li.title || li.name,
@@ -329,7 +348,8 @@ export class ShopifyProvider extends BaseIntegrationProvider {
         postcode: o.shipping_address?.zip || '',
         country: o.shipping_address?.country || 'Spain'
       }
-    }));
+    };
+    });
   }
 
   /**
@@ -345,19 +365,54 @@ export class ShopifyProvider extends BaseIntegrationProvider {
   }
 
   /**
-   * Verifies incoming Shopify webhook signature
+   * Verifies incoming Shopify webhook signature.
+   *
+   * Shopify sends HMAC-SHA256 Base64-encoded in `x-shopify-hmac-sha256`
+   * computed over the raw request body.
+   *
+   * SECURITY FIX: Reject when no secret configured — never return true silently.
    */
   verifyWebhookSignature(req, webhookSecret) {
-    const hmacHeader = req.headers['x-shopify-hmac-sha256'];
-    if (!hmacHeader || !webhookSecret) return true;
-    
-    const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    const hash = crypto
-      .createHmac('sha256', webhookSecret)
-      .update(body, 'utf8')
-      .digest('base64');
-      
-    return crypto.timingSafeEqual(Buffer.from(hmacHeader), Buffer.from(hash));
+    if (!webhookSecret) {
+      console.error('[ShopifyProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const hmacHeader = req.headers['x-shopify-hmac-sha256'];
+      if (!hmacHeader) {
+        console.error('[ShopifyProvider] Webhook rejected: missing x-shopify-hmac-sha256 header.');
+        return false;
+      }
+      // Must use rawBody — JSON.stringify() would alter the byte sequence
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[ShopifyProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const hash = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(rawBody)
+        .digest('base64');
+      const incoming = Buffer.from(hmacHeader, 'base64');
+      const expected = Buffer.from(hash, 'base64');
+      if (incoming.length !== expected.length) return false;
+      return crypto.timingSafeEqual(incoming, expected);
+    } catch (err) {
+      console.error('[ShopifyProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses Shopify webhook payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: req.headers['x-shopify-webhook-id'] || body.id?.toString() || String(Date.now()),
+      topic: req.headers['x-shopify-topic'] || 'shopify.notification',
+      payload: body
+    };
   }
 }
 

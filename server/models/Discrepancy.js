@@ -19,4 +19,7 @@ const discrepancySchema = new mongoose.Schema({
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 
+// High-performance compound indexes for scale and tenant isolation
+discrepancySchema.index({ company: 1, discrepancyId: 1 }, { unique: true });
+
 export default mongoose.model('Discrepancy', discrepancySchema);

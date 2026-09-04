@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 const packTaskSchema = new mongoose.Schema({
-  packId: { type: String, required: true, unique: true },
+  packId: { type: String, required: true },
   order: String,
   customer: String,
   items: Number,
@@ -25,5 +25,7 @@ const packTaskSchema = new mongoose.Schema({
   }],
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });
+
+packTaskSchema.index({ company: 1, packId: 1 }, { unique: true });
 
 export default mongoose.model('PackTask', packTaskSchema);

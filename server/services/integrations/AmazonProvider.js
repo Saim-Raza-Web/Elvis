@@ -228,6 +228,10 @@ export class AmazonProvider extends BaseIntegrationProvider {
         customerEmail: 'carlos.amazon.buyer@marketplace.amazon.es',
         date: new Date(),
         status: 'pending',
+        isB2B: false,
+        b2bClassificationSource: 'amazon_sp_api_unavailable',
+        companyName: '',
+        vatNumber: '',
         items: [
           { sku: 'AMZ-WIRELESS-ANC-HEADSET', name: 'Active Noise Cancelling Wireless Headphones (Black)', quantity: 1, price: 89.99, total: 89.99 },
           { sku: 'AMZ-FAST-CHARGER-65W', name: '65W GaN Dual USB-C Fast Wall Charger', quantity: 2, price: 34.95, total: 69.90 }
@@ -252,6 +256,70 @@ export class AmazonProvider extends BaseIntegrationProvider {
    */
   async updateExternalInventory(store, sku, availableQty) {
     return { success: true, updatedSku: sku, newLevel: availableQty };
+  }
+
+  /**
+   * Verifies Amazon SP-API webhook signature.
+   *
+   * Amazon sends notifications signed with HMAC-SHA256 over the raw JSON body.
+   * Header: x-amzn-signature (hex-encoded HMAC)
+   *
+   * SECURITY: Rejects all webhooks when no secret is configured.
+   */
+  verifyWebhookSignature(req, secret) {
+    if (!secret) {
+      // No secret configured — reject. Never silently pass unsigned webhooks.
+      console.error('[AmazonProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+
+    try {
+      const signatureHeader = req.headers['x-amzn-signature'];
+      if (!signatureHeader) {
+        console.error('[AmazonProvider] Webhook rejected: missing x-amzn-signature header.');
+        return false;
+      }
+
+      // req.rawBody must be populated by express.raw() middleware on the webhook route
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[AmazonProvider] Webhook rejected: rawBody not available. Ensure express.raw() middleware is active on webhook routes.');
+        return false;
+      }
+
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(rawBody)
+        .digest('hex');
+
+      const sigBuffer = Buffer.from(signatureHeader, 'hex');
+      const expectedBuffer = Buffer.from(expectedSig, 'hex');
+
+      if (sigBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
+    } catch (err) {
+      console.error('[AmazonProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses Amazon SP-API notification payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    const notification = body.payload?.applicationContext || body;
+    const notificationType = body.notificationType ||
+      req.headers['x-amzn-marketplace-type'] ||
+      'amazon.notification';
+    const eventId = body.notificationId ||
+      req.headers['x-amzn-request-id'] ||
+      String(Date.now());
+    return {
+      eventId,
+      topic: notificationType,
+      payload: body
+    };
   }
 }
 

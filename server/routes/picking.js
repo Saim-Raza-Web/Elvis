@@ -11,6 +11,8 @@ import Document from '../models/Document.js';
 import Counter from '../models/Counter.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Notification from '../models/Notification.js';
+import PackTask from '../models/PackTask.js';
+import Product from '../models/Product.js';
 import { generatePickDeliveryNotePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();
@@ -171,21 +173,29 @@ router.get('/:id', async (req, res, next) => {
 
 // ── EXECUTE & COMPLETE PICK TASK (With Owner Isolation & PDF Delivery Note) ──
 router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(403).json({ message: 'Company context required' });
     }
 
     const task = await PickTask.findOne({
       company: req.user.company,
       $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { taskId: req.params.id }]
-    });
+    }).session(session);
 
     if (!task) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'Pick Task not found' });
     }
 
     if (task.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: `Pick Task ${task.taskId} is already completed.` });
     }
 
@@ -207,6 +217,8 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
         const expectedLoc = (item.sourceLocation || 'STAGING-A').trim().toUpperCase();
         const scannedLoc = String(update.scannedLocation).trim().toUpperCase();
         if (scannedLoc !== expectedLoc) {
+          await session.abortTransaction();
+          session.endSession();
           return res.status(400).json({
             message: `Wrong location. Scanned: ${update.scannedLocation}. Expected: ${item.sourceLocation || 'STAGING-A'}`
           });
@@ -230,7 +242,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       if (actualPicked > 0) {
         // Use the real inventory owner stored at pick-task-creation time, fallback to taskOwner
         const deductOwner = item.inventoryOwner || taskOwner;
-        const binBalances = await InventoryBalance.find({ sku: item.sku, bin: binCode, company: req.user.company });
+        const binBalances = await InventoryBalance.find({ sku: item.sku, bin: binCode, company: req.user.company }).session(session);
         let balances = binBalances.filter(b => {
           if (!deductOwner) return true;
           const tO = deductOwner.toLowerCase().trim();
@@ -240,47 +252,51 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
 
         // Fallback for B2C consumer orders where end-consumer name is not the 3PL stock depositor
         if (balances.length === 0 && binBalances.length > 0) {
-          balances = binBalances.filter(b => ((b.qtyAvailable || 0) + (b.qtyAwaitingPutaway || 0)) > 0);
+          balances = binBalances.filter(b => (b.qtyReserved || 0) > 0);
         }
 
-        const totalBinStock = balances.reduce((sum, b) => sum + (b.qtyAvailable || 0) + (b.qtyAwaitingPutaway || 0), 0);
+        const totalBinStock = balances.reduce((sum, b) => sum + (b.qtyReserved || 0), 0);
 
         if (balances.length === 0 || totalBinStock < actualPicked) {
+          await session.abortTransaction();
+          session.endSession();
           return res.status(400).json({
-            message: `Owner Stock Isolation Failure: Insufficient stock for SKU '${item.sku}' under Owner '${deductOwner}' at bin '${binCode}'. Available: ${totalBinStock} (matched ${balances.length}/${binBalances.length} balances), Pick requested: ${actualPicked}.`
+            message: `Owner Stock Isolation Failure: Insufficient reserved stock for SKU '${item.sku}' under Owner '${deductOwner}' at bin '${binCode}'. Reserved: ${totalBinStock}, Pick requested: ${actualPicked}.`
           });
         }
 
-        // Deduct actualPicked across balance records for this bin
+        // Deduct actualPicked across balance records for this bin (from qtyReserved!)
         let remainingToDeduct = actualPicked;
+        let finalOwnerType = 'UNKNOWN';
         for (const bal of balances) {
           if (remainingToDeduct <= 0) break;
-          const availHere = (bal.qtyAvailable || 0) + (bal.qtyAwaitingPutaway || 0);
+          const availHere = bal.qtyReserved || 0;
           if (availHere <= 0) continue;
+          
+          finalOwnerType = bal.ownerType || 'UNKNOWN';
 
           const deductFromThis = Math.min(availHere, remainingToDeduct);
-          const decAvailable = Math.min(bal.qtyAvailable || 0, deductFromThis);
-          const decAwaiting = deductFromThis - decAvailable;
 
           await InventoryBalance.findOneAndUpdate(
             { _id: bal._id },
             { 
               $inc: { 
-                qtyAvailable: -decAvailable,
-                qtyAwaitingPutaway: -decAwaiting
+                qtyReserved: -deductFromThis
               } 
-            }
+            },
+            { session }
           );
           remainingToDeduct -= deductFromThis;
         }
 
         // Record Inventory Transaction
         const txnId = 'TXN-PICK-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
-        await InventoryTransaction.create({
+        await InventoryTransaction.create([{
           transactionId: txnId,
           type: 'PICK_EXECUTE',
           sku: item.sku,
           owner: taskOwner,
+          ownerType: finalOwnerType,
           warehouse,
           qty: actualPicked,
           bin: binCode,
@@ -288,7 +304,10 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
           user: operator,
           timestamp: new Date(),
           company: req.user.company
-        });
+        }], { session });
+
+        // Save the correct ownerType to the pick task line for downstream COGS accounting
+        item.ownerType = finalOwnerType;
       }
     }
 
@@ -300,36 +319,36 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     task.completedBy = operator;
 
     // Generate Outbound Delivery Note Document & PDF
-    const order = await Order.findOne({ orderId: task.orderId, company: req.user.company });
+    const order = await Order.findOne({ orderId: task.orderId, company: req.user.company }).session(session);
 
     let dnCounter = await Counter.findOneAndUpdate(
       { _id: 'outbound_delivery_note', company: req.user.company },
       { $inc: { seq: 1 } },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true, session }
     );
     let dnNumber = `DN-2026-${String(dnCounter.seq).padStart(6, '0')}`;
-    let existingDoc = await Document.findOne({ documentNumber: dnNumber, company: req.user.company });
+    let existingDoc = await Document.findOne({ documentNumber: dnNumber, company: req.user.company }).session(session);
     while (existingDoc) {
       dnCounter = await Counter.findOneAndUpdate(
         { _id: 'outbound_delivery_note', company: req.user.company },
         { $inc: { seq: 1 } },
-        { new: true }
+        { new: true, session }
       );
       dnNumber = `DN-2026-${String(dnCounter.seq).padStart(6, '0')}`;
-      existingDoc = await Document.findOne({ documentNumber: dnNumber, company: req.user.company });
+      existingDoc = await Document.findOne({ documentNumber: dnNumber, company: req.user.company }).session(session);
     }
 
     const pdfBuffer = await generatePickDeliveryNotePDFBuffer(task, order, dnNumber, req.user.company, operator);
     const pdfBase64 = pdfBuffer.toString('base64');
     const pdfDataUri = `data:application/pdf;base64,${pdfBase64}`;
 
-    const docRecord = await Document.create({
+    const docRecords = await Document.create([{
       documentNumber: dnNumber,
       type: 'OUTBOUND_DELIVERY_NOTE',
       asnId: task.orderId,
       asnNumber: task.orderId,
       poNumber: order?.po_reference || task.orderId,
-      supplier: order?.customer || task.customer,
+      supplier: order?.customer || task.customer || 'Internal Transfer',
       owner: taskOwner,
       receivingDock: 'OUTBOUND_DOCK',
       warehouse,
@@ -348,22 +367,63 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       pdfDataUri,
       generatedBy: operator,
       company: req.user.company
-    });
+    }], { session });
+    
+    const docRecord = docRecords[0];
 
     task.deliveryNoteNumber = dnNumber;
     task.deliveryNoteId = docRecord._id;
-    await task.save();
+    await task.save({ session });
 
-    // Update Order status to 'Ready for Shipping' (or 'processing' if partial)
+    // Idempotent PackTask Generation (SKIP for Transfers)
+    if (task.orderType !== 'TRANSFER') {
+      let packTask = await PackTask.findOne({ packId: task.taskId, company: req.user.company }).session(session);
+      if (!packTask && totalPicked > 0) {
+        packTask = await PackTask.create([{
+          packId: task.taskId, // Maps 1:1 with PickTask
+          order: task.orderId,
+          customer: order?.customer || task.customer,
+          items: totalPicked,
+          picked: totalPicked,
+          station: 'PACK-01',
+          priority: task.priority || 'normal',
+          status: 'pending',
+          packItems: task.items.filter(i => i.pickedQty > 0).map(i => ({
+            sku: i.sku,
+            product: i.productName,
+            qty: i.pickedQty,
+            scanned: 0,
+            verified: false
+          })),
+          company: req.user.company
+        }], { session });
+      }
+    } else {
+      // Phase 6 Invariant: For Transfers, add to destination warehouse IN-TRANSIT bin as qtyAwaitingPutaway
+      const transferDoc = await mongoose.model('Transfer').findOne({ transferId: task.orderId, company: req.user.company }).session(session);
+      if (transferDoc && totalPicked > 0) {
+        for (const item of task.items) {
+          if (item.pickedQty > 0) {
+            await InventoryBalance.findOneAndUpdate(
+              { company: req.user.company, warehouse: transferDoc.to_wh, sku: item.sku, owner: taskOwner, bin: 'IN-TRANSIT', lotNumber: 'DEFAULT-LOT' },
+              { $inc: { qtyAwaitingPutaway: item.pickedQty } },
+              { upsert: true, new: true, session }
+            );
+          }
+        }
+      }
+    }
+
+    // Update Order status to 'picked' (or 'processing' if partial)
     if (order) {
-      order.status = hasShortfall ? 'processing' : 'shipped';
+      order.status = hasShortfall ? 'processing' : 'picked';
       order.delivery_note_number = dnNumber;
       order.delivery_note_generated_at = new Date();
-      await order.save();
+      await order.save({ session });
     }
 
     // Activity Log & Notification
-    ActivityLog.create({
+    await ActivityLog.create([{
       logId: 'LOG-' + Date.now(),
       user: operator,
       role: 'warehouse_staff',
@@ -371,7 +431,10 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       module: 'PICKING',
       detail: `Completed Pick Task ${task.taskId} for Order ${task.orderId}. Delivery Note ${dnNumber} generated. Picked: ${totalPicked}/${task.totalOrderedQty} units.`,
       company: req.user.company
-    }).catch(() => {});
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.json({
       task,
@@ -380,18 +443,82 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     });
 
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     next(err);
   }
 });
 
 // DELETE
 router.delete('/:id', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const item = await PickTask.findOneAndDelete({ _id: req.params.id, company: req.user.company });
-    if (!item) return res.status(404).json({ message: 'Pick Task not found' });
-    res.json({ message: 'Deleted successfully' });
-  } catch (err) { next(err); }
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+    const item = await PickTask.findOne({ _id: req.params.id, company: req.user.company }).session(session);
+    if (!item) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Pick Task not found' });
+    }
+
+    if (item.status !== 'pending' && item.status !== 'in_progress') {
+       await session.abortTransaction();
+       session.endSession();
+       return res.status(400).json({ message: 'Cannot delete a pick task that is already completed or partially picked.' });
+    }
+
+    // Restore InventoryBalance and Product.qty_available
+    const taskOwner = item.owner || 'Default Owner';
+    for (const line of item.items) {
+      const releaseQty = line.orderedQty - line.pickedQty;
+      if (releaseQty > 0) {
+        // Find reserved balances in that bin
+        const deductOwner = line.inventoryOwner || taskOwner;
+        const binBalances = await InventoryBalance.find({ sku: line.sku, bin: line.sourceLocation, company: req.user.company }).session(session);
+        let balances = binBalances.filter(b => {
+          if (!deductOwner) return true;
+          return deductOwner.toLowerCase().trim() === (b.owner || '').toLowerCase().trim();
+        });
+        if (balances.length === 0 && binBalances.length > 0) balances = binBalances;
+
+        let remainingToRestore = releaseQty;
+        for (const bal of balances) {
+          if (remainingToRestore <= 0) break;
+          const availHere = bal.qtyReserved || 0;
+          if (availHere <= 0) continue;
+          const restoreFromThis = Math.min(availHere, remainingToRestore);
+
+          await InventoryBalance.findOneAndUpdate(
+            { _id: bal._id },
+            { $inc: { qtyAvailable: restoreFromThis, qtyReserved: -restoreFromThis } },
+            { session }
+          );
+          remainingToRestore -= restoreFromThis;
+        }
+
+        // Restore Product aggregate
+        await Product.findOneAndUpdate(
+          { sku: line.sku, company: req.user.company },
+          { $inc: { qty_available: releaseQty } },
+          { session }
+        );
+      }
+    }
+
+    await PickTask.deleteOne({ _id: item._id }).session(session);
+    await session.commitTransaction();
+    session.endSession();
+    res.json({ message: 'Deleted successfully and reservation restored' });
+  } catch (err) { 
+    await session.abortTransaction();
+    session.endSession();
+    next(err); 
+  }
 });
 
 export default router;

@@ -4,11 +4,12 @@ const inventoryTransactionSchema = new mongoose.Schema({
   transactionId: { type: String, required: true },
   type: {
     type: String,
-    enum: ['RECEIVING', 'QUARANTINE_HOLD', 'QC_RELEASE', 'QC_FAIL', 'RETURN_TO_VENDOR', 'PUTAWAY_CREATED', 'PUTAWAY_COMPLETE', 'ADJUSTMENT', 'TRANSFER', 'PICK_EXECUTE', 'PICK_COMPLETE'],
+    enum: ['RECEIVING', 'QUARANTINE_HOLD', 'QC_RELEASE', 'QC_FAIL', 'RETURN_TO_VENDOR', 'PUTAWAY_CREATED', 'PUTAWAY_COMPLETE', 'ADJUSTMENT', 'TRANSFER', 'TRANSFER_OUT', 'TRANSFER_IN', 'PICK_EXECUTE', 'PICK_COMPLETE', 'RETURN'],
     required: true
   },
   sku: { type: String, required: true },
   owner: { type: String, default: 'Default Owner' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'] },
   warehouse: { type: String, required: true, default: 'MIA' },
   zone: { type: String, default: 'Z-RECEIVING' },
   aisle: { type: String, default: 'A-1' },

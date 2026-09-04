@@ -39,3 +39,31 @@ lerna-debug.log*
 
 # TypeScript cache
 *.tsbuildinfo
+
+# ── Test, Verify & Forensic files (dev-only, not for production) ─────────────
+test_*.js
+test_*.ps1
+test_*.txt
+test_*.cjs
+verify_*.js
+verifyDB.js
+server/verifyDB.js
+
+# Scratch / one-off scripts
+scratch/
+server/scratch_*.js
+scratch_*.js
+scripts/reconcile_*.js
+server/find_*.cjs
+server/find_*.js
+server/migrate_*.js
+server/audit_*.js
+server/forensic_*.js
+server/final_gate_verification.js
+
+# Phase forensic / discovery markdown reports (server-side)
+server/PHASE*.md
+
+# PDF specs / temp files
+*.pdf
+server/*.pdf

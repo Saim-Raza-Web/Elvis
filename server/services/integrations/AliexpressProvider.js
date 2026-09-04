@@ -194,6 +194,11 @@ export class AliexpressProvider extends BaseIntegrationProvider {
           customerEmail: 'santiago.perez@example.es',
           date: new Date('2026-08-26T18:00:00Z'),
           status: 'pending',
+          // B2B: AliExpress Open Platform does not expose VAT/business fields in standard order API
+          isB2B: false,
+          b2bClassificationSource: 'aliexpress_api_no_b2b_field',
+          companyName: '',
+          vatNumber: '',
           items: [
             { sku: 'ALI-WIRELESS-EARBUDS', name: 'TWS Bluetooth 5.3 Wireless Earbuds with ANC & ENC Display', quantity: 2, price: 24.99, total: 49.98 }
           ],
@@ -218,32 +223,52 @@ export class AliexpressProvider extends BaseIntegrationProvider {
     });
 
     const orders = res.data?.data?.target_list || [];
-    return orders.map(o => ({
-      externalOrderId: String(o.order_id),
-      orderNumber: `#AE-${o.order_id}`,
-      customerName: o.receipt_address?.contact_person || 'AliExpress Customer',
-      customerEmail: o.buyer_login_id || 'buyer@aliexpress.com',
-      date: new Date(o.gmt_create || Date.now()),
-      status: 'pending',
-      items: (o.product_list || []).map(p => ({
-        sku: p.sku_code || `ALI-SKU-${p.product_id}`,
-        name: p.product_name,
-        quantity: parseInt(p.product_count, 10) || 1,
-        price: parseFloat(p.product_unit_price?.amount) || 0,
-        total: parseFloat(p.total_product_amount?.amount) || 0
-      })),
-      subtotal: parseFloat(o.order_amount?.amount) || 0,
-      taxTotal: parseFloat(o.tax_amount?.amount) || 0,
-      grandTotal: parseFloat(o.order_amount?.amount) || 0,
-      deliveryAddress: {
-        street: o.receipt_address?.detail_address || '',
-        number: '',
-        city: o.receipt_address?.city || '',
-        postcode: o.receipt_address?.zip || '',
-        region: o.receipt_address?.province || '',
-        country: o.receipt_address?.country || 'Spain'
+    return orders.map(o => {
+      // AliExpress order may include invoice_info or vat_info for EU business buyers
+      const vatInfo   = o.invoice_info || o.vat_info || {};
+      const companyName = vatInfo.company_name || '';
+      const vatNumber   = vatInfo.vat_number || vatInfo.tax_id || '';
+      let isB2B = false;
+      let b2bClassificationSource = 'aliexpress_api_no_b2b_field';
+      if (vatNumber) {
+        isB2B = true;
+        b2bClassificationSource = 'aliexpress_vat_info';
+      } else if (companyName) {
+        isB2B = true;
+        b2bClassificationSource = 'aliexpress_company_name';
       }
-    }));
+
+      return {
+        externalOrderId: String(o.order_id),
+        orderNumber: `#AE-${o.order_id}`,
+        customerName: o.receipt_address?.contact_person || 'AliExpress Customer',
+        customerEmail: o.buyer_login_id || 'buyer@aliexpress.com',
+        date: new Date(o.gmt_create || Date.now()),
+        status: 'pending',
+        isB2B,
+        b2bClassificationSource,
+        companyName,
+        vatNumber,
+        items: (o.product_list || []).map(p => ({
+          sku: p.sku_code || `ALI-SKU-${p.product_id}`,
+          name: p.product_name,
+          quantity: parseInt(p.product_count, 10) || 1,
+          price: parseFloat(p.product_unit_price?.amount) || 0,
+          total: parseFloat(p.total_product_amount?.amount) || 0
+        })),
+        subtotal: parseFloat(o.order_amount?.amount) || 0,
+        taxTotal: parseFloat(o.tax_amount?.amount) || 0,
+        grandTotal: parseFloat(o.order_amount?.amount) || 0,
+        deliveryAddress: {
+          street: o.receipt_address?.detail_address || '',
+          number: '',
+          city: o.receipt_address?.city || '',
+          postcode: o.receipt_address?.zip || '',
+          region: o.receipt_address?.province || '',
+          country: o.receipt_address?.country || 'Spain'
+        }
+      };
+    });
   }
 
   async updateExternalInventory(store, sku, availableQty) {
@@ -258,5 +283,56 @@ export class AliexpressProvider extends BaseIntegrationProvider {
       headers: { Authorization: `Bearer ${token}` }
     });
     return { success: true, updatedSku: sku, newLevel: availableQty, mode: 'live' };
+  }
+
+  /**
+   * Verifies AliExpress webhook signature.
+   *
+   * AliExpress sends HMAC-SHA256 (hex) over the raw request body
+   * using the app secret as the HMAC key.
+   * Header: x-aliexpress-signature
+   *
+   * SECURITY: Rejects all webhooks when no signing secret is configured.
+   */
+  verifyWebhookSignature(req, secret) {
+    if (!secret) {
+      console.error('[AliexpressProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const signatureHeader = req.headers['x-aliexpress-signature'];
+      if (!signatureHeader) {
+        console.error('[AliexpressProvider] Webhook rejected: missing x-aliexpress-signature header.');
+        return false;
+      }
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[AliexpressProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(rawBody)
+        .digest('hex');
+      const sigBuffer = Buffer.from(signatureHeader.toLowerCase(), 'hex');
+      const expectedBuffer = Buffer.from(expectedSig, 'hex');
+      if (sigBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
+    } catch (err) {
+      console.error('[AliexpressProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses AliExpress webhook payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: body.message_id || body.id || String(Date.now()),
+      topic: body.topic || body.event_type || 'aliexpress.notification',
+      payload: body
+    };
   }
 }

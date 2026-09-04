@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { protect, requireRole } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/PackTask.js';
@@ -48,11 +49,21 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 
 // UPDATE
 router.put('/:id', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
 
-    const existing = await Model.findOne({ _id: req.params.id, company: req.user.company });
-    if (!existing) return res.status(404).json({ message: 'Not found' });
+    const existing = await Model.findOne({ _id: req.params.id, company: req.user.company }).session(session);
+    if (!existing) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Not found' });
+    }
 
     const wasCompleted = existing.status === 'completed';
     const isCompleted = req.body.status === 'completed';
@@ -67,33 +78,44 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
       req.body, 
-      { new: true }
+      { new: true, session }
     );
 
     if (!wasCompleted && isCompleted) {
+      // 1. Update order to packed
       const order = await Order.findOneAndUpdate(
         { orderId: item.order, company: req.user.company },
         { status: 'packed' },
-        { new: true }
+        { new: true, session }
       );
 
-      const shipmentId = 'SHP-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-      await Shipment.create({
-        shipmentId: shipmentId,
-        order: item.order,
-        customer: order ? order.customer : item.customer,
-        carrier: 'Pending',
-        tracking: 'Pending',
-        origin: 'Warehouse',
-        destination: 'Customer',
-        status: 'pending',
-        weight: item.weight || '1.0kg',
-        company: req.user.company
-      });
+      // 2. Idempotently generate Shipment
+      let shipment = await Shipment.findOne({ packId: item.packId, company: req.user.company }).session(session);
+      if (!shipment) {
+        const shipmentId = 'SHP-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+        await Shipment.create([{
+          shipmentId: shipmentId,
+          packId: item.packId,
+          order: item.order,
+          customer: order ? order.customer : item.customer,
+          carrier: 'Pending',
+          tracking: 'Pending',
+          origin: 'Warehouse',
+          destination: 'Customer',
+          status: 'pending',
+          weight: item.weight || '1.0kg',
+          company: req.user.company
+        }], { session });
+      }
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.json(item);
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     next(err);
   }
 });

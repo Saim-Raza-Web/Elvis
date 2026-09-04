@@ -4,6 +4,8 @@ const returnSchema = new mongoose.Schema({
   returnId: { type: String, required: true, unique: true },
   order: String,
   customer: String,
+  owner: { type: String, default: 'Default Owner' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'], default: 'UNKNOWN' },
   reason: String,
   items: Number,
   amount: Number,

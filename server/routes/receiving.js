@@ -15,16 +15,16 @@ import QuarantineInventory from '../models/QuarantineInventory.js';
 import Product from '../models/Product.js';
 import PutawayTask from '../models/PutawayTask.js';
 import Company from '../models/Company.js';
+import IdempotencyRecord from '../models/IdempotencyRecord.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
-import { proposeDestinationLocation } from '../services/locationProposalService.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
+import { putawayEngine } from '../services/putawayEngine.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
-
-// Idempotency cache map (IdempotencyKey -> Response Payload)
-const idempotencyCache = new Map();
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -32,40 +32,24 @@ const idempotencyCache = new Map();
 async function nextAsnNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
-  let attempts = 0;
-  while (attempts < 20) {
-    const counter = await Counter.findOneAndUpdate(
-      { _id: 'asn', company },
-      { $inc: { seq: 1 } },
-      opts
-    );
-    const asnId = `ASN-${String(counter.seq).padStart(6, '0')}`;
-    const query = { company, $or: [{ asnId }, { asnNumber: asnId }] };
-    const existing = session ? await ASN.findOne(query).session(session) : await ASN.findOne(query);
-    if (!existing) return asnId;
-    attempts++;
-  }
-  return `ASN-${Date.now().toString().slice(-6)}`;
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'asn', company },
+    { $inc: { seq: 1 } },
+    opts
+  );
+  return `ASN-${String(counter.seq).padStart(6, '0')}`;
 }
 
 /** Atomic Sequential Putaway Number: PUT-000001, PUT-000002... */
 async function nextPutawayNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
-  let attempts = 0;
-  while (attempts < 20) {
-    const counter = await Counter.findOneAndUpdate(
-      { _id: 'putaway', company },
-      { $inc: { seq: 1 } },
-      opts
-    );
-    const taskId = `PUT-${String(counter.seq).padStart(6, '0')}`;
-    const query = { company, taskId };
-    const existing = session ? await PutawayTask.findOne(query).session(session) : await PutawayTask.findOne(query);
-    if (!existing) return taskId;
-    attempts++;
-  }
-  return `PUT-${Date.now().toString().slice(-6)}`;
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'putaway', company },
+    { $inc: { seq: 1 } },
+    opts
+  );
+  return `PUT-${String(counter.seq).padStart(6, '0')}`;
 }
 
 /** Atomic Sequential PO Number: PO-2026-00001, PO-2026-00002... */
@@ -111,10 +95,11 @@ async function logActivity(req, action, module, detail, session) {
 /** Validate ASN Payload */
 function validateAsnPayload(body) {
   const errors = [];
-  const { supplier, owner, poNumber, po, expectedDate, expected_date, receivingDock, items } = body;
-
+  const { supplier, owner, ownerType, poNumber, po, expectedDate, expected_date, receivingDock, items } = body;
+  
   if (!supplier || !String(supplier).trim()) errors.push('Supplier is required.');
   if (!owner || !String(owner).trim()) errors.push('Owner (3PL) is required.');
+  if (!ownerType || !['COMPANY', 'CUSTOMER'].includes(ownerType)) errors.push('Valid Owner Type (COMPANY or CUSTOMER) is required.');
   const actualPo = poNumber || po;
   if (!actualPo || !String(actualPo).trim()) errors.push('Purchase Order number is required.');
 
@@ -318,11 +303,70 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
   const { receiveItems, __v, idempotencyKey } = req.body;
 
-  // 1. Idempotency Check (Prevents double-receiving on network timeout/retry)
-  if (idempotencyKey && idempotencyCache.has(idempotencyKey)) {
-    console.log(`[Idempotency] Returning cached response for key ${idempotencyKey}`);
-    return res.json(idempotencyCache.get(idempotencyKey));
+  // 1. Persistent DB-backed Idempotency Check
+  let idempotencyDoc;
+  if (idempotencyKey) {
+    try {
+      idempotencyDoc = await IdempotencyRecord.create({
+        company: req.user.company,
+        idempotencyKey,
+        operation: 'receive_asn',
+        requestPath: req.originalUrl,
+        status: 'processing'
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        const existing = await IdempotencyRecord.findOne({ company: req.user.company, idempotencyKey, operation: 'receive_asn' });
+        if (existing) {
+          if (existing.status === 'completed') {
+             return res.status(existing.responseStatus || 200).json(existing.responsePayload);
+          }
+          if (existing.status === 'processing') {
+             return res.status(409).json({ message: 'Concurrent request processing for the same idempotency key.' });
+          }
+          idempotencyDoc = await IdempotencyRecord.findOneAndUpdate(
+            { _id: existing._id },
+            { status: 'processing' },
+            { new: true }
+          );
+        }
+      } else {
+        return next(err);
+      }
+    }
   }
+
+  // Helper function to send response and commit idempotency safely
+  const sendIdempotentResponse = async (status, payload) => {
+    if (idempotencyDoc) {
+       await IdempotencyRecord.findByIdAndUpdate(idempotencyDoc._id, {
+         status: 'completed',
+         responseStatus: status,
+         responsePayload: payload
+       }).catch(() => {}); // fire and forget log
+    }
+    return res.status(status).json(payload);
+  };
+  
+  // Intercept normal res returns and use sendIdempotentResponse
+  const originalJson = res.json;
+  res.json = function(body) {
+     if (res.statusCode < 400 && idempotencyDoc) {
+       IdempotencyRecord.findByIdAndUpdate(idempotencyDoc._id, {
+         status: 'completed',
+         responseStatus: res.statusCode,
+         responsePayload: body
+       }).catch(() => {});
+     } else if (res.statusCode >= 400 && idempotencyDoc) {
+       IdempotencyRecord.findByIdAndUpdate(idempotencyDoc._id, {
+         status: 'failed',
+         responseStatus: res.statusCode,
+         responsePayload: body
+       }).catch(() => {});
+     }
+     return originalJson.call(this, body);
+  };
+
 
   if (!Array.isArray(receiveItems) || receiveItems.length === 0) {
     return res.status(400).json({ message: 'At least one line item must be submitted for receiving.' });
@@ -441,7 +485,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           kind: 'alert',
           title: 'Unexpected SKU Detected',
           body: `SKU '${sku}' not found in ASN ${asn.asnId}. Discrepancy ${discId} and Incident ${incId} generated.`,
-        }], { session }).catch(() => {});
+        }]).catch(() => {});
 
         await logActivity(req, 'DISCREPANCY_DETECTED', 'ASN', `Unexpected SKU '${sku}' scanned on ASN ${asn.asnId}. Discrepancy ${discId} and Incident ${incId} created.`, session);
 
@@ -523,7 +567,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           kind: 'warning',
           title: 'Blind Receiving Discrepancy',
           body: `Blind Receiving discrepancy on ASN ${asn.asnId} for SKU ${sku}. Counted: ${qtyNum}, Expected: ${remaining}.`,
-        }], { session }).catch(() => {});
+        }]).catch(() => {});
 
         await logActivity(req, 'BLIND_RECEIVING_DISCREPANCY', 'ASN', `Blind Receiving count discrepancy detected on ASN ${asn.asnId} (SKU ${sku}: Counted ${qtyNum}, Expected ${remaining}).`, session);
       }
@@ -542,11 +586,14 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       const isQcRequired = Boolean(matchLine.qcRequired);
       const lotToSave = lotNumber || matchLine.lotNumber || 'DEFAULT-LOT';
       const batchToSave = batchNumber || matchLine.batchNumber || '';
+      
+      const itemOwner = asn.owner || 'Default Owner';
+      const itemOwnerType = asn.ownerType; // MUST exist because validation guarantees it for new ASNs
 
       if (isQcRequired) {
         // Move into Quarantine Inventory using Atomic $inc Row Lock
         await InventoryBalance.findOneAndUpdate(
-          { company: req.user.company, warehouse, sku, lotNumber: lotToSave, bin: receivingBin },
+          { company: req.user.company, warehouse, sku, owner: itemOwner, ownerType: itemOwnerType, lotNumber: lotToSave, bin: receivingBin },
           { 
             $inc: { qtyQuarantine: qtyNum },
             $set: { zone: receivingZone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
@@ -565,6 +612,8 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,
+          owner: itemOwner,
+          ownerType: itemOwnerType,
           expiryDate: expiryDate ? new Date(expiryDate) : undefined,
           status: 'pending_qc',
           user: operator,
@@ -583,6 +632,8 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           batchNumber: batchToSave,
           expiryDate: expiryDate ? new Date(expiryDate) : undefined,
           asnNumber: asn.asnId || asn.asnNumber,
+          owner: itemOwner,
+          ownerType: itemOwnerType,
           user: operator,
           company: req.user.company
         }], { session });
@@ -593,15 +644,14 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           kind: 'warning',
           title: 'QC Check Required',
           body: `${qtyNum} units of ${sku} placed on Quarantine Hold for ASN ${asn.asnId}.`,
-        }], { session }).catch(() => {});
+        }]).catch(() => {});
 
         await logActivity(req, 'QC_HOLD', 'ASN', `Placed ${qtyNum} units of ${sku} on Quarantine Hold (ASN ${asn.asnId})`, session);
 
       } else {
-        const itemOwner = asn.owner || 'Default Owner';
         // Immediate Available Inventory Update & Putaway queueing using Atomic $inc Row Lock
         await InventoryBalance.findOneAndUpdate(
-          { company: req.user.company, warehouse, sku, owner: itemOwner, lotNumber: lotToSave, bin: receivingBin },
+          { company: req.user.company, warehouse, sku, owner: itemOwner, ownerType: itemOwnerType, lotNumber: lotToSave, bin: receivingBin },
           { 
             $inc: { qtyAwaitingPutaway: qtyNum },
             $set: { zone: receivingZone, aisle: 'A-1', rack: 'R-1', batchNumber: batchToSave, expiryDate: expiryDate ? new Date(expiryDate) : undefined }
@@ -609,18 +659,15 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           { upsert: true, new: true, session }
         );
 
-        // Update Product catalog stock
-        await Product.findOneAndUpdate(
-          { sku, company: req.user.company },
-          { $inc: { qty_available: qtyNum } },
-          { session }
-        ).catch(() => {});
+        // Product.qty_available is NO LONGER incremented here (Phase 6 Invariant).
+        // It will be incremented ONLY when the PutawayTask completes and stock enters qtyAvailable.
 
         await InventoryTransaction.create([{
           transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
           type: 'RECEIVING',
           sku,
           owner: itemOwner,
+          ownerType: itemOwnerType,
           warehouse,
           zone: receivingZone,
           bin: receivingBin,
@@ -634,14 +681,13 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
         }], { session });
 
         // Propose destination location & generate Putaway Task immediately
-        const proposed = await proposeDestinationLocation({
-          company: req.user.company,
-          warehouse,
+        const proposed = await putawayEngine.evaluatePutawayLocation({
+          companyId: req.user.company,
+          warehouse: req.context.warehouse._id,
           sku,
           owner: itemOwner,
           qty: qtyNum,
-          lotNumber: lotToSave,
-          session
+          lotNumber: lotToSave
         });
 
         const putawayId = await nextPutawayNumber(req.user.company, session);
@@ -651,6 +697,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           asnNumber: asn.asnId || asn.asnNumber,
           supplier: asn.supplier,
           owner: itemOwner,
+          ownerType: itemOwnerType,
           sku,
           productName: matchLine.name,
           warehouse,
@@ -714,7 +761,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           kind: 'alert',
           title: 'Damaged Goods Reported',
           body: `${dmgNum} damaged units reported for SKU ${sku} on ASN ${asn.asnId}.`,
-        }], { session }).catch(() => {});
+        }]).catch(() => {});
       }
     }
 
@@ -826,13 +873,14 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           kind: 'success',
           title: 'ASN Receiving Completed',
           body: `ASN ${asn.asnId} (${asn.supplier}) has completed receiving (${totalReceivedUnits}/${totalExpectedUnits} units).`,
-        }], { session }).catch(() => {});
+        }]).catch(() => {});
 
         // Automatically Generate Inbound Delivery Note (DN-2026-000001)
         await generateInboundDeliveryNote(asn, req.user.company, operator, session);
       }
     }
 
+    asn.markModified('items');
     const updatedAsn = await asn.save({ session });
 
     // Commit Transaction (All Writes Succeed Together)
@@ -845,11 +893,6 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       receivedUnitsInSession: totalReceivedInSession,
       status: updatedAsn.status
     };
-
-    if (idempotencyKey) {
-      idempotencyCache.set(idempotencyKey, responsePayload);
-      setTimeout(() => idempotencyCache.delete(idempotencyKey), 15 * 60 * 1000); // 15 mins cache TTL
-    }
 
     res.json(responsePayload);
 

@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 
 const shipmentSchema = new mongoose.Schema({
-  shipmentId: { type: String, required: true, unique: true },
+  shipmentId: { type: String, required: true },
+  packId: String,
   order: String,
   customer: String,
   carrier: String,
@@ -16,5 +17,7 @@ const shipmentSchema = new mongoose.Schema({
   eta: Date,
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });
+
+shipmentSchema.index({ company: 1, shipmentId: 1 }, { unique: true });
 
 export default mongoose.model('Shipment', shipmentSchema);

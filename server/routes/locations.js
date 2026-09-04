@@ -1,12 +1,17 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { protect, requireRole } from '../middleware/auth.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Location from '../models/Location.js';
 import InventoryBalance from '../models/InventoryBalance.js';
 import Product from '../models/Product.js';
+import Warehouse from '../models/Warehouse.js';
+import Zone from '../models/Zone.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
 
@@ -23,16 +28,18 @@ router.get('/', async (req, res, next) => {
       query.$or = [
         { code: regex },
         { name: regex },
-        { zone: regex },
         { aisle: regex },
         { shelf: regex },
-        { bin: regex },
-        { warehouse: regex }
+        { bin: regex }
       ];
     }
 
-    if (req.query.warehouse) {
-      query.warehouse = req.query.warehouse;
+    if (req.context && req.context.warehouse) {
+      if (req.context.warehouse.invalid) {
+        query.warehouse = null; // force no results
+      } else {
+        query.warehouse = req.context.warehouse.id;
+      }
     }
 
     if (req.query.zoneType && req.query.zoneType !== 'All') {
@@ -153,6 +160,39 @@ router.post('/import-csv', requireOpsRole, async (req, res, next) => {
 
     const errors = [];
     const validLocationCodes = new Set();
+    const warehouseCodes = new Set();
+    const zoneCodes = new Set();
+
+    // Pass 0: Collect unique warehouse and zone codes for lookup
+    for (const loc of locations) {
+      if (loc.warehouse) warehouseCodes.add(String(loc.warehouse).trim());
+      if (loc.zone) zoneCodes.add(String(loc.zone).trim());
+    }
+
+    // Lookup valid Warehouses and Zones for this company
+    const warehouses = await Warehouse.find({
+      company: req.user.company,
+      $or: [
+        { code: { $in: Array.from(warehouseCodes) } },
+        { _id: { $in: Array.from(warehouseCodes).filter(id => mongoose.Types.ObjectId.isValid(id)) } }
+      ]
+    });
+    
+    const zones = await Zone.find({
+      company: req.user.company,
+      $or: [
+        { code: { $in: Array.from(zoneCodes) } },
+        { _id: { $in: Array.from(zoneCodes).filter(id => mongoose.Types.ObjectId.isValid(id)) } }
+      ]
+    });
+
+    const whMap = new Map();
+    warehouses.forEach(wh => { whMap.set(wh.code, wh._id); whMap.set(String(wh._id), wh._id); });
+
+    const zoneMap = new Map();
+    zones.forEach(z => { zoneMap.set(z.code, z._id); zoneMap.set(String(z._id), z._id); });
+
+    const docsToInsert = [];
 
     // Pass 1: Whole-File Validation (Accumulates ALL errors, 0 partial commits)
     for (let i = 0; i < locations.length; i++) {
@@ -161,14 +201,34 @@ router.post('/import-csv', requireOpsRole, async (req, res, next) => {
 
       if (!loc.code || !String(loc.code).trim()) {
         errors.push(`Row ${rowNum}: Location 'code' is required.`);
-      } else {
-        const cleanCode = String(loc.code).trim().toUpperCase();
-        if (validLocationCodes.has(cleanCode)) {
-          errors.push(`Row ${rowNum}: Duplicate location code '${cleanCode}' within CSV file.`);
-        }
-        validLocationCodes.add(cleanCode);
+        continue;
       }
 
+      const cleanCode = String(loc.code).trim().toUpperCase();
+      if (validLocationCodes.has(cleanCode)) {
+        errors.push(`Row ${rowNum}: Duplicate location code '${cleanCode}' within CSV file.`);
+      }
+      validLocationCodes.add(cleanCode);
+
+      // Validate Warehouse
+      let resolvedWarehouse = null;
+      if (loc.warehouse) {
+        resolvedWarehouse = whMap.get(String(loc.warehouse).trim());
+        if (!resolvedWarehouse) errors.push(`Row ${rowNum}: Warehouse '${loc.warehouse}' not found or belongs to another tenant.`);
+      } else {
+        errors.push(`Row ${rowNum}: 'warehouse' is required.`);
+      }
+
+      // Validate Zone
+      let resolvedZone = null;
+      if (loc.zone) {
+        resolvedZone = zoneMap.get(String(loc.zone).trim());
+        if (!resolvedZone) errors.push(`Row ${rowNum}: Zone '${loc.zone}' not found or belongs to another tenant.`);
+      } else {
+        errors.push(`Row ${rowNum}: 'zone' is required.`);
+      }
+
+      // Storage Rules Validations
       if (loc.tempMin !== undefined && loc.tempMax !== undefined) {
         if (Number(loc.tempMin) > Number(loc.tempMax)) {
           errors.push(`Row ${rowNum}: tempMin (${loc.tempMin}°C) cannot be greater than tempMax (${loc.tempMax}°C).`);
@@ -178,6 +238,27 @@ router.post('/import-csv', requireOpsRole, async (req, res, next) => {
       if (loc.locationType && !['PALLET', 'SHELF', 'FLOOR', 'STAGING', 'OVERFLOW', 'HAZMAT', 'PICK_FACE'].includes(loc.locationType.toUpperCase())) {
         errors.push(`Row ${rowNum}: Invalid locationType '${loc.locationType}'. Allowed: PALLET, SHELF, FLOOR, STAGING, OVERFLOW, HAZMAT, PICK_FACE.`);
       }
+      
+      if (loc.temperature_type && !['ambient', 'chilled_2_8', 'frozen_minus18', 'controlled_15_25'].includes(loc.temperature_type.toLowerCase())) {
+        errors.push(`Row ${rowNum}: Invalid temperature_type '${loc.temperature_type}'. Allowed: ambient, chilled_2_8, frozen_minus18, controlled_15_25.`);
+      }
+
+      docsToInsert.push({
+        ...loc,
+        code: cleanCode,
+        warehouse: resolvedWarehouse,
+        zone: resolvedZone,
+        company: req.user.company,
+        active: true,
+        // Storage rules fields explicit casting/defaults
+        is_pick_face: Boolean(loc.is_pick_face),
+        temperature_type: loc.temperature_type ? loc.temperature_type.toLowerCase() : undefined,
+        single_lot_enforced: Boolean(loc.single_lot_enforced),
+        max_pallets: loc.max_pallets ? Number(loc.max_pallets) : 0,
+        level_weight_limit: loc.level_weight_limit ? Number(loc.level_weight_limit) : 0,
+        min_stock: loc.min_stock ? Number(loc.min_stock) : 0,
+        max_stock: loc.max_stock ? Number(loc.max_stock) : 0
+      });
     }
 
     // Check database collisions in Pass 1
@@ -202,13 +283,7 @@ router.post('/import-csv', requireOpsRole, async (req, res, next) => {
     }
 
     // Pass 2: Batch Commit after 100% Validation Success
-    const docsToInsert = locations.map(loc => ({
-      ...loc,
-      code: String(loc.code).trim().toUpperCase(),
-      warehouse: loc.warehouse || 'MIA',
-      company: req.user.company,
-      active: true
-    }));
+
 
     const insertedDocs = await Location.insertMany(docsToInsert);
 

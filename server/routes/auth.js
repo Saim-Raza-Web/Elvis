@@ -21,7 +21,7 @@ router.post('/register', async (req, res, next) => {
     // Create new Company for the user
     const company = await Company.create({
       name: `${name || email.split('@')[0]}'s Workspace`,
-      plan: 'free'
+      plan: 'starter'
     });
     
     const user = await User.create({ email, password: hashedPassword, name, role: 'admin', company: company._id });

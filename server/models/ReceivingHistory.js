@@ -20,4 +20,7 @@ const receivingHistorySchema = new mongoose.Schema({
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 
+// High-performance compound indexes for scale and tenant isolation
+receivingHistorySchema.index({ company: 1, historyId: 1 }, { unique: true });
+
 export default mongoose.model('ReceivingHistory', receivingHistorySchema);

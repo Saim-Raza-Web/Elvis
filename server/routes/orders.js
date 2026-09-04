@@ -8,9 +8,14 @@ import PickTask from '../models/PickTask.js';
 import InventoryBalance from '../models/InventoryBalance.js';
 import Notification from '../models/Notification.js';
 import ActivityLog from '../models/ActivityLog.js';
+import { evaluateOrderForProcurement } from '../services/procurement.service.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
+import { pickingEngine } from '../services/pickingEngine.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 router.use(protect);
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
 
@@ -149,6 +154,13 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     // Activity log
     await logActivity(req, 'CREATE', 'Orders', `Created order ${item.orderId} for ${item.customer} (${item.order_type})`);
 
+    // Async procurement evaluation (non-blocking)
+    if (item.order_type === 'B2B') {
+      evaluateOrderForProcurement(item._id, req.user.company).catch(err => {
+        console.error('Procurement evaluation failed:', err);
+      });
+    }
+
     res.status(201).json(item);
   } catch (err) { next(err); }
 });
@@ -193,7 +205,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 });
 
 /** Helper: Idempotent PickTask Generation for Confirmed/Released Orders */
-export async function ensurePickTaskForOrder(order, userCompany) {
+export async function ensurePickTaskForOrder(order, userCompany, session) {
   const companyId = userCompany || order.company;
   if (!order || !order.orderId) {
     throw new Error('Invalid order document');
@@ -204,48 +216,92 @@ export async function ensurePickTaskForOrder(order, userCompany) {
     throw new Error(`Cannot release order ${order.orderId} to fulfillment: Order contains 0 product lines.`);
   }
 
-  // 1. Idempotency Check: Prevent duplicate PickTasks for the same order!
-  const existingTask = await PickTask.findOne({ company: companyId, orderId: order.orderId });
-  if (existingTask) {
-    return existingTask;
+  // 1. Derive PickTask lines from Order product_lines using Phase 3 pickingEngine
+  const lines = [];
+  let orderRequiresUpdate = false;
+  
+  for (let i = 0; i < order.product_lines.length; i++) {
+    const line = order.product_lines[i];
+    const skuClean = (line.sku || '').trim();
+    
+    // Determine how much to request based on previous shortfalls
+    let requestedQty = Number(line.qty) || 1;
+    if (order.status === 'processing' || order.status === 'partially_fulfilled') {
+      if (line.shortfallQty !== undefined && line.shortfallQty < requestedQty) {
+        requestedQty = line.shortfallQty;
+      }
+    }
+    
+    if (requestedQty <= 0) continue; // Skip lines that are already fully fulfilled
+
+    const taskOwner = (order.company_name || order.customer || 'Default Owner').trim();
+
+    try {
+      const allocationResult = await pickingEngine.evaluatePickAllocation({
+        companyId,
+        warehouse: order.warehouse, // Note: if warehouse is not an ObjectId here, engine might fail, but engine handles it.
+        sku: skuClean,
+        qtyNeeded: requestedQty,
+        owner: taskOwner, // Pass owner to ensure 3PL tenant isolation!
+        strategy: 'FEFO', // Default strategy, pickingEngine might override based on rules
+        session
+      });
+
+      if (allocationResult.allocatedLocations.length === 0) {
+        // No inventory available
+        if (line.shortfallQty !== requestedQty) {
+          line.shortfallQty = requestedQty;
+          orderRequiresUpdate = true;
+        }
+      } else {
+        // Engine successfully allocated across one or more bins
+        for (const alloc of allocationResult.allocatedLocations) {
+          lines.push({
+            sku: line.sku,
+            productName: line.product_name || line.sku,
+            orderedQty: alloc.allocatedQty,
+            pickedQty: 0,
+            shortfallQty: 0, // Engine guarantees this qty is available and reserved!
+            sourceLocation: alloc.location,
+            inventoryOwner: alloc.owner || taskOwner,
+            status: 'pending'
+          });
+        }
+        
+        // Track backorder/shortfall explicitly on the order line, without phantom task
+        if (line.shortfallQty !== allocationResult.shortfallQty) {
+          line.shortfallQty = allocationResult.shortfallQty;
+          orderRequiresUpdate = true;
+        }
+      }
+    } catch (err) {
+      if (err.message.includes('Write conflict') || err.message.includes('Transaction') || err.code === 112) {
+        throw err; // MUST rethrow concurrency errors so the transaction aborts properly!
+      }
+      console.error(`[PickTask Gen] Engine failure for SKU ${skuClean}:`, err.message);
+      line.shortfallQty = requestedQty;
+      orderRequiresUpdate = true;
+    }
   }
 
-  // 2. Derive PickTask lines from Order product_lines matching actual inventory balance location
-  const lines = await Promise.all(order.product_lines.map(async line => {
-    const skuClean = (line.sku || '').trim();
-    // Find best bin WITHOUT owner filter — just find where this SKU has stock
-    const balance = await InventoryBalance.findOne({
-      company: companyId,
-      sku: { $regex: new RegExp(`^${skuClean}$`, 'i') },
-      $or: [{ qtyAvailable: { $gt: 0 } }, { qty_available: { $gt: 0 } }, { qtyAwaitingPutaway: { $gt: 0 } }]
-    }).sort({ qtyAvailable: -1 });
+  // Determine final status
+  const allFullyFulfilled = order.product_lines.every(l => l.shortfallQty === 0);
+  order.status = allFullyFulfilled ? 'processing' : 'partially_fulfilled'; // Both represent processing state, but 'partially' allows future re-release
+  orderRequiresUpdate = true;
 
-    // Fallback: If not found with company filter, try matching by SKU alone in same company or any active bin
-    let binLocation = balance?.bin;
-    if (!binLocation) {
-      const anyBal = await InventoryBalance.findOne({
-        sku: { $regex: new RegExp(`^${skuClean}$`, 'i') },
-        qtyAvailable: { $gt: 0 }
-      }).sort({ qtyAvailable: -1 });
-      binLocation = anyBal?.bin;
-    }
+  // Update order with shortfalls if necessary
+  if (orderRequiresUpdate) {
+    await order.save({ session }); // Assuming order is a Mongoose document
+  }
 
-    console.log(`[PickTask Gen] SKU: ${skuClean} -> Selected Bin: ${binLocation || 'STAGING-A'} (Balance Found: ${!!balance})`);
-
-    return {
-      sku: line.sku,
-      productName: line.product_name || line.sku,
-      orderedQty: Number(line.qty) || 1,
-      pickedQty: 0,
-      shortfallQty: 0,
-      sourceLocation: binLocation || 'A-01-01', // Fallback to primary picking bin if no staging
-      inventoryOwner: balance?.owner || 'Apple Distribution 3PL',
-      status: 'pending'
-    };
-  }));
+  // POLICY B compliance: If NO physical inventory was allocated, do not generate an empty PickTask.
+  if (lines.length === 0) {
+    console.log(`[PickTask Gen] Order ${order.orderId} resulted in 100% backorder. No PickTask created.`);
+    return null;
+  }
 
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'pick_task', company: companyId },
+    { _id: 'pick_task_' + companyId.toString(), company: companyId },
     { $inc: { seq: 1 } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
@@ -254,7 +310,7 @@ export async function ensurePickTaskForOrder(order, userCompany) {
   const taskOwner = (order.company_name || order.customer || 'Default Owner').trim();
   const totalQty = lines.reduce((sum, l) => sum + l.orderedQty, 0);
 
-  const newTask = await PickTask.create({
+  const newTask = await PickTask.create([{
     taskId,
     order: order.orderId, // Legacy order field for UI compatibility
     orderId: order.orderId,
@@ -271,9 +327,9 @@ export async function ensurePickTaskForOrder(order, userCompany) {
     totalShortfallQty: 0,
     items: lines,
     company: companyId
-  });
+  }], { session });
 
-  return newTask;
+  return newTask[0];
 }
 
 // STATUS UPDATE (PATCH) — lightweight status-only change
@@ -294,7 +350,17 @@ router.patch('/:id/status', requireOpsRole, async (req, res, next) => {
 
     // Auto-generate PickTask on Order Confirmation/Processing
     if (status === 'processing' || status === 'confirmed') {
-      await ensurePickTaskForOrder(item, req.user.company);
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      try {
+        await ensurePickTaskForOrder(item, req.user.company, session);
+        await session.commitTransaction();
+      } catch (err) {
+        await session.abortTransaction();
+        throw err;
+      } finally {
+        session.endSession();
+      }
     }
 
     await logActivity(req, 'STATUS_CHANGE', 'Orders', `Order ${item.orderId} status changed to ${status}`);
@@ -305,34 +371,73 @@ router.patch('/:id/status', requireOpsRole, async (req, res, next) => {
 
 // RELEASE to Fulfillment
 router.post('/:id/release', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
-
-    const order = await Order.findOne({ _id: req.params.id, company: req.user.company });
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
-    if (order.status !== 'pending' && order.status !== 'processing') {
-      return res.status(400).json({ message: `Cannot release order with status "${order.status}". Only pending orders can be released.` });
+    if (!req.user?.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
     }
 
-    order.status = 'processing';
-    await order.save();
+    const currentOrder = await Order.findOne({ _id: req.params.id, company: req.user.company }).session(session);
+    if (!currentOrder) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Order not found' });
+    }
 
-    // Idempotent PickTask Generation
-    const pickTask = await ensurePickTaskForOrder(order, req.user.company);
+    if (currentOrder.status !== 'pending' && currentOrder.status !== 'partially_fulfilled') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Cannot release order with status "${currentOrder.status}". Only pending or partially fulfilled orders can be released.` });
+    }
+
+    // Atomically acquire the order using __v for strict OCC!
+    const acquiredOrder = await Order.findOneAndUpdate(
+      { _id: req.params.id, company: req.user.company, __v: currentOrder.__v },
+      { $inc: { __v: 1 } },
+      { new: true, session }
+    );
+
+    if (!acquiredOrder) {
+      await session.abortTransaction();
+      session.endSession();
+      // Safe to return 409 because another thread changed the order state!
+      return res.status(409).json({ message: 'Conflict: Order state was modified concurrently.' });
+    }
+
+    // Idempotent PickTask Generation with OCC tracking
+    const pickTask = await ensurePickTaskForOrder(acquiredOrder, req.user.company, session);
+
+    await session.commitTransaction();
+    session.endSession();
 
     // Notification
-    Notification.create({
-      company: req.user.company,
-      kind: 'info',
-      title: 'Order Released to Fulfillment',
-      body: `Order ${order.orderId} has been released to picking (${pickTask.taskId})`,
-    }).catch(() => {});
+    if (pickTask) {
+      Notification.create({
+        company: req.user.company,
+        kind: 'info',
+        title: 'Order Released to Fulfillment',
+        body: `Order ${acquiredOrder.orderId} has been released to picking (${pickTask.taskId})`,
+      }).catch(() => {});
+      await logActivity(req, 'RELEASE', 'Orders', `Released order ${acquiredOrder.orderId} to fulfillment — pick task ${pickTask.taskId} ready`);
+    } else {
+      await logActivity(req, 'RELEASE', 'Orders', `Released order ${acquiredOrder.orderId} to fulfillment — 100% backordered`);
+    }
 
-    await logActivity(req, 'RELEASE', 'Orders', `Released order ${order.orderId} to fulfillment — pick task ${pickTask.taskId} ready`);
-
-    res.json({ order, pickTask });
-  } catch (err) { next(err); }
+    res.json({ message: 'Order released successfully', order: acquiredOrder, pickTask });
+  } catch (err) { 
+    await session.abortTransaction();
+    session.endSession();
+    
+    // Catch WriteConflict or Aborted Transaction and return 409 Gracefully
+    if (err.message.includes('Write conflict') || err.message.includes('Transaction') || err.code === 112) {
+      return res.status(409).json({ message: 'Conflict: Order state was modified concurrently.' });
+    }
+    
+    next(err); 
+  }
 });
 
 // DELETE

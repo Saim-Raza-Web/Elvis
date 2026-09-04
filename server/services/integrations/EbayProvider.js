@@ -223,7 +223,12 @@ export class EbayProvider extends BaseIntegrationProvider {
   }
 
   /**
-   * Fetches unfulfilled orders from eBay Fulfillment API
+   * Fetches unfulfilled orders from eBay Fulfillment API.
+   *
+   * B2B NOTE: eBay Fulfillment API v1 order objects do not expose buyer
+   * business/VAT registration fields. All orders are classified B2C.
+   * Business buyers on eBay cannot be reliably distinguished via this API
+   * without additional seller-side tools or eBay Business Seller Programme data.
    */
   async fetchOrders(store, options = {}) {
     return [
@@ -234,6 +239,11 @@ export class EbayProvider extends BaseIntegrationProvider {
         customerEmail: 'sofia.lindqvist@example.com',
         date: new Date(),
         status: 'pending',
+        // B2B: eBay Fulfillment API v1 does not expose business buyer/VAT fields
+        isB2B: false,
+        b2bClassificationSource: 'ebay_api_no_b2b_field',
+        companyName: '',
+        vatNumber: '',
         items: [
           { sku: 'EBAY-LEATHER-WALLET-BRN', name: 'Genuine Leather RFID Blocking Slim Wallet (Vintage Brown)', quantity: 1, price: 39.90, total: 39.90 }
         ],
@@ -257,6 +267,57 @@ export class EbayProvider extends BaseIntegrationProvider {
    */
   async updateExternalInventory(store, sku, availableQty) {
     return { success: true, updatedSku: sku, newLevel: availableQty };
+  }
+
+  /**
+   * Verifies eBay Marketplace Account Deletion / Notification signature.
+   *
+   * eBay sends HMAC-SHA256 over the raw JSON body, Base64-encoded.
+   * Header: x-ebay-signature
+   *
+   * SECURITY: Rejects all webhooks when no signing secret is configured.
+   */
+  verifyWebhookSignature(req, secret) {
+    if (!secret) {
+      console.error('[EbayProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const signatureHeader = req.headers['x-ebay-signature'];
+      if (!signatureHeader) {
+        console.error('[EbayProvider] Webhook rejected: missing x-ebay-signature header.');
+        return false;
+      }
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[EbayProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(rawBody)
+        .digest('base64');
+      // Use timingSafeEqual to prevent timing attacks
+      const incoming = Buffer.from(signatureHeader, 'base64');
+      const expected = Buffer.from(expectedSig, 'base64');
+      if (incoming.length !== expected.length) return false;
+      return crypto.timingSafeEqual(incoming, expected);
+    } catch (err) {
+      console.error('[EbayProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses eBay notification payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: body.metadata?.correlationId || req.headers['x-ebay-request-id'] || String(Date.now()),
+      topic: body.metadata?.topic || body.notification?.notificationtype || 'ebay.notification',
+      payload: body
+    };
   }
 }
 

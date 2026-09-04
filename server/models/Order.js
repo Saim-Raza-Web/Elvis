@@ -6,6 +6,7 @@ const productLineSchema = new mongoose.Schema({
   qty: { type: Number, required: true, min: 1 },
   unit_price: { type: Number, required: true, min: 0 },
   line_total: { type: Number, required: true },
+  shortfallQty: { type: Number, default: 0 } // Backorder tracking
 }, { _id: false });
 
 const deliveryAddressSchema = new mongoose.Schema({
@@ -18,19 +19,24 @@ const deliveryAddressSchema = new mongoose.Schema({
 }, { _id: false });
 
 const orderSchema = new mongoose.Schema({
-  orderId: { type: String, required: true, unique: true },
+  orderId: { type: String, required: true },
 
   // ── Core fields ────────────────────────────────────
   customer: String,
   email: String,
-  order_type: { type: String, enum: ['B2C', 'B2B'], default: 'B2C' },
+  order_type: { type: String, enum: ['B2C', 'B2B', 'UNKNOWN'], default: 'B2C' },
+  isB2B: { type: Boolean, default: false },
+  b2bClassificationSource: String,
   channel: String,
   store_id: { type: mongoose.Schema.Types.ObjectId, ref: 'EcommerceChannel' },
   warehouse: String,
-  status: { type: String, enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'processing', 'partially_fulfilled', 'picked', 'packed', 'shipped', 'delivered', 'cancelled'], default: 'pending' },
   date: Date,
   notes: String,
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true },
+  
+  // ── Processing Locks ───────────────────────────────
+  releaseLock: { type: Boolean, default: false },
 
   // ── Product Lines ──────────────────────────────────
   product_lines: [productLineSchema],
@@ -64,6 +70,15 @@ const orderSchema = new mongoose.Schema({
   // ── Delivery Note ─────────────────────────────────
   delivery_note_number: String,               // Sequential: DN-000001, DN-000002…
   delivery_note_generated_at: Date,
+
+  // ── Procurement Traceability ──────────────────────
+  procurementStatus: { 
+    type: String, 
+    enum: ['NOT_REQUIRED', 'PROCESSING', 'EVALUATED', 'PARTIALLY_PROCURED', 'PROCURED', 'ERROR'],
+    default: 'NOT_REQUIRED'
+  },
+  procurementLockExpiresAt: Date,
+  linkedPurchaseOrders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder' }]
 }, { timestamps: true });
 
 // Virtual: compute totals from product_lines before saving
@@ -75,5 +90,7 @@ orderSchema.pre('save', function () {
     this.items = this.product_lines.reduce((sum, line) => sum + (line.qty || 0), 0);
   }
 });
+// Compound index to ensure orderId is unique per company
+orderSchema.index({ company: 1, orderId: 1 }, { unique: true });
 
 export default mongoose.model('Order', orderSchema);

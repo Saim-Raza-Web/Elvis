@@ -4,6 +4,7 @@ import Product from '../../models/Product.js';
 import Order from '../../models/Order.js';
 import Customer from '../../models/Customer.js';
 import { providerRegistry } from './ProviderRegistry.js';
+import { evaluateOrderForProcurement } from '../procurement.service.js';
 
 const SYNC_LOCK_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes lock expiration
 
@@ -107,7 +108,8 @@ export class SyncManager {
                 // Update existing product without overwriting manual custom fields
                 internalProduct.price = extItem.price !== undefined ? extItem.price : internalProduct.price;
                 if (settings.inventoryDirection === 'store_to_wms') {
-                  internalProduct.qty_available = extItem.quantity || 0;
+                  // Phase 7 Invariant: WMS is authoritative for physical inventory.
+                  // external quantity NEVER overwrites Product.qty_available
                   internalProduct.qty_ecommerce = extItem.quantity || 0;
                 }
                 if (extItem.barcode && !internalProduct.unitBarcode) {
@@ -122,7 +124,7 @@ export class SyncManager {
                   name: extItem.name || extItem.sku,
                   category: extItem.category || 'GEN',
                   price: extItem.price || 0,
-                  qty_available: extItem.quantity || 0,
+                  qty_available: 0, // Phase 7 Invariant: Starts at 0 until formal WMS receipt
                   qty_reserved: 0,
                   qty_blocked: 0,
                   qty_ecommerce: extItem.quantity || 0,
@@ -198,11 +200,25 @@ export class SyncManager {
                 line_total: Number(item.total) || (Number(item.quantity || 1) * Number(item.price || 0))
               }));
 
-              await Order.create({
+              let computedOrderType = 'B2C';
+              if (extOrder.isB2B) {
+                computedOrderType = 'B2B';
+              } else {
+                const source = extOrder.b2bClassificationSource || 'default';
+                if (source === 'default' || source.includes('no_b2b_field') || source.includes('sandbox') || source.includes('unavailable')) {
+                  computedOrderType = 'UNKNOWN';
+                }
+              }
+
+              const newOrder = await Order.create({
                 orderId: internalOrderId,
                 customer: extOrder.customerName || 'Online Customer',
                 email: extOrder.customerEmail || 'orders@store.com',
-                order_type: 'B2C',
+                order_type: computedOrderType,
+                isB2B: extOrder.isB2B || false,
+                b2bClassificationSource: extOrder.b2bClassificationSource || 'default',
+                company_name: extOrder.companyName || '',
+                vat_number: extOrder.vatNumber || '',
                 channel: store.provider,
                 store_id: store._id,
                 warehouse: settings.defaultWarehouse || 'MIA',
@@ -216,6 +232,13 @@ export class SyncManager {
                 notes: `Imported from ${store.provider} (${store.storeName}) • External Ref: ${extOrder.externalOrderId}`,
                 company: companyId
               });
+
+              if (newOrder.order_type === 'B2B') {
+                // Fire and forget procurement evaluation
+                evaluateOrderForProcurement(newOrder._id, companyId).catch(err => {
+                  console.error('Background procurement evaluation failed:', err);
+                });
+              }
 
               recordsCreated++;
             } catch (err) {
@@ -233,18 +256,55 @@ export class SyncManager {
         try {
           const direction = settings.inventoryDirection || 'wms_to_store';
           if (direction === 'wms_to_store') {
-            // WMS is authoritative: Push available stock to marketplace
-            const internalProducts = await Product.find({ company: companyId }).limit(100);
-            for (const p of internalProducts) {
-              recordsProcessed++;
-              try {
-                await provider.updateExternalInventory(store, p.sku, p.qty_available || 0);
-                recordsUpdated++;
-              } catch (err) {
-                recordsFailed++;
-                errorDetails.push({ item: `Inventory Push ${p.sku}`, reason: err.message });
+            // WMS is authoritative: Push ALL available stock to marketplace
+            // IMPORTANT: Must paginate to avoid silently skipping products
+            // beyond any hard limit. We process all products without .limit().
+            const BATCH_SIZE = 250;
+            let page = 0;
+            let lastId = null;
+            let totalDiscovered = 0;
+            let batchCount = 0;
+            let hasMore = true;
+
+            while (hasMore) {
+              // Cursor-based pagination for stable ordering on large catalogs
+              const query = { company: companyId };
+              if (lastId) query._id = { $gt: lastId };
+
+              const batch = await Product.find(query)
+                .sort({ _id: 1 })
+                .limit(BATCH_SIZE);
+
+              if (batch.length === 0) {
+                hasMore = false;
+                break;
               }
+
+              batchCount++;
+              totalDiscovered += batch.length;
+              lastId = batch[batch.length - 1]._id;
+
+              console.info(`[SyncManager] Inventory sync batch ${batchCount}: ${batch.length} products (total so far: ${totalDiscovered})`);
+
+              for (const p of batch) {
+                recordsProcessed++;
+                try {
+                  await provider.updateExternalInventory(store, p.sku, p.qty_available || 0);
+                  recordsUpdated++;
+                } catch (err) {
+                  recordsFailed++;
+                  errorDetails.push({ item: `Inventory Push ${p.sku}`, reason: err.message });
+                }
+              }
+
+              // If we got fewer records than BATCH_SIZE, this was the last page
+              if (batch.length < BATCH_SIZE) {
+                hasMore = false;
+              }
+              page++;
             }
+
+            console.info(`[SyncManager] Inventory sync complete: ${totalDiscovered} products discovered in ${batchCount} batches. Updated: ${recordsUpdated}, Failed: ${recordsFailed}`);
           } else if (direction === 'store_to_wms') {
             // Store is authoritative: Handled in product sync stage above
           }

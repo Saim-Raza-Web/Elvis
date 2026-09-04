@@ -8,6 +8,7 @@ const pickTaskLineSchema = new mongoose.Schema({
   shortfallQty: { type: Number, default: 0 },
   sourceLocation: { type: String, default: 'STAGING-A' },
   inventoryOwner: { type: String, default: '' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'], required: true, default: 'UNKNOWN' },
   status: { type: String, enum: ['pending', 'picked', 'partial', 'shortfall'], default: 'pending' }
 }, { _id: true });
 
@@ -16,12 +17,12 @@ const pickTaskSchema = new mongoose.Schema({
   order: { type: String },
   orderId: { type: String, required: true },
   orderNumber: { type: String },
-  orderType: { type: String, enum: ['B2B', 'B2C'], default: 'B2B' },
+  orderType: { type: String, enum: ['B2B', 'B2C', 'TRANSFER'], default: 'B2B' },
   owner: { type: String, required: true, default: 'Default Owner' },
   customer: { type: String, default: '' },
   warehouse: { type: String, default: 'MIA' },
   priority: { type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal' },
-  status: { type: String, enum: ['pending', 'in_progress', 'partially_picked', 'completed', 'cancelled'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'in_progress', 'partially_picked', 'completed', 'cancelled', 'blocked'], default: 'pending' },
   assignee: { type: String, default: '' },
   linesCount: { type: Number, default: 0 },
   totalOrderedQty: { type: Number, default: 0 },

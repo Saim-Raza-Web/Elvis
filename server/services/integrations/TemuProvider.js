@@ -227,6 +227,11 @@ export class TemuProvider extends BaseIntegrationProvider {
           customerEmail: 'mateo.hernandez@example.es',
           date: new Date('2026-08-26T14:30:00Z'),
           status: 'pending',
+          // B2B: Temu Open Platform API does not expose buyer VAT/business fields
+          isB2B: false,
+          b2bClassificationSource: 'temu_api_no_b2b_field',
+          companyName: '',
+          vatNumber: '',
           items: [
             { sku: 'TMU-PHONE-STAND-ALU', name: 'Aluminum Ergonomic Desk Phone & Tablet Stand (Silver)', quantity: 2, price: 14.99, total: 29.98 }
           ],
@@ -258,6 +263,11 @@ export class TemuProvider extends BaseIntegrationProvider {
       customerEmail: o.buyer_email || 'customer@temu.com',
       date: new Date(o.create_time * 1000 || Date.now()),
       status: 'pending',
+      // B2B: Temu API order object does not include buyer VAT/business registration
+      isB2B: false,
+      b2bClassificationSource: 'temu_api_no_b2b_field',
+      companyName: '',
+      vatNumber: '',
       items: (o.item_list || []).map(i => ({
         sku: i.sku || `TEMU-SKU-${i.item_id}`,
         name: i.goods_name,
@@ -291,5 +301,55 @@ export class TemuProvider extends BaseIntegrationProvider {
       headers: { Authorization: `Bearer ${token}` }
     });
     return { success: true, updatedSku: sku, newLevel: availableQty, mode: 'live' };
+  }
+
+  /**
+   * Verifies Temu webhook signature.
+   *
+   * Temu sends an HMAC-SHA256 hex digest over the raw request body.
+   * Header: x-temu-signature
+   *
+   * SECURITY: Rejects all webhooks when no signing secret is configured.
+   */
+  verifyWebhookSignature(req, secret) {
+    if (!secret) {
+      console.error('[TemuProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const signatureHeader = req.headers['x-temu-signature'];
+      if (!signatureHeader) {
+        console.error('[TemuProvider] Webhook rejected: missing x-temu-signature header.');
+        return false;
+      }
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[TemuProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(rawBody)
+        .digest('hex');
+      const sigBuffer = Buffer.from(signatureHeader.toLowerCase(), 'hex');
+      const expectedBuffer = Buffer.from(expectedSig, 'hex');
+      if (sigBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
+    } catch (err) {
+      console.error('[TemuProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses Temu webhook payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: body.message_id || body.event_id || String(Date.now()),
+      topic: body.message_type || body.event_type || 'temu.notification',
+      payload: body
+    };
   }
 }

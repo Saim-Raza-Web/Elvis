@@ -7,6 +7,8 @@ const stockCountLineSchema = new mongoose.Schema({
   theoretical_qty: { type: Number, default: 0 }, // what system expects
   counted_qty: { type: Number, default: null },   // what operator scanned
   discrepancy: { type: Number, default: 0 },      // counted - theoretical
+  owner: { type: String, default: 'Default Owner' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'] },
   status: { type: String, enum: ['pending', 'counted', 'discrepancy', 'adjusted', 'resolved'], default: 'pending' },
 });
 

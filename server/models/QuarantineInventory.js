@@ -12,6 +12,8 @@ const quarantineInventorySchema = new mongoose.Schema({
   qty: { type: Number, required: true },
   lotNumber: { type: String, default: '' },
   batchNumber: { type: String, default: '' },
+  owner: { type: String, required: true },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'], required: true },
   expiryDate: { type: Date },
   status: {
     type: String,
@@ -24,5 +26,8 @@ const quarantineInventorySchema = new mongoose.Schema({
   user: { type: String, default: 'system' },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
+
+// High-performance compound indexes for scale and tenant isolation
+quarantineInventorySchema.index({ company: 1, quarantineId: 1 }, { unique: true });
 
 export default mongoose.model('QuarantineInventory', quarantineInventorySchema);

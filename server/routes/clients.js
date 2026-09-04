@@ -2,10 +2,13 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Client from '../models/Client.js';
 import InventoryBalance from '../models/InventoryBalance.js';
+import Warehouse from '../models/Warehouse.js';
 import { protect } from '../middleware/auth.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(validateWarehouse);
 
 const DEFAULT_OWNERS = [
   { name: 'Apple Distribution 3PL', vat: 'US-998877665', country: 'United States', contact: 'John Distribution', email: 'apple@3pl.com', phone: '+1 305 555 0199', warehouseAccess: ['MIA', 'LAX'] },
@@ -49,7 +52,7 @@ router.post('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { name, vat, country, contact, email, phone, notes, active, warehouseAccess } = req.body;
+    const { name, vat, country, contact, email, phone, notes, active } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ message: 'Client/Owner name is required' });
 
     const existingName = await Client.findOne({ company: req.user.company, name: name.trim() });
@@ -64,6 +67,16 @@ router.post('/', async (req, res, next) => {
       }
     }
 
+    let validWarehouseAccess = ['MIA']; // default
+    if (req.body.warehouseAccess && Array.isArray(req.body.warehouseAccess) && req.body.warehouseAccess.length > 0) {
+      const uniqueCodes = [...new Set(req.body.warehouseAccess.map(c => String(c).trim()))];
+      const foundWhs = await Warehouse.find({ company: req.user.company, code: { $in: uniqueCodes } });
+      if (foundWhs.length !== uniqueCodes.length) {
+        return res.status(400).json({ error: 'INVALID_WAREHOUSE', message: 'One or more warehouse codes in warehouseAccess are invalid or unauthorized' });
+      }
+      validWarehouseAccess = foundWhs.map(w => w.code);
+    }
+
     const client = await Client.create({
       name: name.trim(),
       vat: vat ? vat.trim() : '',
@@ -73,7 +86,7 @@ router.post('/', async (req, res, next) => {
       phone: phone || '',
       notes: notes || '',
       active: active !== undefined ? Boolean(active) : true,
-      warehouseAccess: Array.isArray(warehouseAccess) && warehouseAccess.length > 0 ? warehouseAccess : ['MIA'],
+      warehouseAccess: validWarehouseAccess,
       company: req.user.company
     });
 
@@ -91,7 +104,7 @@ router.put('/:id', async (req, res, next) => {
     const client = await Client.findOne({ _id: req.params.id, company: req.user.company });
     if (!client) return res.status(404).json({ message: 'Client/Owner not found' });
 
-    const { name, vat, country, contact, email, phone, notes, active, warehouseAccess } = req.body;
+    const { name, vat, country, contact, email, phone, notes, active } = req.body;
     if (name && name.trim() !== client.name) {
       const existingName = await Client.findOne({ company: req.user.company, name: name.trim(), _id: { $ne: client._id } });
       if (existingName) return res.status(400).json({ message: `Client name '${name.trim()}' already exists.` });
@@ -112,7 +125,22 @@ router.put('/:id', async (req, res, next) => {
     if (phone !== undefined) client.phone = phone;
     if (notes !== undefined) client.notes = notes;
     if (active !== undefined) client.active = Boolean(active);
-    if (warehouseAccess !== undefined) client.warehouseAccess = warehouseAccess;
+    
+    if (req.body.warehouseAccess && Array.isArray(req.body.warehouseAccess)) {
+      if (req.body.warehouseAccess.length > 0) {
+        const uniqueCodes = [...new Set(req.body.warehouseAccess.map(c => String(c).trim()))];
+        const foundWhs = await Warehouse.find({ company: req.user.company, code: { $in: uniqueCodes } });
+        if (foundWhs.length !== uniqueCodes.length) {
+          return res.status(400).json({ error: 'INVALID_WAREHOUSE', message: 'One or more warehouse codes in warehouseAccess are invalid or unauthorized' });
+        }
+        client.warehouseAccess = foundWhs.map(w => w.code);
+      } else {
+        client.warehouseAccess = [];
+      }
+    } else if (req.context && req.context.warehouses && req.context.warehouses.length > 0) {
+      // Fallback for generic validator
+      client.warehouseAccess = req.context.warehouses.map(w => w.code);
+    }
 
     await client.save();
     res.json(client);

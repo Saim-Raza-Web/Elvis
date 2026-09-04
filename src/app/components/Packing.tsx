@@ -145,7 +145,7 @@ export function Packing() {
           { label: t.packing.completedToday, value: queue.filter((p) => p.status === "completed").length, icon: CheckCircle2, color: "text-success" },
           { label: t.packing.issues, value: 0, icon: AlertCircle, color: "text-destructive" },
         ].map((s, i) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
+          <div key={i} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
             <div className="font-bold" style={{ fontSize: "1.5rem", fontFamily: "JetBrains Mono, monospace" }}>{s.value}</div>
           </div>
@@ -243,10 +243,10 @@ export function Packing() {
                   <div>
                     <label className="text-xs text-muted-foreground block mb-1">{t.packing.boxType}</label>
                     <select value={boxType} onChange={(e) => setBoxType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none text-sm">
-                      <option>{t.common?.boxS201510 || "Box S (20×15×10)"}</option>
-                      <option>{t.common?.boxM302520 || "Box M (30×25×20)"}</option>
-                      <option>{t.common?.boxL403530 || "Box L (40×35×30)"}</option>
-                      <option>{t.common?.boxXL605040 || "Box XL (60×50×40)"}</option>
+                      <option>{(t.common as any)?.boxS201510 || "Box S (20×15×10)"}</option>
+                      <option>{(t.common as any)?.boxM302520 || "Box M (30×25×20)"}</option>
+                      <option>{(t.common as any)?.boxL403530 || "Box L (40×35×30)"}</option>
+                      <option>{(t.common as any)?.boxXL605040 || "Box XL (60×50×40)"}</option>
                     </select>
                   </div>
                   <div>
@@ -258,10 +258,10 @@ export function Packing() {
                   <div>
                     <label className="text-xs text-muted-foreground block mb-1">{t.packing.material}</label>
                     <select value={material} onChange={(e) => setMaterial(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none text-sm">
-                      <option>{t.common?.bubbleWrap || "Bubble wrap"}</option>
-                      <option>{t.common?.foamPadding || "Foam padding"}</option>
-                      <option>{t.common?.airCushions || "Air cushions"}</option>
-                      <option>{t.common?.paperFill || "Paper fill"}</option>
+                      <option>{(t.common as any)?.bubbleWrap || "Bubble wrap"}</option>
+                      <option>{(t.common as any)?.foamPadding || "Foam padding"}</option>
+                      <option>{(t.common as any)?.airCushions || "Air cushions"}</option>
+                      <option>{(t.common as any)?.paperFill || "Paper fill"}</option>
                     </select>
                   </div>
                 </div>
@@ -313,17 +313,17 @@ export function Packing() {
         </div>
       </div>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={t.common?.newPackTask || "New Pack Task"} subtitle={t.common?.manuallyAddAnOrderToThePackingQueue || "Manually add an order to the packing queue"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddPack}>Add Task</ModalSubmit></>}>
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title={(t.common as any)?.newPackTask || "New Pack Task"} subtitle={(t.common as any)?.manuallyAddAnOrderToThePackingQueue || "Manually add an order to the packing queue"} footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleAddPack}>Add Task</ModalSubmit></>}>
         <Row>
-          <Field label={t.common?.orderNumber || "Order Number"} required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder={t.common?.oRDXXXXX || "ORD-XXXXX"} /></Field>
-          <Field label={t.common?.customer || "Customer"} required><Input value={manualForm.customer} onChange={(e) => setManualForm({ ...manualForm, customer: e.target.value })} placeholder={t.common?.customerName || "Customer Name"} /></Field>
+          <Field label={(t.common as any)?.orderNumber || "Order Number"} required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value })} placeholder={(t.common as any)?.oRDXXXXX || "ORD-XXXXX"} /></Field>
+          <Field label={(t.common as any)?.customer || "Customer"} required><Input value={manualForm.customer} onChange={(e) => setManualForm({ ...manualForm, customer: e.target.value })} placeholder={(t.common as any)?.customerName || "Customer Name"} /></Field>
         </Row>
         <Row>
-          <Field label={t.common?.noOfItems || "No. of items"}><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
-          <Field label={t.common?.station || "Station"}><Input value={manualForm.station} onChange={(e) => setManualForm({ ...manualForm, station: e.target.value })} placeholder={t.common?.pack01 || "Pack-01"} /></Field>
+          <Field label={(t.common as any)?.noOfItems || "No. of items"}><Input type="number" value={manualForm.items} onChange={(e) => setManualForm({ ...manualForm, items: Number(e.target.value) })} /></Field>
+          <Field label={(t.common as any)?.station || "Station"}><Input value={manualForm.station} onChange={(e) => setManualForm({ ...manualForm, station: e.target.value })} placeholder={(t.common as any)?.pack01 || "Pack-01"} /></Field>
         </Row>
-        <Field label={t.common?.priority || "Priority"}><Select value={manualForm.priority} onChange={(e) => setManualForm({ ...manualForm, priority: e.target.value })}>
-          <option value="high">{t.common?.high || "High"}</option><option value="normal">{t.common?.normal || "Normal"}</option><option value="low">{t.common?.low || "Low"}</option>
+        <Field label={(t.common as any)?.priority || "Priority"}><Select value={manualForm.priority} onChange={(e) => setManualForm({ ...manualForm, priority: e.target.value })}>
+          <option value="high">{(t.common as any)?.high || "High"}</option><option value="normal">{(t.common as any)?.normal || "Normal"}</option><option value="low">{(t.common as any)?.low || "Low"}</option>
         </Select></Field>
       </Modal>
     </div>

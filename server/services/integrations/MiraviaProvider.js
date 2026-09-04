@@ -191,6 +191,11 @@ export class MiraviaProvider extends BaseIntegrationProvider {
           customerEmail: 'carmen.navarro@example.es',
           date: new Date('2026-08-26T16:15:00Z'),
           status: 'pending',
+          // B2B: Miravia sandbox does not expose VAT/business buyer fields
+          isB2B: false,
+          b2bClassificationSource: 'miravia_sandbox_default',
+          companyName: '',
+          vatNumber: '',
           items: [
             { sku: 'MRV-LEATHER-BAG-BRN', name: 'Handcrafted Spanish Leather Messenger Bag (Cognac Brown)', quantity: 1, price: 119.00, total: 119.00 }
           ],
@@ -215,32 +220,52 @@ export class MiraviaProvider extends BaseIntegrationProvider {
     });
 
     const orders = res.data?.data?.orders || [];
-    return orders.map(o => ({
-      externalOrderId: String(o.order_id),
-      orderNumber: `#MRV-${o.order_number || o.order_id}`,
-      customerName: `${o.customer_first_name || ''} ${o.customer_last_name || ''}`.trim() || 'Miravia Buyer',
-      customerEmail: o.buyer_email || 'buyer@miravia.es',
-      date: new Date(o.created_at || Date.now()),
-      status: 'pending',
-      items: (o.order_items || []).map(i => ({
-        sku: i.sku || `MRV-SKU-${i.order_item_id}`,
-        name: i.name,
-        quantity: parseInt(i.quantity, 10) || 1,
-        price: parseFloat(i.item_price) || 0,
-        total: parseFloat(i.paid_price) || 0
-      })),
-      subtotal: parseFloat(o.price) || 0,
-      taxTotal: parseFloat(o.tax_amount) || 0,
-      grandTotal: parseFloat(o.voucher_platform ? o.price - o.voucher_platform : o.price) || 0,
-      deliveryAddress: {
-        street: o.address_shipping?.address1 || '',
-        number: '',
-        city: o.address_shipping?.city || '',
-        postcode: o.address_shipping?.post_code || '',
-        region: o.address_shipping?.country || '',
-        country: 'Spain'
+    return orders.map(o => {
+      // Miravia (Lazada Open Platform) includes customer_tax_id and buyer_company_name
+      // for VAT-compliant EU B2B orders
+      const vatNumber   = o.customer_tax_id || o.vat_number || '';
+      const companyName = o.buyer_company_name || '';
+      let isB2B = false;
+      let b2bClassificationSource = 'miravia_api_no_b2b_field';
+      if (vatNumber) {
+        isB2B = true;
+        b2bClassificationSource = 'miravia_customer_tax_id';
+      } else if (companyName) {
+        isB2B = true;
+        b2bClassificationSource = 'miravia_buyer_company_name';
       }
-    }));
+
+      return {
+        externalOrderId: String(o.order_id),
+        orderNumber: `#MRV-${o.order_number || o.order_id}`,
+        customerName: `${o.customer_first_name || ''} ${o.customer_last_name || ''}`.trim() || 'Miravia Buyer',
+        customerEmail: o.buyer_email || 'buyer@miravia.es',
+        date: new Date(o.created_at || Date.now()),
+        status: 'pending',
+        isB2B,
+        b2bClassificationSource,
+        companyName,
+        vatNumber,
+        items: (o.order_items || []).map(i => ({
+          sku: i.sku || `MRV-SKU-${i.order_item_id}`,
+          name: i.name,
+          quantity: parseInt(i.quantity, 10) || 1,
+          price: parseFloat(i.item_price) || 0,
+          total: parseFloat(i.paid_price) || 0
+        })),
+        subtotal: parseFloat(o.price) || 0,
+        taxTotal: parseFloat(o.tax_amount) || 0,
+        grandTotal: parseFloat(o.voucher_platform ? o.price - o.voucher_platform : o.price) || 0,
+        deliveryAddress: {
+          street: o.address_shipping?.address1 || '',
+          number: '',
+          city: o.address_shipping?.city || '',
+          postcode: o.address_shipping?.post_code || '',
+          region: o.address_shipping?.country || '',
+          country: 'Spain'
+        }
+      };
+    });
   }
 
   async updateExternalInventory(store, sku, availableQty) {
@@ -255,5 +280,55 @@ export class MiraviaProvider extends BaseIntegrationProvider {
       headers: { Authorization: `Bearer ${token}` }
     });
     return { success: true, updatedSku: sku, newLevel: availableQty, mode: 'live' };
+  }
+
+  /**
+   * Verifies Miravia webhook signature.
+   *
+   * Miravia uses HMAC-SHA256 over the raw request body.
+   * Header: x-miravia-signature (hex-encoded)
+   *
+   * SECURITY: Rejects all webhooks when no signing secret is configured.
+   */
+  verifyWebhookSignature(req, secret) {
+    if (!secret) {
+      console.error('[MiraviaProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const signatureHeader = req.headers['x-miravia-signature'];
+      if (!signatureHeader) {
+        console.error('[MiraviaProvider] Webhook rejected: missing x-miravia-signature header.');
+        return false;
+      }
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[MiraviaProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(rawBody)
+        .digest('hex');
+      const sigBuffer = Buffer.from(signatureHeader.toLowerCase(), 'hex');
+      const expectedBuffer = Buffer.from(expectedSig, 'hex');
+      if (sigBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
+    } catch (err) {
+      console.error('[MiraviaProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Parses Miravia webhook payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: body.message_id || body.id || String(Date.now()),
+      topic: body.event_type || body.topic || 'miravia.notification',
+      payload: body
+    };
   }
 }

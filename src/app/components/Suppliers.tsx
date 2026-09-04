@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Plus, Search, Pencil, Trash2, Truck, Globe, Mail, Phone, Calendar } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Truck, Globe, Mail, Phone, Calendar, PackageOpen } from "lucide-react";
 import { toast } from "sonner";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { PrimaryButton, SecondaryButton } from "./AppShell";
 import { suppliersService, type Supplier } from "../../services/suppliers.service";
+import { type SupplierProduct } from "../../services/suppliers.service";
+import { inventoryService } from "../../services/inventory.service";
 import { useLang } from "../LangContext";
 
 export function Suppliers() {
@@ -13,6 +15,21 @@ export function Suppliers() {
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Supplier | null>(null);
+
+  // Supplier Products state
+  const [showProducts, setShowProducts] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [availableProducts, setAvailableProducts] = useState<any[]>([]);
+  
+  const [mapForm, setMapForm] = useState({
+    productId: "",
+    supplierSku: "",
+    purchaseCost: 0,
+    leadTimeDays: 7,
+    moq: 1
+  });
 
   const [form, setForm] = useState({
     name: "",
@@ -60,6 +77,60 @@ export function Suppliers() {
       leadTime: sup.leadTime || 7,
     });
     setShowAdd(true);
+  };
+
+  const handleOpenProducts = async (sup: Supplier) => {
+    setSelectedSupplier(sup);
+    setShowProducts(true);
+    try {
+      const prods = await suppliersService.getProducts(sup._id);
+      setSupplierProducts(prods);
+    } catch (e) {
+      toast.error("Failed to load supplier products");
+    }
+  };
+
+  const searchProductsForMapping = async (q: string) => {
+    setProductSearch(q);
+    if (q.length > 2) {
+      try {
+        const res = await inventoryService.searchProducts(q);
+        setAvailableProducts(res);
+      } catch (e) { }
+    } else {
+      setAvailableProducts([]);
+    }
+  };
+
+  const handleMapProduct = async () => {
+    if (!selectedSupplier || !mapForm.productId || !mapForm.supplierSku) {
+      toast.error("Product and Supplier SKU are required");
+      return;
+    }
+    try {
+      await suppliersService.addProduct(selectedSupplier._id, mapForm);
+      toast.success("Product mapped successfully");
+      setMapForm({ productId: "", supplierSku: "", purchaseCost: 0, leadTimeDays: 7, moq: 1 });
+      setProductSearch("");
+      
+      const prods = await suppliersService.getProducts(selectedSupplier._id);
+      setSupplierProducts(prods);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to map product");
+    }
+  };
+
+  const handleUnmapProduct = async (mappingId: string) => {
+    if (!selectedSupplier) return;
+    if (!confirm("Are you sure you want to unmap this product?")) return;
+    try {
+      await suppliersService.deleteProduct(selectedSupplier._id, mappingId);
+      toast.success("Product unmapped");
+      const prods = await suppliersService.getProducts(selectedSupplier._id);
+      setSupplierProducts(prods);
+    } catch (e) {
+      toast.error("Failed to unmap product");
+    }
   };
 
   const handleSave = async () => {
@@ -125,10 +196,13 @@ export function Suppliers() {
                 {s.taxId && <span className="text-[10px] font-mono text-muted-foreground block">NIF/Tax: {s.taxId}</span>}
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => handleOpenEdit(s)} className="p-1 text-muted-foreground hover:text-primary rounded">
+                <button onClick={() => handleOpenProducts(s)} title="Products" className="p-1 text-muted-foreground hover:text-blue-500 rounded">
+                  <PackageOpen className="size-3.5" />
+                </button>
+                <button onClick={() => handleOpenEdit(s)} title="Edit" className="p-1 text-muted-foreground hover:text-primary rounded">
                   <Pencil className="size-3.5" />
                 </button>
-                <button onClick={() => handleDelete(s._id)} className="p-1 text-muted-foreground hover:text-destructive rounded">
+                <button onClick={() => handleDelete(s._id)} title="Delete" className="p-1 text-muted-foreground hover:text-destructive rounded">
                   <Trash2 className="size-3.5" />
                 </button>
               </div>
@@ -187,6 +261,77 @@ export function Suppliers() {
               <Input type="number" value={form.leadTime} onChange={(e) => setForm({ ...form, leadTime: Number(e.target.value) })} />
             </Field>
           </Row>
+        </div>
+      </Modal>
+
+      <Modal open={showProducts} onClose={() => setShowProducts(false)} title={`Products - ${selectedSupplier?.name}`} size="lg" footer={<ModalCancel onClose={() => setShowProducts(false)} />}>
+        <div className="space-y-6">
+          <div className="bg-card border border-border p-4 rounded-xl space-y-4">
+            <h4 className="text-sm font-semibold">Map New Product</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 relative">
+                <Field label="Search Product by SKU/Name">
+                  <Input value={productSearch} onChange={e => searchProductsForMapping(e.target.value)} placeholder="Type to search..." />
+                </Field>
+                {availableProducts.length > 0 && mapForm.productId === "" && (
+                  <div className="absolute top-full mt-1 w-full bg-card border border-border rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {availableProducts.map(p => (
+                      <button key={p._id} onClick={() => { setMapForm({...mapForm, productId: p._id}); setProductSearch(p.sku + ' - ' + p.name); setAvailableProducts([]); }} className="w-full text-left px-3 py-2 hover:bg-secondary text-sm">
+                        <span className="font-medium">{p.sku}</span> <span className="text-muted-foreground">{p.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Field label="Supplier SKU *">
+                <Input value={mapForm.supplierSku} onChange={e => setMapForm({...mapForm, supplierSku: e.target.value})} placeholder="e.g. SUP-12345" />
+              </Field>
+              <Field label="Unit Cost (EUR) *">
+                <Input type="number" step="0.01" value={mapForm.purchaseCost} onChange={e => setMapForm({...mapForm, purchaseCost: Number(e.target.value)})} />
+              </Field>
+              <Field label="Lead Time (Days)">
+                <Input type="number" value={mapForm.leadTimeDays} onChange={e => setMapForm({...mapForm, leadTimeDays: Number(e.target.value)})} />
+              </Field>
+              <Field label="MOQ">
+                <Input type="number" value={mapForm.moq} onChange={e => setMapForm({...mapForm, moq: Number(e.target.value)})} />
+              </Field>
+            </div>
+            <div className="flex justify-end mt-2">
+              <PrimaryButton onClick={handleMapProduct}>Map Product</PrimaryButton>
+            </div>
+          </div>
+
+          <div className="border border-border rounded-xl overflow-hidden bg-card">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/50 border-b border-border">
+                <tr>
+                  <th className="px-4 py-3 font-medium text-muted-foreground">Internal SKU</th>
+                  <th className="px-4 py-3 font-medium text-muted-foreground">Supplier SKU</th>
+                  <th className="px-4 py-3 font-medium text-muted-foreground">Cost</th>
+                  <th className="px-4 py-3 font-medium text-muted-foreground">Lead Time</th>
+                  <th className="px-4 py-3 font-medium text-muted-foreground text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {supplierProducts.map(sp => (
+                  <tr key={sp._id} className="hover:bg-muted/50">
+                    <td className="px-4 py-3 font-medium">{sp.productId?.sku}</td>
+                    <td className="px-4 py-3 text-blue-600">{sp.supplierSku}</td>
+                    <td className="px-4 py-3">€{(sp.purchaseCost || 0).toFixed(2)}</td>
+                    <td className="px-4 py-3">{sp.leadTimeDays}d</td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => handleUnmapProduct(sp._id)} className="text-destructive hover:underline">Unmap</button>
+                    </td>
+                  </tr>
+                ))}
+                {supplierProducts.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No products mapped.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </Modal>
     </div>

@@ -242,13 +242,37 @@ export class WooCommerceProvider extends BaseIntegrationProvider {
       timeout: 15000
     });
 
-    return (res.data || []).map(o => ({
+    return (res.data || []).map(o => {
+      let isB2B = false;
+      let b2bClassificationSource = 'default';
+      let companyName = o.billing?.company || o.shipping?.company || '';
+      let vatNumber = '';
+
+      if (o.meta_data && Array.isArray(o.meta_data)) {
+         const vatMeta = o.meta_data.find(m => m.key && m.key.toLowerCase().includes('vat'));
+         if (vatMeta && vatMeta.value) {
+             vatNumber = vatMeta.value;
+             isB2B = true;
+             b2bClassificationSource = 'woocommerce_meta_vat';
+         }
+      }
+
+      if (companyName && !isB2B) {
+         isB2B = true;
+         b2bClassificationSource = 'woocommerce_company_field';
+      }
+
+      return {
       externalOrderId: String(o.id),
       orderNumber: `#${o.number || o.id}`,
       customerName: `${o.billing?.first_name || ''} ${o.billing?.last_name || ''}`.trim() || 'WooCommerce Customer',
       customerEmail: o.billing?.email || 'customer@example.com',
       date: new Date(o.date_created || Date.now()),
       status: 'pending',
+      isB2B,
+      b2bClassificationSource,
+      companyName,
+      vatNumber,
       items: (o.line_items || []).map(li => ({
         sku: li.sku || `WC-ITEM-${li.product_id}`,
         name: li.name,
@@ -267,7 +291,8 @@ export class WooCommerceProvider extends BaseIntegrationProvider {
         postcode: o.shipping?.postcode || o.billing?.postcode || '',
         country: o.shipping?.country || 'Spain'
       }
-    }));
+    };
+    });
   }
 
   /**
@@ -278,19 +303,54 @@ export class WooCommerceProvider extends BaseIntegrationProvider {
   }
 
   /**
-   * Verifies incoming WooCommerce webhook signature
+   * Verifies incoming WooCommerce webhook signature.
+   *
+   * WooCommerce sends HMAC-SHA256 Base64-encoded in `x-wc-webhook-signature`
+   * computed over the raw request body.
+   *
+   * SECURITY FIX: Reject when no secret configured — never return true silently.
    */
   verifyWebhookSignature(req, webhookSecret) {
-    const sigHeader = req.headers['x-wc-webhook-signature'];
-    if (!sigHeader || !webhookSecret) return true;
+    if (!webhookSecret) {
+      console.error('[WooCommerceProvider] Webhook rejected: no signing secret configured for store.');
+      return false;
+    }
+    try {
+      const sigHeader = req.headers['x-wc-webhook-signature'];
+      if (!sigHeader) {
+        console.error('[WooCommerceProvider] Webhook rejected: missing x-wc-webhook-signature header.');
+        return false;
+      }
+      // Must use rawBody — JSON.stringify() would alter the byte sequence
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        console.error('[WooCommerceProvider] Webhook rejected: rawBody not available.');
+        return false;
+      }
+      const hash = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(rawBody)
+        .digest('base64');
+      const incoming = Buffer.from(sigHeader, 'base64');
+      const expected = Buffer.from(hash, 'base64');
+      if (incoming.length !== expected.length) return false;
+      return crypto.timingSafeEqual(incoming, expected);
+    } catch (err) {
+      console.error('[WooCommerceProvider] verifyWebhookSignature error:', err.message);
+      return false;
+    }
+  }
 
-    const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    const hash = crypto
-      .createHmac('sha256', webhookSecret)
-      .update(body, 'utf8')
-      .digest('base64');
-
-    return crypto.timingSafeEqual(Buffer.from(sigHeader), Buffer.from(hash));
+  /**
+   * Parses WooCommerce webhook payload to standardized event.
+   */
+  parseWebhookEvent(req) {
+    const body = req.body || {};
+    return {
+      eventId: req.headers['x-wc-webhook-id'] || body.id?.toString() || String(Date.now()),
+      topic: req.headers['x-wc-webhook-topic'] || body.topic || 'woocommerce.notification',
+      payload: body
+    };
   }
 }
 

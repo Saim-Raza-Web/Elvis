@@ -2,6 +2,10 @@ import express from 'express';
 import Supplier from '../models/Supplier.js';
 import ChartOfAccount from '../models/ChartOfAccount.js';
 import SupplierBill from '../models/SupplierBill.js';
+import SupplierProduct from '../models/SupplierProduct.js';
+import Product from '../models/Product.js';
+import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
+import mongoose from 'mongoose';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -55,31 +59,51 @@ const DEFAULT_SUPPLIERS = [
   }
 ];
 
-// Helper: Ensure parent supplier group exists (e.g. 400 & 400.000)
+// Helper: Ensure parent supplier group exists dynamically based on config
 async function ensureSupplierGroupAccounts(companyId) {
-  let root400 = await ChartOfAccount.findOne({ company: companyId, accountCode: '400' });
-  if (!root400) {
-    root400 = await ChartOfAccount.create({
-      accountCode: '400',
-      accountName: 'Suppliers',
-      accountType: 'Liability',
-      category: 'Accounts Payable',
-      hierarchyLevel: 0,
-      allowSubAccounts: true,
-      isPostingAccount: false,
-      company: companyId
-    });
+  let config = await CompanyAccountingConfig.findOne({ company: companyId });
+  if (!config) {
+    config = await CompanyAccountingConfig.create({ company: companyId });
   }
 
-  let group400000 = await ChartOfAccount.findOne({ company: companyId, accountCode: '400.000' });
+  // Resolve base 400 account
+  let root400 = null;
+  if (config.defaultAccountsPayableAccountId) {
+    root400 = await ChartOfAccount.findOne({ _id: config.defaultAccountsPayableAccountId, company: companyId });
+  }
+
+  // Fallback to searching or creating 400
+  if (!root400) {
+    root400 = await ChartOfAccount.findOne({ company: companyId, accountCode: config.defaultAccountsPayableAccountCode || '400' });
+    if (!root400) {
+      root400 = await ChartOfAccount.create({
+        accountCode: config.defaultAccountsPayableAccountCode || '400',
+        accountName: config.defaultAccountsPayableAccountName || 'Suppliers',
+        accountType: 'Liability',
+        category: 'Accounts Payable',
+        hierarchyLevel: 0,
+        allowSubAccounts: true,
+        isPostingAccount: false,
+        company: companyId
+      });
+    }
+    // Link it back to config
+    config.defaultAccountsPayableAccountId = root400._id;
+    await config.save();
+  }
+
+  const baseCode = root400.accountCode; // e.g. "400"
+  const groupCode = `${baseCode}.000`;  // e.g. "400.000"
+
+  let group400000 = await ChartOfAccount.findOne({ company: companyId, accountCode: groupCode });
   if (!group400000) {
     group400000 = await ChartOfAccount.create({
-      accountCode: '400.000',
+      accountCode: groupCode,
       accountName: 'Supplier Accounts Group',
       accountType: 'Liability',
       category: 'Accounts Payable',
       parentAccountId: root400._id,
-      parentAccountCode: '400',
+      parentAccountCode: baseCode,
       hierarchyLevel: 1,
       allowSubAccounts: true,
       isPostingAccount: false,
@@ -87,7 +111,7 @@ async function ensureSupplierGroupAccounts(companyId) {
     });
   }
 
-  return { root400, group400000 };
+  return { root400, group400000, baseCode, groupCode };
 }
 
 // GET all suppliers
@@ -148,10 +172,133 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// POST create supplier
-router.post('/', async (req, res, next) => {
+// GET supplier products
+router.get('/:id/products', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const products = await SupplierProduct.find({ supplierId: req.params.id, company: req.user.company })
+      .populate('productId', 'name sku barcode');
+    res.json(products);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST add a product to a supplier
+router.post('/:id/products', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    
+    const { productId, supplierSku, supplierProductName, purchaseCost, currency, moq, leadTimeDays, isPreferred, taxRate } = req.body;
+    
+    if (!productId || !supplierSku || purchaseCost === undefined) {
+      return res.status(400).json({ message: 'productId, supplierSku, and purchaseCost are required' });
+    }
+
+    const supplier = await Supplier.findOne({ _id: req.params.id, company: req.user.company });
+    if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
+
+    const product = await Product.findOne({ _id: productId, company: req.user.company });
+    if (!product) return res.status(404).json({ message: 'Product not found in this company' });
+
+    // Check if mapping already exists
+    let mapping = await SupplierProduct.findOne({ supplierId: supplier._id, productId: product._id, company: req.user.company });
+    if (mapping) {
+      return res.status(400).json({ message: 'Product is already mapped to this supplier' });
+    }
+
+    // If this is set as preferred, unset preferred for this product on other suppliers
+    if (isPreferred) {
+      await SupplierProduct.updateMany(
+        { productId: product._id, company: req.user.company, supplierId: { $ne: supplier._id } },
+        { isPreferred: false }
+      );
+    }
+
+    mapping = new SupplierProduct({
+      company: req.user.company,
+      supplierId: supplier._id,
+      productId: product._id,
+      supplierSku,
+      supplierProductName: supplierProductName || '',
+      purchaseCost,
+      currency: currency || 'EUR',
+      moq: moq || 1,
+      leadTimeDays: leadTimeDays || 7,
+      isPreferred: Boolean(isPreferred),
+      taxRate: taxRate !== undefined ? taxRate : 21
+    });
+
+    await mapping.save();
+    
+    // Populate before return
+    await mapping.populate('productId', 'name sku barcode');
+    res.status(201).json(mapping);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT update a supplier product mapping
+router.put('/:id/products/:mappingId', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    
+    const mapping = await SupplierProduct.findOne({ _id: req.params.mappingId, supplierId: req.params.id, company: req.user.company });
+    if (!mapping) return res.status(404).json({ message: 'Supplier product mapping not found' });
+
+    const { supplierSku, supplierProductName, purchaseCost, currency, moq, leadTimeDays, isPreferred, active, taxRate } = req.body;
+
+    if (supplierSku !== undefined) mapping.supplierSku = supplierSku;
+    if (supplierProductName !== undefined) mapping.supplierProductName = supplierProductName;
+    if (purchaseCost !== undefined) mapping.purchaseCost = purchaseCost;
+    if (currency !== undefined) mapping.currency = currency;
+    if (moq !== undefined) mapping.moq = moq;
+    if (leadTimeDays !== undefined) mapping.leadTimeDays = leadTimeDays;
+    if (taxRate !== undefined) mapping.taxRate = taxRate;
+    if (active !== undefined) mapping.active = active;
+
+    if (isPreferred !== undefined) {
+      mapping.isPreferred = isPreferred;
+      if (isPreferred) {
+        // unset others
+        await SupplierProduct.updateMany(
+          { productId: mapping.productId, company: req.user.company, _id: { $ne: mapping._id } },
+          { isPreferred: false }
+        );
+      }
+    }
+
+    await mapping.save();
+    await mapping.populate('productId', 'name sku barcode');
+    res.json(mapping);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE supplier product mapping
+router.delete('/:id/products/:mappingId', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const mapping = await SupplierProduct.findOneAndDelete({ _id: req.params.mappingId, supplierId: req.params.id, company: req.user.company });
+    if (!mapping) return res.status(404).json({ message: 'Mapping not found' });
+    res.json({ message: 'Supplier product mapping deleted' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST create supplier
+router.post('/', async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
 
     const {
       name,
@@ -176,11 +323,21 @@ router.post('/', async (req, res, next) => {
       active
     } = req.body;
 
-    if (!name || !name.trim()) return res.status(400).json({ message: 'Supplier name is required' });
-    if (!country || !country.trim()) return res.status(400).json({ message: 'Country is required' });
+    if (!name || !name.trim()) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Supplier name is required' });
+    }
+    if (!country || !country.trim()) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Country is required' });
+    }
 
-    const existing = await Supplier.findOne({ company: req.user.company, name: name.trim() });
+    const existing = await Supplier.findOne({ company: req.user.company, name: name.trim() }).session(session);
     if (existing) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: `Supplier '${name.trim()}' already exists.` });
     }
 
@@ -191,13 +348,17 @@ router.post('/', async (req, res, next) => {
     let createdCoaId = null;
 
     if (createLedgerAccount || (!assignedLedgerInfo.accountCode && createLedgerAccount !== false)) {
-      const { group400000 } = await ensureSupplierGroupAccounts(req.user.company);
+      const { group400000, groupCode } = await ensureSupplierGroupAccounts(req.user.company);
       
       // Calculate next sub-account code under 400.000 (e.g. 400.000.001)
+      // Escape groupCode for regex to avoid treating dots as wildcards
+      const escapedGroupCode = groupCode.replace(/\./g, '\\.');
+      const regexPattern = new RegExp(`^${escapedGroupCode}\\.\\d+$`);
+      
       const existingChildren = await ChartOfAccount.find({
         company: req.user.company,
-        accountCode: { $regex: /^400\.000\.\d+$/ }
-      }).sort({ accountCode: 1 });
+        accountCode: { $regex: regexPattern }
+      }).session(session).sort({ accountCode: 1 });
 
       let maxSeq = 0;
       existingChildren.forEach(child => {
@@ -206,24 +367,35 @@ router.post('/', async (req, res, next) => {
         if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
       });
 
-      const nextCode = assignedLedgerInfo.accountCode || `400.000.${String(maxSeq + 1).padStart(3, '0')}`;
+      const nextCode = assignedLedgerInfo.accountCode || `${groupCode}.${String(maxSeq + 1).padStart(3, '0')}`;
       const nextName = assignedLedgerInfo.accountName || name.trim();
 
-      // Check if account already exists
-      let coaDoc = await ChartOfAccount.findOne({ company: req.user.company, accountCode: nextCode });
+      // Check if account already exists (race condition protection)
+      let coaDoc = await ChartOfAccount.findOne({ company: req.user.company, accountCode: nextCode }).session(session);
       if (!coaDoc) {
-        coaDoc = await ChartOfAccount.create({
-          accountCode: nextCode,
-          accountName: nextName,
-          accountType: 'Liability',
-          category: 'Accounts Payable',
-          parentAccountId: group400000._id,
-          parentAccountCode: '400.000',
-          hierarchyLevel: 2,
-          allowSubAccounts: false,
-          isPostingAccount: true,
-          company: req.user.company
-        });
+        try {
+          const newCoa = new ChartOfAccount({
+            accountCode: nextCode,
+            accountName: nextName,
+            accountType: 'Liability',
+            category: 'Accounts Payable',
+            parentAccountId: group400000._id,
+            parentAccountCode: groupCode,
+            hierarchyLevel: 2,
+            allowSubAccounts: false,
+            isPostingAccount: true,
+            company: req.user.company
+          });
+          coaDoc = await newCoa.save({ session });
+        } catch (dbErr) {
+          if (dbErr.code === 11000) {
+             // Race condition on unique account code. Throw explicit error to tell client to retry.
+             await session.abortTransaction();
+             session.endSession();
+             return res.status(409).json({ message: 'Concurrent supplier creation detected. Please retry.', code: 'RACE_CONDITION' });
+          }
+          throw dbErr;
+        }
       }
 
       createdCoaId = coaDoc._id;
@@ -234,7 +406,7 @@ router.post('/', async (req, res, next) => {
       };
     }
 
-    const supplier = await Supplier.create({
+    const newSupplier = new Supplier({
       name: name.trim(),
       supplierType: supplierType || 'Vendor',
       contact: contact || '',
@@ -257,12 +429,19 @@ router.post('/', async (req, res, next) => {
       company: req.user.company
     });
 
+    const supplier = await newSupplier.save({ session });
+
     if (createdCoaId) {
-      await ChartOfAccount.findByIdAndUpdate(createdCoaId, { supplierId: supplier._id });
+      await ChartOfAccount.findByIdAndUpdate(createdCoaId, { supplierId: supplier._id }, { session });
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.status(201).json(supplier);
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     next(err);
   }
 });

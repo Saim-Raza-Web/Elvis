@@ -20,6 +20,7 @@ const asnSchema = new mongoose.Schema({
   asnNumber: { type: String },              // Alias for asnId
   supplier: { type: String, required: true },
   owner: { type: String, required: true, default: 'Default Owner' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER'], required: true },
   poNumber: { type: String, required: true },
   po: { type: String },                     // Alias for poNumber
   origin: { type: String, default: '' },
@@ -63,5 +64,8 @@ asnSchema.pre('save', function () {
     this.expected_units = this.items.reduce((s, i) => s + (Number(i.expected_qty) || 0), 0);
   }
 });
+
+// High-performance compound indexes for scale and tenant isolation
+asnSchema.index({ company: 1, asnId: 1 }, { unique: true });
 
 export default mongoose.model('ASN', asnSchema);

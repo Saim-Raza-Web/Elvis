@@ -12,6 +12,7 @@ const transferSchema = new mongoose.Schema({
   status: String,
   type: String,
   requestedBy: String,
+  owner: String,
   date: Date,
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });

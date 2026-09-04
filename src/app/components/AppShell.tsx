@@ -17,8 +17,8 @@ import { notificationsService } from "../../services/notifications.service";
 
 export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "qc" | "putaway" | "transfers" | "picking" | "packing"
-  | "orders" | "ecommerce" | "shipping" | "carriers" | "returns" | "incidents"
-  | "crm" | "billing" | "accounting" | "reports" | "subscription" | "settings"
+  | "orders" | "purchase-orders" | "ecommerce" | "shipping" | "carriers" | "returns" | "incidents"
+  | "crm" | "billing" | "accounting" | "compliance" | "reports" | "subscription" | "settings"
   | "activity" | "admin" | "stock-counts";
 
 interface NavItem {
@@ -51,6 +51,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
       label: nav.sections.commerce,
       items: [
         { id: "orders", label: nav.orders, icon: ShoppingCart },
+        { id: "purchase-orders", label: "Purchase Orders", icon: Truck },
         { id: "ecommerce", label: nav.ecommerce, icon: Globe },
         { id: "shipping", label: nav.shipping, icon: Truck },
         { id: "carriers", label: nav.carriers, icon: Building2 },
@@ -64,6 +65,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "crm", label: nav.crm, icon: Users },
         { id: "billing", label: nav.billing, icon: ReceiptText },
         { id: "accounting", label: nav.accounting, icon: BookOpen },
+        { id: "compliance", label: "Tax & Compliance", icon: ShieldCheck },
         { id: "reports", label: nav.reports, icon: BarChart3 },
         { id: "subscription", label: nav.subscription, icon: CreditCard },
         { id: "settings", label: nav.settings, icon: Settings2 },

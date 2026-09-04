@@ -23,6 +23,19 @@ export interface SupplierAccountingInfo {
   accountName?: string;
 }
 
+export interface SupplierProduct {
+  _id: string;
+  productId: any;
+  supplierSku: string;
+  supplierProductName?: string;
+  purchaseCost: number;
+  currency?: string;
+  moq?: number;
+  leadTimeDays?: number;
+  isPreferred?: boolean;
+  taxRate?: number;
+}
+
 export interface SupplierMetrics {
   totalBills?: number;
   totalBilled?: number;
@@ -76,6 +89,22 @@ export const suppliersService = {
     const response = await api.delete(`/suppliers/${id}`);
     return response.data;
   },
+  getProducts: async (id: string): Promise<SupplierProduct[]> => {
+    const response = await api.get(`/suppliers/${id}/products`);
+    return response.data;
+  },
+  addProduct: async (id: string, data: Partial<SupplierProduct>): Promise<SupplierProduct> => {
+    const response = await api.post(`/suppliers/${id}/products`, data);
+    return response.data;
+  },
+  updateProduct: async (id: string, mappingId: string, data: Partial<SupplierProduct>): Promise<SupplierProduct> => {
+    const response = await api.put(`/suppliers/${id}/products/${mappingId}`, data);
+    return response.data;
+  },
+  deleteProduct: async (id: string, mappingId: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/suppliers/${id}/products/${mappingId}`);
+    return response.data;
+  }
 };
 
 export default suppliersService;

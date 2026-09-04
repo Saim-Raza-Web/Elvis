@@ -23,4 +23,7 @@ const incidentSchema = new mongoose.Schema({
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 
+// High-performance compound indexes for scale and tenant isolation
+incidentSchema.index({ company: 1, incidentId: 1 }, { unique: true });
+
 export default mongoose.model('Incident', incidentSchema);

@@ -1,11 +1,13 @@
 import express from 'express';
 import { protect, requireRole } from '../middleware/auth.js';
+import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/Product.js';
 
 const router = express.Router();
 
 router.use(protect); // Secure all routes by default
+router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
 
@@ -256,14 +258,75 @@ router.post('/lots/recall', requireOpsRole, async (req, res, next) => {
   }
 });
 
+// PATCH Reclassify ownerType for UNKNOWN inventory
+router.patch('/reclassify', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    
+    const { balanceIds, newOwnerType } = req.body;
+    
+    if (!Array.isArray(balanceIds) || balanceIds.length === 0) {
+      return res.status(400).json({ message: 'balanceIds array is required.' });
+    }
+    
+    if (!newOwnerType || !['COMPANY', 'CUSTOMER'].includes(newOwnerType)) {
+      return res.status(400).json({ message: 'newOwnerType must be either COMPANY or CUSTOMER.' });
+    }
+
+    const InventoryBalance = (await import('../models/InventoryBalance.js')).default;
+    const ActivityLog = (await import('../models/ActivityLog.js')).default;
+
+    // We can only reclassify balances that are currently UNKNOWN
+    const result = await InventoryBalance.updateMany(
+      { 
+        _id: { $in: balanceIds }, 
+        company: req.user.company, 
+        ownerType: 'UNKNOWN' 
+      },
+      { 
+        $set: { ownerType: newOwnerType } 
+      }
+    );
+
+    if (result.modifiedCount > 0) {
+      await ActivityLog.create({
+        logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        action: 'INVENTORY_RECLASSIFICATION',
+        module: 'Inventory',
+        user: req.user.name || 'System Admin',
+        userId: req.user._id,
+        company: req.user.company,
+        details: `Reclassified ${result.modifiedCount} UNKNOWN inventory balances to ${newOwnerType}.`
+      });
+    }
+
+    res.json({
+      success: true,
+      modifiedCount: result.modifiedCount,
+      message: `Successfully reclassified ${result.modifiedCount} balances.`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST Initial Stock Load (Bypasses Putaway Tasks)
 router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { warehouse, sku, bin, qty, owner, lotNumber, batchNumber, expiryDate } = req.body;
-    if (!sku || !bin || qty === undefined) {
-      return res.status(400).json({ message: 'sku, bin, and qty are required' });
+    const { sku, bin, qty, owner, ownerType, lotNumber, batchNumber, expiryDate } = req.body;
+    if (req.context && req.context.warehouses && req.context.warehouses.length > 1) {
+      return res.status(400).json({ message: 'Multiple warehouses provided. This endpoint requires exactly one warehouse.' });
+    }
+    const warehouse = req.context?.warehouse?.code;
+
+    if (!sku || !bin || qty === undefined || !warehouse) {
+      return res.status(400).json({ message: 'sku, bin, qty, and warehouse are required' });
+    }
+    
+    if (!ownerType || !['COMPANY', 'CUSTOMER'].includes(ownerType)) {
+      return res.status(400).json({ message: 'ownerType (COMPANY or CUSTOMER) is strictly required for physical inventory creation.' });
     }
 
     const InventoryBalance = (await import('../models/InventoryBalance.js')).default;
@@ -285,7 +348,7 @@ router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
     }
 
     const balance = await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse: warehouse || 'MIA', sku, bin, owner: owner || 'Default 3PL' },
+      { company: req.user.company, warehouse: warehouse || 'MIA', sku, bin, owner: owner || 'Default 3PL', ownerType },
       {
         $inc: { qtyAvailable: Number(qty) },
         $set: { lotNumber: lotNumber || 'INIT-LOT', batchNumber, expiryDate }
@@ -302,6 +365,7 @@ router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
       fromLocation: 'SYSTEM_LOAD',
       toLocation: bin,
       owner: owner || 'Default 3PL',
+      ownerType,
       lotNumber: lotNumber || 'INIT-LOT',
       user: req.user.name || 'System Admin'
     });
