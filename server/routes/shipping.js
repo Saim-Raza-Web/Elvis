@@ -12,7 +12,7 @@ import JournalEntry from '../models/JournalEntry.js';
 import Counter from '../models/Counter.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
-
+import { IdempotencyService } from '../services/IdempotencyService.js';
 
 const router = express.Router();
 
@@ -79,6 +79,28 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 
     const wasShipped = existing.status === 'shipped' || existing.status === 'in_transit';
     const isShipped = req.body.status === 'shipped' || req.body.status === 'in_transit';
+    
+    let idempotencyLock = null;
+    if (!wasShipped && isShipped) {
+      try {
+        idempotencyLock = await IdempotencyService.acquireLock(
+          req.user.company,
+          'SHIPMENT_ACCOUNTING',
+          `SHIPMENT_ACCOUNTING_${req.params.id}`,
+          req.body
+        );
+        if (idempotencyLock.status === 'CACHED') {
+          await session.abortTransaction();
+          session.endSession();
+          return res.json(idempotencyLock.response);
+        }
+      } catch (err) {
+        await session.abortTransaction();
+        session.endSession();
+        if (err.status === 409) return res.status(409).json({ message: err.message });
+        throw err;
+      }
+    }
 
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
@@ -104,7 +126,21 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
         throw new Error(`HARD INTEGRITY EXCEPTION: PickTask ${item.packId} not found.`);
       }
 
+      const orderDoc = await Order.findOne({ orderId: item.order, company: req.user.company }).session(session);
+      if (!orderDoc) {
+        throw new Error(`HARD INTEGRITY EXCEPTION: Order ${item.order} not found for pricing snapshot.`);
+      }
+
+      const skuPrices = {};
+      if (orderDoc.product_lines) {
+        for (const line of orderDoc.product_lines) {
+          skuPrices[line.sku] = line.unit_price || 0;
+        }
+      }
+
       let totalCogsValue = 0;
+      let totalRevenueValue = 0;
+      const financialItems = [];
       const jeId = new mongoose.Types.ObjectId(); // Pre-generate ID for idempotency & linkage
 
       // Resolve the active InventoryAssetAccountMapping WITHIN the transaction, ONCE for this
@@ -150,58 +186,97 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
           inventoryAssetAccountId  // same as JE line below — snapshot immutability
         });
 
-        if (!costResult.skipped) {
+        if (!costResult.skipped && aggItem.ownerType === 'COMPANY') {
           // It's company-owned and processed successfully.
           // appliedValue = unitCostApplied * absolute quantityChange
           const appliedValue = costResult.ledger.unitCostApplied * Math.abs(costResult.ledger.quantityChange);
           totalCogsValue += appliedValue;
+
+          // Calculate Revenue Snapshot
+          const unitPrice = skuPrices[aggItem.sku] || 0;
+          const revAmount = aggItem.qty * unitPrice;
+          totalRevenueValue += revAmount;
+
+          financialItems.push({
+            sku: aggItem.sku,
+            qty: aggItem.qty,
+            unitPriceSnapshot: unitPrice,
+            revenueAmount: revAmount
+          });
         }
       }
 
-      // Create Consolidated Journal Entry if company-owned COGS exists
-      if (totalCogsValue > 0) {
+      // Create Consolidated Journal Entry if company-owned COGS/Revenue exists
+      if (totalCogsValue > 0 || totalRevenueValue > 0) {
         const accountingConfig = await CompanyAccountingConfig.findOne({ company: req.user.company }).session(session);
-        if (!accountingConfig || !accountingConfig.defaultCOGSAccountId || !accountingConfig.defaultInventoryAssetAccountId) {
-          throw new Error('HARD ACCOUNTING EXCEPTION: Missing CompanyAccountingConfig or required accounts (COGS/Inventory Asset) for shipping valuation.');
+        if (!accountingConfig || !accountingConfig.defaultCOGSAccountId || !accountingConfig.defaultInventoryAssetAccountId || !accountingConfig.defaultSalesRevenueAccountId || !accountingConfig.defaultUnbilledReceivableAccountId) {
+          throw new Error('HARD ACCOUNTING EXCEPTION: Missing CompanyAccountingConfig or required accounts (COGS/Asset/Rev/Unbilled) for shipping valuation.');
         }
 
+        const currentYear = new Date().getFullYear();
         const jeCounter = await Counter.findOneAndUpdate(
-          { _id: `journal_entry_${req.user.company}` },
+          { _id: `journal_entry_${currentYear}_${req.user.company}` },
           { $inc: { seq: 1 } },
           { new: true, upsert: true, session }
         );
-        const jeNumber = `JE-${new Date().getFullYear()}-${String(jeCounter.seq).padStart(5, '0')}`;
+        const jeNumber = `JE-${currentYear}-${String(jeCounter.seq).padStart(5, '0')}`;
+
+        const lines = [];
+        if (totalCogsValue > 0) {
+          lines.push({
+            accountId: accountingConfig.defaultCOGSAccountId,
+            account: 'COGS',
+            description: 'Cost of Goods Sold',
+            debit: totalCogsValue,
+            credit: 0
+          });
+          lines.push({
+            accountId: inventoryAssetAccountId,  // snapshot — from active mapping, same as Ledger
+            account: 'Inventory Asset',
+            description: 'Inventory Asset Deduction',
+            debit: 0,
+            credit: totalCogsValue
+          });
+        }
+        if (totalRevenueValue > 0) {
+          lines.push({
+            accountId: accountingConfig.defaultUnbilledReceivableAccountId,
+            account: 'Unbilled Receivable',
+            description: 'Accrued Unbilled AR',
+            debit: totalRevenueValue,
+            credit: 0
+          });
+          lines.push({
+            accountId: accountingConfig.defaultSalesRevenueAccountId,
+            account: 'Sales Revenue',
+            description: 'Revenue recognized at shipment',
+            debit: 0,
+            credit: totalRevenueValue
+          });
+        }
 
         await JournalEntry.create([{
           _id: jeId,
           entryNumber: jeNumber,
           date: new Date(),
           reference: item.shipmentId,
-          description: `COGS Recognition for Shipment ${item.shipmentId}`,
+          description: `COGS & Revenue Recognition for Shipment ${item.shipmentId}`,
           entryType: 'manual',
           sourceDocument: { docType: 'other', docNumber: item.shipmentId },
-          lines: [
-            {
-              accountId: accountingConfig.defaultCOGSAccountId,
-              account: 'COGS',
-              description: 'Cost of Goods Sold',
-              debit: totalCogsValue,
-              credit: 0
-            },
-            {
-              accountId: inventoryAssetAccountId,  // snapshot — from active mapping, same as Ledger
-              account: 'Inventory Asset',
-              description: 'Inventory Asset Deduction',
-              debit: 0,
-              credit: totalCogsValue
-            }
-          ],
-          totalDebit: totalCogsValue,
-          totalCredit: totalCogsValue,
+          lines: lines,
+          totalDebit: totalCogsValue + totalRevenueValue,
+          totalCredit: totalCogsValue + totalRevenueValue,
           status: 'posted',
           postedAt: new Date(),
           company: req.user.company
         }], { session });
+      }
+      
+      // Save the financial snapshot directly on the shipment
+      if (financialItems.length > 0) {
+        await Model.updateOne({ _id: item._id }, { $set: { financial_items: financialItems } }, { session });
+        // Update in memory for returning response
+        item.financial_items = financialItems;
       }
 
       // --- END ACCOUNTING INTEGRATION ---
@@ -220,10 +295,19 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
 
+    if (idempotencyLock) {
+      await IdempotencyService.completeLock(idempotencyLock.record._id, item);
+    }
+
     res.json(item);
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
+
+    if (typeof idempotencyLock !== 'undefined' && idempotencyLock && idempotencyLock.record) {
+      await IdempotencyService.failLock(idempotencyLock.record._id, err).catch(e => console.error('Failed to update idempotency failure', e));
+    }
+
     next(err);
   }
 });

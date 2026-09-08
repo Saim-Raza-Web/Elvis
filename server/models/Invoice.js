@@ -57,6 +57,9 @@ const invoiceSchema = new mongoose.Schema({
     error: String
   }],
   accountingTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' },
+  accountingJournalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
+  orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+  shipments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shipment' }],
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 

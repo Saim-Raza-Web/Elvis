@@ -11,10 +11,13 @@ import Transaction from '../models/Transaction.js';
 import { calculateInvoice } from '../services/invoiceCalculationEngine.js';
 import { generateInvoicePDFBuffer } from '../services/invoicePdfService.js';
 import { sendInvoiceEmail, isValidEmail } from '../services/emailService.js';
-import VeriFactuRecord from '../models/VeriFactuRecord.js';
-import SIIRecord from '../models/SIIRecord.js';
 import ComplianceConfig from '../models/ComplianceConfig.js';
-import { aeatService } from '../services/aeat.service.js';
+import ComplianceOutboxEvent from '../models/ComplianceOutboxEvent.js';
+import Shipment from '../models/Shipment.js';
+import Order from '../models/Order.js';
+import JournalEntry from '../models/JournalEntry.js';
+import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
+import { IdempotencyService } from '../services/IdempotencyService.js';
 
 const router = express.Router();
 
@@ -56,7 +59,120 @@ function formatCustomerAddress(cust) {
   return [b.street, b.number, b.postcode, b.city, b.region, b.country || cust.country].filter(Boolean).join(', ');
 }
 
-// ── GET all Invoices ────────────────────────────────────────────────────────
+// --- Phase 8C.2 Billing Accounting Helpers ---
+
+async function validateInvoiceQuantities(invoice, companyId, session) {
+  if (!invoice.orderId && (!invoice.shipments || invoice.shipments.length === 0)) {
+    return; // No linkage, skip strict reconciliation
+  }
+  
+  let shipments = [];
+  if (invoice.shipments && invoice.shipments.length > 0) {
+    shipments = await Shipment.find({ _id: { $in: invoice.shipments }, company: companyId }).session(session);
+  } else if (invoice.orderId) {
+    const orderDoc = await Order.findById(invoice.orderId).session(session);
+    if (orderDoc) {
+      shipments = await Shipment.find({ order: orderDoc.orderId, company: companyId }).session(session);
+    }
+  }
+
+  const shippedQty = {};
+  for (const ship of shipments) {
+    if (ship.financial_items) {
+      for (const item of ship.financial_items) {
+        shippedQty[item.sku] = (shippedQty[item.sku] || 0) + item.qty;
+      }
+    }
+  }
+
+  const pastInvoices = await Invoice.find({
+    orderId: invoice.orderId,
+    _id: { $ne: invoice._id },
+    status: { $in: ['issued', 'sent', 'paid'] },
+    company: companyId
+  }).session(session);
+
+  const invoicedQty = {};
+  for (const inv of pastInvoices) {
+    for (const line of inv.lines) {
+      if (line.sku && line.itemType !== 'service') {
+        invoicedQty[line.sku] = (invoicedQty[line.sku] || 0) + line.quantity;
+      }
+    }
+  }
+
+  for (const line of invoice.lines) {
+    if (line.itemType === 'service') continue; 
+    if (!line.sku) continue;
+    
+    const available = (shippedQty[line.sku] || 0) - (invoicedQty[line.sku] || 0);
+    // float tolerance
+    if (line.quantity > available + 0.001) { 
+      throw new Error(`HARD INVOICING EXCEPTION: Cannot invoice ${line.quantity} of SKU ${line.sku}. Only ${available} available to invoice (Shipped: ${shippedQty[line.sku] || 0}, Previously Invoiced: ${invoicedQty[line.sku] || 0}).`);
+    }
+  }
+}
+
+async function createInvoiceIssuanceJE(invoice, companyId, session) {
+  const accountingConfig = await CompanyAccountingConfig.findOne({ company: companyId }).session(session);
+  if (!accountingConfig || !accountingConfig.defaultAccountsReceivableAccountId || !accountingConfig.defaultUnbilledReceivableAccountId || !accountingConfig.defaultTaxPayableAccountId) {
+    throw new Error('HARD ACCOUNTING EXCEPTION: Missing CompanyAccountingConfig or required accounts (AR/Unbilled/Tax) for invoice issuance.');
+  }
+
+  const currentYear = new Date().getFullYear();
+  const jeCounter = await Counter.findOneAndUpdate(
+    { _id: `journal_entry_${currentYear}_${companyId}` },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true, session }
+  );
+  const jeNumber = `JE-${currentYear}-${String(jeCounter.seq).padStart(5, '0')}`;
+
+  const jeId = new mongoose.Types.ObjectId();
+  const netAmount = invoice.subtotal;
+  const taxAmount = invoice.totalTax;
+  const grossAmount = invoice.grandTotal;
+
+  await JournalEntry.create([{
+    _id: jeId,
+    entryNumber: jeNumber,
+    date: new Date(),
+    reference: invoice.invoiceNumber,
+    description: `Accounts Receivable — Invoice ${invoice.invoiceNumber} issued to ${invoice.customerName}`,
+    entryType: 'customer_invoice',
+    sourceDocument: { docType: 'customer_invoice', docNumber: invoice.invoiceNumber, docId: invoice._id },
+    lines: [
+      {
+        accountId: accountingConfig.defaultAccountsReceivableAccountId,
+        account: 'Accounts Receivable',
+        description: 'Gross Invoice Amount',
+        debit: grossAmount,
+        credit: 0
+      },
+      {
+        accountId: accountingConfig.defaultUnbilledReceivableAccountId,
+        account: 'Unbilled Receivable',
+        description: 'Clear Accrued Unbilled AR',
+        debit: 0,
+        credit: netAmount
+      },
+      {
+        accountId: accountingConfig.defaultTaxPayableAccountId,
+        account: 'Tax Payable',
+        description: 'Tax Liability',
+        debit: 0,
+        credit: taxAmount
+      }
+    ],
+    totalDebit: grossAmount,
+    totalCredit: grossAmount,
+    status: 'posted',
+    postedAt: new Date(),
+    company: companyId
+  }], { session });
+
+  return jeId;
+}
+
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
@@ -94,48 +210,56 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// ── GET all Invoices ────────────────────────────────────────────────────────
 // ── CREATE Invoice ──────────────────────────────────────────────────────────
 router.post('/', async (req, res, next) => {
+  const isIssued = req.body.status === 'issued';
+  const session = await mongoose.startSession();
+  if (isIssued) session.startTransaction();
+
   try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    if (!req.user || !req.user.company) {
+      if (isIssued) await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
 
-    const { customerId, lines, issuedDate, dueDate, paymentTerms, notes, bankInfo, status } = req.body;
+    const { customerId, lines, issuedDate, dueDate, paymentTerms, notes, bankInfo, status, shipments, orderId } = req.body;
 
-    // 1. Customer Verification
     if (!customerId) {
+      if (isIssued) await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: 'A valid CRM Customer selection is mandatory. Selecting customer from CRM is required.' });
     }
 
-    const customer = await Customer.findOne({ _id: customerId, company: req.user.company });
+    const customer = await Customer.findOne({ _id: customerId, company: req.user.company }).session(isIssued ? session : null);
     if (!customer) {
+      if (isIssued) await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'Selected CRM Customer was not found in your company records.' });
     }
 
-    // 2. Authoritative Calculation Engine
     let calcResult;
     try {
       calcResult = calculateInvoice(lines);
     } catch (calcErr) {
+      if (isIssued) await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: calcErr.message });
     }
 
-    // 3. Atomic Number Generation
-    const invoiceNumber = await generateNextInvoiceNumber(req.user.company);
-
-    const initialStatus = status === 'issued' ? 'issued' : 'draft';
+    const invoiceNumber = await generateNextInvoiceNumber(req.user.company, isIssued ? session : null);
+    const initialStatus = isIssued ? 'issued' : 'draft';
     const computedDue = dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    const customerAddressStr = formatCustomerAddress(customer);
-
-    // 4. Create Record
-    const invoice = await Invoice.create({
+    const invoice = new Invoice({
       invoiceNumber,
       invoiceId: invoiceNumber,
       customerId: customer._id,
       customerName: customer.name,
       customerEmail: customer.email,
       customerVat: customer.vatNumber || '',
-      customerAddress: customerAddressStr,
+      customerAddress: formatCustomerAddress(customer),
       customerPhone: customer.phone || '',
       lines: calcResult.lines,
       subtotal: calcResult.subtotal,
@@ -152,82 +276,41 @@ router.post('/', async (req, res, next) => {
       items: calcResult.lines.length,
       amount: calcResult.grandTotal,
       customer: customer.name,
+      shipments: shipments || [],
+      orderId: orderId || null,
       company: req.user.company
     });
 
-    // 5. Accounting Integration (if created directly as 'issued')
-    if (initialStatus === 'issued') {
-      try {
-        const txn = await Transaction.create({
-          transactionId: `TXN-${invoiceNumber}`,
-          reference: invoiceNumber,
-          date: new Date(),
-          description: `Accounts Receivable — Invoice ${invoiceNumber} issued to ${customer.name}`,
-          type: 'credit',
-          amount: calcResult.grandTotal,
-          category: 'Revenue',
-          account: 'Accounts Receivable',
-          status: 'posted',
-          company: req.user.company
-        });
-        invoice.accountingTransactionId = txn._id;
-        await invoice.save();
-      } catch (txnErr) {
-        console.warn('Accounting ledger record warning:', txnErr.message);
-      }
+    if (isIssued) {
+      await validateInvoiceQuantities(invoice, req.user.company, session);
+      
+      const jeId = await createInvoiceIssuanceJE(invoice, req.user.company, session);
+      invoice.accountingJournalEntryId = jeId;
 
-      // --- Compliance Integration (VeriFactu / SII) ---
-      try {
-        const compConfig = await ComplianceConfig.findOne({ company: req.user.company });
-        if (compConfig) {
-          if (compConfig.verifactuEnabled) {
-            const hashData = await aeatService.generateVeriFactuHash(req.user.company, {
-              issuerNif: req.user.company, // Fallback, normally from Company config
-              invoiceNumber: invoice.invoiceNumber,
-              date: invoice.issuedDate.toISOString().split('T')[0],
-              type: 'F1',
-              totalAmount: invoice.grandTotal
-            });
-            const vfRecord = await VeriFactuRecord.create({
-              company: req.user.company,
-              invoiceId: invoice._id,
-              recordType: 'ISSUED',
-              invoiceNumber: invoice.invoiceNumber,
-              issueDate: invoice.issuedDate,
-              issuerTaxId: 'TBD', // In real app get from Company profile
-              totalAmount: invoice.grandTotal,
-              taxAmount: invoice.totalTax,
-              previousRecordHash: hashData.previousHash,
-              currentHash: hashData.hash,
-              status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
-              lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
-            });
-          }
-          if (compConfig.siiEnabled) {
-            await SIIRecord.create({
-              company: req.user.company,
-              invoiceId: invoice._id,
-              recordType: 'ISSUED',
-              invoiceNumber: invoice.invoiceNumber,
-              invoiceDate: invoice.issuedDate,
-              taxPeriod: `${new Date(invoice.issuedDate).getFullYear()}-${String(new Date(invoice.issuedDate).getMonth() + 1).padStart(2, '0')}`,
-              counterpartyTaxId: invoice.customerVat || 'GENERIC',
-              counterpartyName: invoice.customerName,
-              taxBase: invoice.subtotal,
-              taxAmount: invoice.totalTax,
-              totalAmount: invoice.grandTotal,
-              status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
-              lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('Compliance record creation failed:', err.message);
-      }
+      await ComplianceOutboxEvent.create([{
+        company: req.user.company,
+        eventType: 'INVOICE_ISSUE',
+        referenceId: invoice._id,
+        referenceType: 'Invoice',
+        idempotencyKey: `INVOICE_ISSUANCE_OUTBOX_${invoice._id}`,
+        payload: { invoiceId: invoice._id.toString(), invoiceNumber: invoice.invoiceNumber },
+        status: 'PENDING'
+      }], { session });
+
+      await invoice.save({ session });
+      await session.commitTransaction();
+    } else {
+      await invoice.save();
     }
 
+    session.endSession();
     res.status(201).json(invoice);
   } catch (err) {
+    if (isIssued) await session.abortTransaction();
+    session.endSession();
+    if (err.message && (err.message.includes('HARD') || err.message.includes('Company context'))) {
+      return res.status(400).json({ message: err.message });
+    }
     next(err);
   }
 });
@@ -291,8 +374,12 @@ router.put('/:id', async (req, res, next) => {
 
     // Status transition handling
     if (status && status !== invoice.status) {
+      if (status === 'issued' && invoice.status === 'draft') {
+        return res.status(400).json({ message: 'Use the POST /:id/issue endpoint to issue an invoice with correct accounting.' });
+      }
+
       const allowedTransitions = {
-        draft: ['issued', 'cancelled'],
+        draft: ['cancelled'],
         issued: ['sent', 'paid', 'cancelled'],
         sent: ['paid', 'cancelled'],
         paid: [],
@@ -345,8 +432,24 @@ router.get('/:id/pdf', async (req, res, next) => {
 
 // ── ISSUE Invoice (Finalize) ────────────────────────────────────────────────
 router.post('/:id/issue', async (req, res, next) => {
+  let idempotencyLock = null;
   try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    idempotencyLock = await IdempotencyService.acquireLock(
+      req.user.company,
+      'INVOICE_ISSUANCE',
+      `INVOICE_ISSUANCE_${req.params.id}`,
+      {}
+    );
+    if (idempotencyLock.status === 'CACHED') return res.json(idempotencyLock.response);
+  } catch (err) {
+    if (err.status === 409) return res.status(409).json({ message: err.message });
+    return next(err);
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) throw new Error('Company context required');
 
     const invoice = await Invoice.findOne({
       $or: [
@@ -355,86 +458,51 @@ router.post('/:id/issue', async (req, res, next) => {
         { invoiceId: req.params.id }
       ],
       company: req.user.company
-    });
+    }).session(session);
 
-    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+    if (!invoice) throw new Error('Invoice not found');
     if (invoice.status !== 'draft') {
-      return res.status(400).json({ message: `Only draft invoices can be issued. Current status: '${invoice.status}'.` });
+      throw new Error(`Only draft invoices can be issued. Current status: '${invoice.status}'.`);
     }
+
+    await validateInvoiceQuantities(invoice, req.user.company, session);
 
     invoice.status = 'issued';
+    invoice.issuedDate = new Date(); // Update issued date to now
 
-    // Post to accounting
-    try {
-      const txn = await Transaction.create({
-        transactionId: `TXN-${invoice.invoiceNumber}`,
-        reference: invoice.invoiceNumber,
-        date: new Date(),
-        description: `Accounts Receivable — Invoice ${invoice.invoiceNumber} issued to ${invoice.customerName}`,
-        type: 'credit',
-        amount: invoice.grandTotal,
-        category: 'Revenue',
-        account: 'Accounts Receivable',
-        status: 'posted',
-        company: req.user.company
-      });
-      invoice.accountingTransactionId = txn._id;
-    } catch (txnErr) {
-      console.warn('Accounting ledger warning:', txnErr.message);
+    const jeId = await createInvoiceIssuanceJE(invoice, req.user.company, session);
+    invoice.accountingJournalEntryId = jeId;
+
+    await ComplianceOutboxEvent.create([{
+      company: req.user.company,
+      eventType: 'INVOICE_ISSUE',
+      referenceId: invoice._id,
+      referenceType: 'Invoice',
+      idempotencyKey: `INVOICE_ISSUANCE_OUTBOX_${invoice._id}`,
+      payload: { invoiceId: invoice._id.toString(), invoiceNumber: invoice.invoiceNumber },
+      status: 'PENDING'
+    }], { session });
+
+    await invoice.save({ session });
+    await session.commitTransaction();
+    session.endSession();
+
+    if (idempotencyLock) {
+      await IdempotencyService.completeLock(idempotencyLock.record._id, { message: `Invoice ${invoice.invoiceNumber} successfully issued.`, invoice });
     }
 
-    // --- Compliance Integration (VeriFactu / SII) ---
-    try {
-      const compConfig = await ComplianceConfig.findOne({ company: req.user.company });
-      if (compConfig) {
-        if (compConfig.verifactuEnabled) {
-          const hashData = await aeatService.generateVeriFactuHash(req.user.company, {
-            issuerNif: req.user.company, // Fallback, normally from Company config
-            invoiceNumber: invoice.invoiceNumber,
-            date: invoice.issuedDate.toISOString().split('T')[0],
-            type: 'F1',
-            totalAmount: invoice.grandTotal
-          });
-          const vfRecord = await VeriFactuRecord.create({
-            company: req.user.company,
-            invoiceId: invoice._id,
-            recordType: 'ISSUED',
-            invoiceNumber: invoice.invoiceNumber,
-            issueDate: invoice.issuedDate,
-            issuerTaxId: 'TBD', // In real app get from Company profile
-            totalAmount: invoice.grandTotal,
-            taxAmount: invoice.totalTax,
-            previousRecordHash: hashData.previousHash,
-            currentHash: hashData.hash,
-            status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
-            lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
-          });
-        }
-        if (compConfig.siiEnabled) {
-          await SIIRecord.create({
-            company: req.user.company,
-            invoiceId: invoice._id,
-            recordType: 'ISSUED',
-            invoiceNumber: invoice.invoiceNumber,
-            invoiceDate: invoice.issuedDate,
-            taxPeriod: `${new Date(invoice.issuedDate).getFullYear()}-${String(new Date(invoice.issuedDate).getMonth() + 1).padStart(2, '0')}`,
-            counterpartyTaxId: invoice.customerVat || 'GENERIC',
-            counterpartyName: invoice.customerName,
-            taxBase: invoice.subtotal,
-            taxAmount: invoice.totalTax,
-            totalAmount: invoice.grandTotal,
-            status: compConfig.certificatePfxEncrypted ? 'PENDING' : 'ERROR',
-            lastError: compConfig.certificatePfxEncrypted ? '' : 'AEAT certificate missing'
-          });
-        }
-      }
-    } catch (err) {
-      console.warn('Compliance record creation failed:', err.message);
-    }
-
-    await invoice.save();
     res.json({ message: `Invoice ${invoice.invoiceNumber} successfully issued.`, invoice });
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+
+    if (idempotencyLock && idempotencyLock.record) {
+      await IdempotencyService.failLock(idempotencyLock.record._id, err).catch(e => console.error('Failed to update idempotency failure', e));
+    }
+
+    if (err.message.includes('HARD') || err.message.includes('Company context') || err.message.includes('Only draft')) {
+      return res.status(400).json({ message: err.message });
+    }
     next(err);
   }
 });
