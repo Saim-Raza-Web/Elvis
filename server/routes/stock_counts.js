@@ -13,6 +13,8 @@ import ActivityLog from '../models/ActivityLog.js';
 import JournalEntry from '../models/JournalEntry.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import InventoryValuationEngine from '../services/InventoryValuationEngine.js';
+import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
+
 
 const router = express.Router();
 router.use(protect);
@@ -126,13 +128,15 @@ async function processDiscrepancy(line, company, warehouse, session, operator) {
 
       if (line.ownerType === 'COMPANY') {
         const accConfig = await CompanyAccountingConfig.findOne({ company }).session(session);
-        if (!accConfig || !accConfig.defaultInventoryAssetAccountId || !accConfig.defaultCOGSAccountId) {
-          throw new Error(`Accounting Config Violation: Missing default Inventory Asset or COGS accounts for company.`);
+        if (!accConfig || !accConfig.defaultCOGSAccountId) {
+          throw new Error(`Accounting Config Violation: Missing default COGS account for company.`);
         }
+
+        const inventoryAssetAccountId = await resolveActiveInventoryAssetAccount(company, new Date(), session);
 
         const jeId = new mongoose.Types.ObjectId();
         const costResult = await InventoryValuationEngine.processCycleCount(session, {
-          company, sku, owner: newOwner, ownerType: line.ownerType, qtyChange: line.discrepancy, referenceId: line._id ? line._id.toString() : 'SC-' + Date.now(), journalEntryId: jeId
+          company, sku, owner: newOwner, ownerType: line.ownerType, qtyChange: line.discrepancy, referenceId: line._id ? line._id.toString() : 'SC-' + Date.now(), journalEntryId: jeId, inventoryAssetAccountId
         });
 
         if (!costResult.skipped && costResult.ledger) {
@@ -292,9 +296,17 @@ async function processDiscrepancy(line, company, warehouse, session, operator) {
         throw new Error(`Accounting Config Violation: Missing default Inventory Asset or COGS accounts for company.`);
       }
 
+      // Resolve the active InventoryAssetAccountMapping WITHIN the transaction.
+      // This is the immutable snapshot that goes into both the Ledger and the JE line.
+      const inventoryAssetAccountId = await resolveActiveInventoryAssetAccount(company, new Date(), session);
+
       const jeId = new mongoose.Types.ObjectId();
       const costResult = await InventoryValuationEngine.processCycleCount(session, {
-        company, sku, owner: bal.owner, ownerType: bal.ownerType, qtyChange: line.discrepancy, referenceId: line._id ? line._id.toString() : 'SC-' + Date.now(), journalEntryId: jeId
+        company, sku, owner: bal.owner, ownerType: bal.ownerType,
+        qtyChange: line.discrepancy,
+        referenceId: line._id ? line._id.toString() : 'SC-' + Date.now(),
+        journalEntryId: jeId,
+        inventoryAssetAccountId  // immutable snapshot — same as JE line below
       });
 
       if (!costResult.skipped && costResult.ledger) {
@@ -311,7 +323,7 @@ async function processDiscrepancy(line, company, warehouse, session, operator) {
           entryType: 'manual',
           lines: [
             { accountId: accConfig.defaultCOGSAccountId, accountCodeSnapshot: accConfig.defaultCOGSAccountCode, account: accConfig.defaultCOGSAccountName, debit: financialValue, credit: 0 },
-            { accountId: accConfig.defaultInventoryAssetAccountId, accountCodeSnapshot: accConfig.defaultInventoryAssetAccountCode, account: accConfig.defaultInventoryAssetAccountName, debit: 0, credit: financialValue }
+            { accountId: inventoryAssetAccountId, accountCodeSnapshot: accConfig.defaultInventoryAssetAccountCode, account: accConfig.defaultInventoryAssetAccountName, debit: 0, credit: financialValue }
           ],
           totalDebit: financialValue, totalCredit: financialValue,
           status: 'posted', postedAt: new Date(), postedBy: operator, company

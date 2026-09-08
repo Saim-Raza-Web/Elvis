@@ -13,7 +13,11 @@ import ChartOfAccount from '../models/ChartOfAccount.js';
 import ChartOfAccountImportLog from '../models/ChartOfAccountImportLog.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import InventoryCost from '../models/InventoryCost.js';
-
+import InventoryAssetAccountMapping from '../models/InventoryAssetAccountMapping.js';
+import IdempotencyRecord from '../models/IdempotencyRecord.js';
+import ReconciliationApprovalEvent from '../models/ReconciliationApprovalEvent.js';
+import crypto from 'crypto';
+import { runReconciliation, classifyJournalEntry } from '../services/inventoryReconciliation.js';
 const router = express.Router();
 
 router.use(protect);
@@ -459,7 +463,289 @@ router.get('/accounts', async (req, res, next) => {
   }
 });
 
-// POST /api/v1/accounting/accounts/next-code (Suggest next child account code)
+// POST /api/v1/accounting/inventory-transfer
+router.post('/inventory-transfer', requireRole('admin', 'manager'), async (req, res, next) => {
+  const session = await mongoose.startSession();
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const {
+      sourceAccountId,
+      destAccountId,
+      sourceMappingId,
+      destMappingId,
+      amount,
+      idempotencyKey,
+      date,
+      reference,
+      description
+    } = req.body;
+
+    if (!sourceAccountId || !destAccountId || !sourceMappingId || !destMappingId) {
+      return res.status(400).json({ message: 'Missing required account or mapping IDs.' });
+    }
+    if (sourceAccountId === destAccountId) {
+      return res.status(400).json({ message: 'Source and destination accounts must be different.' });
+    }
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: 'Transfer amount must be strictly greater than zero.' });
+    }
+    if (!idempotencyKey) {
+      return res.status(400).json({ message: 'Idempotency key is required.' });
+    }
+
+    const payloadString = JSON.stringify(req.body);
+    const requestFingerprint = crypto.createHash('sha256').update(payloadString).digest('hex');
+
+    let responsePayload = null;
+
+    await session.withTransaction(async () => {
+      // 1. Idempotency Check (inside transaction)
+      const idempotencyDoc = await IdempotencyRecord.create([{
+        company: req.user.company,
+        idempotencyKey,
+        operation: 'inventory_account_transfer',
+        requestFingerprint,
+        status: 'completed'
+      }], { session });
+
+      // 2. Validate Mappings
+      const sourceMapping = await InventoryAssetAccountMapping.findOne({ _id: sourceMappingId, company: req.user.company }).session(session);
+      const destMapping = await InventoryAssetAccountMapping.findOne({ _id: destMappingId, company: req.user.company }).session(session);
+
+      if (!sourceMapping || !destMapping) {
+        throw { status: 400, message: 'Invalid mapping IDs provided.' };
+      }
+      if (sourceMapping.accountId.toString() !== sourceAccountId || destMapping.accountId.toString() !== destAccountId) {
+        throw { status: 400, message: 'Mapping IDs do not match the provided account IDs.' };
+      }
+
+      // 3. Strict Predecessor-Successor Transition Enforcement
+      if (!sourceMapping.transferredTo || sourceMapping.transferredTo.toString() !== destAccountId) {
+        throw { status: 400, message: 'The provided source mapping does not have an explicit transition (transferredTo) to the destination account.' };
+      }
+
+      // 4. Accounts existence
+      const sourceAccount = await ChartOfAccount.findOne({ _id: sourceAccountId, company: req.user.company }).session(session);
+      const destAccount = await ChartOfAccount.findOne({ _id: destAccountId, company: req.user.company }).session(session);
+      if (!sourceAccount || !destAccount) {
+        throw { status: 400, message: 'One or both accounts do not exist.' };
+      }
+
+      // 5. Fiscal Period Open Check
+      const jeDate = date ? new Date(date) : new Date();
+      const FiscalPeriod = mongoose.model('FiscalPeriod');
+      const period = await FiscalPeriod.findOne({
+        company: req.user.company,
+        startDate: { $lte: jeDate },
+        endDate: { $gte: jeDate }
+      }).session(session);
+      
+      // If no period is found, we might enforce it if strict fiscal periods are enabled,
+      // but if a period IS found, it must be open.
+      if (period && period.status !== 'OPEN') {
+        throw { status: 400, message: 'Fiscal period is closed for the transfer date.' };
+      }
+
+      // 6. Create Journal Entry
+      const entryNumber = await generateNextJournalEntryNumber(req.user.company, session);
+
+      const lines = [
+        {
+          accountId: destAccountId,
+          account: `${destAccount.accountCode} - ${destAccount.accountName}`,
+          accountCodeSnapshot: destAccount.accountCode,
+          accountNameSnapshot: destAccount.accountName,
+          description: `Inventory GL Transfer to ${destAccount.accountName}`,
+          debit: amount,
+          credit: 0
+        },
+        {
+          accountId: sourceAccountId,
+          account: `${sourceAccount.accountCode} - ${sourceAccount.accountName}`,
+          accountCodeSnapshot: sourceAccount.accountCode,
+          accountNameSnapshot: sourceAccount.accountName,
+          description: `Inventory GL Transfer from ${sourceAccount.accountName}`,
+          debit: 0,
+          credit: amount
+        }
+      ];
+
+      const entry = await JournalEntry.create([{
+        entryNumber,
+        date: jeDate,
+        reference: reference || '',
+        description: description || `Explicit Inventory GL Transfer`,
+        entryType: 'manual',
+        sourceDocument: {
+          docType: 'inventory_account_transfer',
+          sourceMappingId: sourceMapping._id,
+          destMappingId: destMapping._id
+        },
+        lines,
+        totalDebit: amount,
+        totalCredit: amount,
+        status: 'posted',
+        postedAt: new Date(),
+        postedBy: req.user.name || req.user.email || 'Admin',
+        company: req.user.company
+      }], { session });
+
+      // Transaction Lines for standard reporting
+      const txnsToCreate = lines.map((jl, idx) => ({
+        txnId: `TXN-${entryNumber}-${idx + 1}`,
+        date: jeDate,
+        description: jl.description,
+        type: jl.debit > 0 ? 'debit' : 'credit',
+        amount: jl.debit > 0 ? jl.debit : jl.credit,
+        debit: jl.debit,
+        credit: jl.credit,
+        account: jl.account,
+        accountId: jl.accountId,
+        accountCodeSnapshot: jl.accountCodeSnapshot,
+        accountNameSnapshot: jl.accountNameSnapshot,
+        journalEntryId: entry[0]._id,
+        company: req.user.company
+      }));
+      await Transaction.insertMany(txnsToCreate, { session });
+
+      responsePayload = entry[0];
+
+      // Update idempotency response
+      await IdempotencyRecord.updateOne(
+        { _id: idempotencyDoc[0]._id },
+        { $set: { responsePayload, responseStatus: 201 } },
+        { session }
+      );
+    });
+
+    if (responsePayload) {
+      res.status(201).json(responsePayload);
+    }
+
+  } catch (err) {
+    if (err.code === 11000) {
+      const idempotencyKey = req.body.idempotencyKey;
+      const payloadString = JSON.stringify(req.body);
+      const requestFingerprint = crypto.createHash('sha256').update(payloadString).digest('hex');
+      const existing = await IdempotencyRecord.findOne({ company: req.user.company, idempotencyKey, operation: 'inventory_account_transfer' });
+      if (existing) {
+        if (existing.requestFingerprint !== requestFingerprint) {
+          return res.status(409).json({ message: 'Idempotency key reused with different payload' });
+        }
+        if (existing.status === 'completed') {
+          return res.status(201).json(existing.responsePayload);
+        }
+      }
+    }
+
+    if (err.status) {
+      return res.status(err.status).json({ message: err.message });
+    }
+    next(err);
+  } finally {
+    session.endSession();
+  }
+});
+
+// POST /api/v1/accounting/inventory-transfer/:id/reconciliation-event
+router.post('/inventory-transfer/:id/reconciliation-event', requireRole('admin', 'manager'), async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { action, notes } = req.body;
+    if (!['APPROVE', 'REJECT', 'REVOKE'].includes(action)) {
+      return res.status(400).json({ message: 'Action must be APPROVE, REJECT, or REVOKE.' });
+    }
+
+    const entry = await JournalEntry.findOne({ _id: req.params.id, company: req.user.company });
+    if (!entry) return res.status(404).json({ message: 'Journal entry not found' });
+
+    if (entry.sourceDocument?.docType !== 'inventory_account_transfer') {
+      return res.status(400).json({ message: 'Reconciliation events can only be appended to explicit inventory account transfers.' });
+    }
+
+    const event = await ReconciliationApprovalEvent.create({
+      company: req.user.company,
+      journalEntryId: entry._id,
+      action,
+      performedBy: req.user.name || req.user.email || 'Admin',
+      notes: notes || ''
+    });
+
+    res.status(201).json(event);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Phase 8B.4 Step 4 — READ-ONLY Inventory GL Reconciliation Engine
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/v1/accounting/inventory-reconciliation
+ *
+ * Runs the full historical GL reconciliation sweep for the requesting company.
+ * READ-ONLY — no mutations to any source-of-truth data.
+ *
+ * Query params (optional):
+ *   startDate  ISO date string — filter JEs on or after this date
+ *   endDate    ISO date string — filter JEs on or before this date
+ *
+ * Response: { count, results[] }
+ */
+router.get('/inventory-reconciliation', requireRole('admin', 'manager'), async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { startDate, endDate } = req.query;
+
+    // Validate date strings if provided — never silently misinterpret
+    if (startDate && isNaN(Date.parse(startDate))) {
+      return res.status(400).json({ message: 'Invalid startDate format. Use ISO 8601 (e.g. 2026-01-01).' });
+    }
+    if (endDate && isNaN(Date.parse(endDate))) {
+      return res.status(400).json({ message: 'Invalid endDate format. Use ISO 8601 (e.g. 2026-12-31).' });
+    }
+
+    const results = await runReconciliation(req.user.company, { startDate, endDate });
+
+    res.json({ count: results.length, results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/accounting/inventory-reconciliation/:id
+ *
+ * Classifies a single JournalEntry by its ID.
+ * READ-ONLY — no mutations.
+ */
+router.get('/inventory-reconciliation/:id', requireRole('admin', 'manager'), async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid journal entry ID.' });
+    }
+
+    const je = await JournalEntry.findOne({
+      _id: req.params.id,
+      company: req.user.company,
+    }).lean();
+
+    if (!je) return res.status(404).json({ message: 'Journal entry not found.' });
+
+    const result = await classifyJournalEntry(je, req.user.company);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+
 router.post('/accounts/next-code', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
@@ -1771,7 +2057,13 @@ router.post('/journal-entries/:id/reverse', async (req, res, next) => {
         reference: entry.entryNumber,
         description: `Reversal of ${entry.entryNumber} — Reason: ${reason || 'Correction'}`,
         entryType: 'reversal',
-        sourceDocument: { docType: 'manual', docId: entry._id, docNumber: entry.entryNumber },
+        sourceDocument: { 
+          docType: entry.sourceDocument?.docType || 'manual', 
+          docId: entry._id, 
+          docNumber: entry.entryNumber,
+          sourceMappingId: entry.sourceDocument?.sourceMappingId || undefined,
+          destMappingId: entry.sourceDocument?.destMappingId || undefined
+        },
         lines: reversalLines,
         totalDebit: entry.totalCredit,
         totalCredit: entry.totalDebit,

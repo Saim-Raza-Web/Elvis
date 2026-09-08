@@ -83,6 +83,21 @@ const inventoryValuationLedgerSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'JournalEntry',
     default: null
+  },
+  /**
+   * Immutable snapshot of the Inventory Asset ChartOfAccount that was active
+   * at the time this valuation event was created.
+   *
+   * - Populated for ALL new events (PUTAWAY, SHIPMENT, RETURN, CYCLE_COUNT)
+   *   where ownerType === 'COMPANY'.
+   * - null only on legacy records created before Phase 8B.4 Step 1.
+   * - MUST match the accountId used in the corresponding JournalEntry line.
+   * - Never overwritten, even if CompanyAccountingConfig changes later.
+   */
+  inventoryAssetAccountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ChartOfAccount',
+    default: null
   }
 }, { 
   timestamps: { createdAt: true, updatedAt: false } // Immutable logs don't have updates

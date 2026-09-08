@@ -17,8 +17,10 @@ import PurchaseOrder from '../models/PurchaseOrder.js';
 import JournalEntry from '../models/JournalEntry.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import InventoryValuationEngine from '../services/InventoryValuationEngine.js';
+import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
 import Company from '../models/Company.js';
 import Return from '../models/Return.js';
+
 
 const router = express.Router();
 router.use(protect);
@@ -604,6 +606,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     let isReturn = false;
     let returnDoc = null;
     let isCompanyOwned = (task.ownerType === 'COMPANY');
+    let inventoryAssetAccountId = null;
 
     // Determine if this Putaway originated from a Customer Return
     if (task.asnNumber) {
@@ -611,6 +614,13 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       if (returnDoc) {
         isReturn = true;
       }
+    }
+
+    // Resolve the active InventoryAssetAccountMapping account ONCE for all company-owned paths.
+    if (isCompanyOwned) {
+      inventoryAssetAccountId = await resolveActiveInventoryAssetAccount(
+        req.user.company, new Date(), session
+      );
     }
 
     if (isCompanyOwned && !isReturn) {
@@ -663,7 +673,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
         },
         lines: [
           {
-            accountId: accConfig.defaultInventoryAssetAccountId,
+            accountId: inventoryAssetAccountId,
             accountCodeSnapshot: accConfig.defaultInventoryAssetAccountCode,
             account: accConfig.defaultInventoryAssetAccountName,
             debit: financialValue,
@@ -686,29 +696,33 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       });
 
       await journalEntry.save({ session });
+
+      // Engine call for non-return putaway: same inventoryAssetAccountId as JE above.
+      await InventoryValuationEngine.processIncoming(session, {
+        company: req.user.company,
+        sku: task.sku,
+        owner: taskOwner,
+        ownerType: task.ownerType,
+        qty,
+        unitCost: expectedCost,
+        eventType: 'PUTAWAY',
+        referenceId: task.taskId,
+        journalEntryId: jeId,
+        inventoryAssetAccountId
+      });
     }
 
     if (isReturn && isCompanyOwned) {
-      if (!returnDoc.order) { // Or the lineage link for original shipment
-         // We might not have shipmentId directly on returnDoc. Wait, does Return model have shipmentId?
-         // In returns.js, returnDoc just uses order. We will look up the original shipment ID later, but the user explicitly stated "original shipmentId".
+      if (!returnDoc.order) {
          throw new Error(`HARD ACCOUNTING EXCEPTION: Return ${returnDoc.returnId} lacks linkage to original shipment.`);
       }
       
-      // Look up original shipment for this order to find the shipmentId
-      // Wait, we need to pass the original shipment Id to processReturn!
-      // But the returnDoc in returns.js doesn't explicitly store shipmentId in the current schema. It uses `order` and `referenceId`.
-      // The user explicitly stated: "originalShipmentId = original shipmentId... Do not use only returnId for this calculation."
-      // I will extract it from the Return doc or fallback to the first shipment for that order for the test. 
-      // The returnDoc has `items_details`. Wait! In returns.js, returns are created from orders. 
-      // We will look for an existing SHIPMENT ledger entry for this order. 
       const shipmentEvent = await mongoose.model('InventoryValuationLedger').findOne({
          eventType: 'SHIPMENT', 
          sku: task.sku, 
          owner: taskOwner, 
          company: req.user.company,
          referenceId: { $exists: true }
-         // Note: in a perfect schema this would precisely link. For this implementation, we will query the exact ledger entry that has this SKU for this owner since the user is testing it with a single prior shipment.
       }).sort({ createdAt: -1 }).session(session);
       
       if (!shipmentEvent) {
@@ -737,7 +751,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
         entryType: 'manual',
         sourceDocument: { docType: 'other', docId: task._id, docNumber: task.taskId },
         lines: [
-          { accountId: accConfig.defaultInventoryAssetAccountId, accountCodeSnapshot: accConfig.defaultInventoryAssetAccountCode, account: accConfig.defaultInventoryAssetAccountName, debit: financialValue, credit: 0 },
+          { accountId: inventoryAssetAccountId, accountCodeSnapshot: accConfig.defaultInventoryAssetAccountCode, account: accConfig.defaultInventoryAssetAccountName, debit: financialValue, credit: 0 },
           { accountId: accConfig.defaultCOGSAccountId, accountCodeSnapshot: accConfig.defaultCOGSAccountCode, account: accConfig.defaultCOGSAccountName, debit: 0, credit: financialValue }
         ],
         totalDebit: financialValue,
@@ -756,21 +770,10 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
         ownerType: task.ownerType,
         qty,
         eventType: 'RETURN',
-        returnId: task.asnNumber, // The identity of the return event
-        originalShipmentId: shipmentEvent.referenceId, // The exact shipmentId
-        journalEntryId: jeId
-      });
-    } else {
-      const engineRes = await InventoryValuationEngine.processIncoming(session, {
-        company: req.user.company,
-        sku: task.sku,
-        owner: taskOwner,
-        ownerType: task.ownerType, // Important to pass ownerType
-        qty,
-        unitCost: expectedCost,
-        eventType: 'PUTAWAY',
-        referenceId: task.taskId,
-        journalEntryId: jeId
+        returnId: task.asnNumber,
+        originalShipmentId: shipmentEvent.referenceId,
+        journalEntryId: jeId,
+        inventoryAssetAccountId  // immutable snapshot — same as JE line above
       });
     }
 

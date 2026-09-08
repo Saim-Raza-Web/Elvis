@@ -10,7 +10,7 @@ export default class InventoryValuationEngine {
   /**
    * Process an incoming physical receipt to compute and store the new Weighted Average Cost.
    */
-  static async processIncoming(session, { company, sku, owner, ownerType, qty, unitCost, eventType, referenceId, journalEntryId }) {
+  static async processIncoming(session, { company, sku, owner, ownerType, qty, unitCost, eventType, referenceId, journalEntryId, inventoryAssetAccountId = null }) {
     if (!company || !sku || !owner || qty == null || unitCost == null || !eventType || !referenceId || !ownerType) {
       throw new Error('Missing required arguments for WAC incoming calculation');
     }
@@ -26,6 +26,18 @@ export default class InventoryValuationEngine {
     
     if (!isCompanyOwned) {
       return { skipped: true, reason: 'Customer-owned inventory is excluded from operator valuation' };
+    }
+
+    // For company-owned events, inventoryAssetAccountId MUST be provided.
+    // It is captured from the active InventoryAssetAccountMapping at call time
+    // by the route layer and passed into the engine. This ensures the Ledger
+    // snapshot is independent of any future config changes.
+    if (!inventoryAssetAccountId) {
+      throw new Error(
+        `HARD ACCOUNTING EXCEPTION: inventoryAssetAccountId is required for COMPANY-owned ` +
+        `valuation events (SKU: ${sku}). Ensure an active InventoryAssetAccountMapping exists ` +
+        `for the company and is passed to the engine.`
+      );
     }
 
     // 2. Fetch or Create InventoryCost with OCC
@@ -61,7 +73,8 @@ export default class InventoryValuationEngine {
       unitCostApplied: unitCost,
       priorQty, priorWac, priorTotalValue,
       newQty, newWac, newTotalValue,
-      journalEntryId
+      journalEntryId,
+      inventoryAssetAccountId  // immutable snapshot captured at event creation
     });
     
     await ledger.save({ session });
@@ -72,7 +85,7 @@ export default class InventoryValuationEngine {
   /**
    * Process an outgoing physical consumption to reduce value at current WAC.
    */
-  static async processOutgoing(session, { company, sku, owner, ownerType, qty, eventType, referenceId, journalEntryId }) {
+  static async processOutgoing(session, { company, sku, owner, ownerType, qty, eventType, referenceId, journalEntryId, inventoryAssetAccountId = null }) {
     if (!company || !sku || !owner || qty == null || !eventType || !referenceId || !ownerType) {
       throw new Error('Missing required arguments for WAC outgoing calculation');
     }
@@ -86,6 +99,14 @@ export default class InventoryValuationEngine {
     
     if (!isCompanyOwned) {
       return { skipped: true, reason: 'Customer-owned inventory is excluded from operator valuation' };
+    }
+
+    if (!inventoryAssetAccountId) {
+      throw new Error(
+        `HARD ACCOUNTING EXCEPTION: inventoryAssetAccountId is required for COMPANY-owned ` +
+        `valuation events (SKU: ${sku}). Ensure an active InventoryAssetAccountMapping exists ` +
+        `for the company and is passed to the engine.`
+      );
     }
 
     // 2. Fetch InventoryCost
@@ -133,7 +154,8 @@ export default class InventoryValuationEngine {
       unitCostApplied: priorWac,
       priorQty, priorWac, priorTotalValue,
       newQty, newWac, newTotalValue,
-      journalEntryId
+      journalEntryId,
+      inventoryAssetAccountId  // immutable snapshot captured at event creation
     });
 
     await ledger.save({ session });
@@ -144,7 +166,7 @@ export default class InventoryValuationEngine {
   /**
    * Process a customer return, reversing COGS based on original historical shipment cost.
    */
-  static async processReturn(session, { company, sku, owner, ownerType, qty, eventType = 'RETURN', returnId, originalShipmentId, journalEntryId }) {
+  static async processReturn(session, { company, sku, owner, ownerType, qty, eventType = 'RETURN', returnId, originalShipmentId, journalEntryId, inventoryAssetAccountId = null }) {
     if (!company || !sku || !owner || qty == null || !returnId || !originalShipmentId || !ownerType) {
       throw new Error('Missing required arguments for WAC return calculation');
     }
@@ -157,6 +179,14 @@ export default class InventoryValuationEngine {
     const isCompanyOwned = ownerType === 'COMPANY';
     if (!isCompanyOwned) {
       return { skipped: true, reason: 'Customer-owned inventory is excluded from operator valuation' };
+    }
+
+    if (!inventoryAssetAccountId) {
+      throw new Error(
+        `HARD ACCOUNTING EXCEPTION: inventoryAssetAccountId is required for COMPANY-owned ` +
+        `return events (SKU: ${sku}). Ensure an active InventoryAssetAccountMapping exists ` +
+        `for the company and is passed to the engine.`
+      );
     }
 
     // 1. Trace historical cost lineage
@@ -222,7 +252,8 @@ export default class InventoryValuationEngine {
       unitCostApplied: historicalUnitCost,
       priorQty, priorWac, priorTotalValue,
       newQty, newWac, newTotalValue,
-      journalEntryId
+      journalEntryId,
+      inventoryAssetAccountId  // immutable snapshot captured at event creation
     });
 
     await ledger.save({ session });
@@ -233,7 +264,7 @@ export default class InventoryValuationEngine {
   /**
    * Process a cycle count (gain or shrink) at current WAC.
    */
-  static async processCycleCount(session, { company, sku, owner, ownerType, qtyChange, eventType = 'CYCLE_COUNT', referenceId, journalEntryId }) {
+  static async processCycleCount(session, { company, sku, owner, ownerType, qtyChange, eventType = 'CYCLE_COUNT', referenceId, journalEntryId, inventoryAssetAccountId = null }) {
     if (!company || !sku || !owner || qtyChange == null || !referenceId || !ownerType) {
       throw new Error('Missing required arguments for WAC cycle count calculation');
     }
@@ -246,6 +277,14 @@ export default class InventoryValuationEngine {
     const isCompanyOwned = ownerType === 'COMPANY';
     if (!isCompanyOwned) {
       return { skipped: true, reason: 'Customer-owned inventory is excluded from operator valuation' };
+    }
+
+    if (!inventoryAssetAccountId) {
+      throw new Error(
+        `HARD ACCOUNTING EXCEPTION: inventoryAssetAccountId is required for COMPANY-owned ` +
+        `cycle count events (SKU: ${sku}). Ensure an active InventoryAssetAccountMapping exists ` +
+        `for the company and is passed to the engine.`
+      );
     }
 
     // 1. Fetch InventoryCost
@@ -300,7 +339,8 @@ export default class InventoryValuationEngine {
       unitCostApplied: priorWac,
       priorQty, priorWac, priorTotalValue,
       newQty, newWac, newTotalValue,
-      journalEntryId
+      journalEntryId,
+      inventoryAssetAccountId  // immutable snapshot captured at event creation
     });
 
     await ledger.save({ session });

@@ -40,9 +40,11 @@ const journalEntrySchema = new mongoose.Schema({
     default: 'manual'
   },
   sourceDocument: {
-    docType: { type: String, enum: ['supplier_bill', 'customer_invoice', 'payment', 'manual', 'other'], default: 'manual' },
+    docType: { type: String, enum: ['supplier_bill', 'customer_invoice', 'payment', 'manual', 'other', 'inventory_account_transfer'], default: 'manual' },
     docId: { type: mongoose.Schema.Types.ObjectId },
-    docNumber: { type: String, default: '' }
+    docNumber: { type: String, default: '' },
+    sourceMappingId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryAssetAccountMapping' },
+    destMappingId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryAssetAccountMapping' }
   },
   lines: [journalLineSchema],
   totalDebit: { type: Number, required: true, default: 0 },

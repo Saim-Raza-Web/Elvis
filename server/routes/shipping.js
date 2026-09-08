@@ -11,6 +11,8 @@ import InventoryValuationEngine from '../services/InventoryValuationEngine.js';
 import JournalEntry from '../models/JournalEntry.js';
 import Counter from '../models/Counter.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
+import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
+
 
 const router = express.Router();
 
@@ -104,6 +106,13 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 
       let totalCogsValue = 0;
       const jeId = new mongoose.Types.ObjectId(); // Pre-generate ID for idempotency & linkage
+
+      // Resolve the active InventoryAssetAccountMapping WITHIN the transaction, ONCE for this
+      // shipment event. Every picked-SKU's processOutgoing call and the consolidated JE line
+      // will use the SAME accountId, guaranteeing Ledger snapshot == JE account.
+      const inventoryAssetAccountId = await resolveActiveInventoryAssetAccount(
+        req.user.company, new Date(), session
+      );
       
       // Aggregate picking lines by sku + owner + ownerType to prevent URN collisions
       const aggregatedLines = {};
@@ -137,7 +146,8 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
           qty: aggItem.qty,
           eventType: 'SHIPMENT',
           referenceId: item.shipmentId,
-          journalEntryId: jeId
+          journalEntryId: jeId,
+          inventoryAssetAccountId  // same as JE line below — snapshot immutability
         });
 
         if (!costResult.skipped) {
@@ -179,7 +189,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
               credit: 0
             },
             {
-              accountId: accountingConfig.defaultInventoryAssetAccountId,
+              accountId: inventoryAssetAccountId,  // snapshot — from active mapping, same as Ledger
               account: 'Inventory Asset',
               description: 'Inventory Asset Deduction',
               debit: 0,
