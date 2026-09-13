@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3, Printer, CheckSquare, Square } from "lucide-react";
+import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3, Printer, CheckSquare, Square, Play, CheckCircle2, XCircle, Clock, ShieldCheck, ArrowRight, Activity, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -8,11 +8,16 @@ import { useLang } from "../LangContext";
 import { locationsService } from "../../services/locations.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { zonesService } from "../../services/zones.service";
+import { storageRulesService } from "../../services/storage_rules.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 
 const locationsListService: ListService<Loc> = {
-  getAll: async (params) => (await locationsService.getAll(params)) as Loc[],
+  getAll: async (params) => {
+    if (!params?.warehouse) return [];
+    return (await locationsService.getAll(params)) as Loc[];
+  },
   getPage: async (params) => {
+    if (!params?.warehouse) return { data: [], pagination: null };
     const res = await locationsService.getPage(params);
     return { data: res.data as Loc[], pagination: res.pagination };
   },
@@ -38,6 +43,8 @@ type Loc = {
   palletCapacity?: number;
   boxCapacity?: number;
   weightCapacity?: number;
+  max_weight_kg?: number;
+  level_weight_limit?: number;
   allowedOwners?: string[];
   active?: boolean;
 };
@@ -57,7 +64,7 @@ export function Locations() {
   const { t } = useLang();
   const [zones, setZones] = useState<Zone[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [selectedWarehouse, setSelectedWarehouse] = useState("MIA");
+  const [selectedWarehouse, setSelectedWarehouse] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"zones" | "locations" | "rules" | "simulators">("zones");
   const [showCsvImport, setShowCsvImport] = useState(false);
@@ -76,11 +83,11 @@ export function Locations() {
 
   // Add Zone modal
   const [showZone, setShowZone] = useState(false);
-  const [zoneForm, setZoneForm] = useState({ code: "", name: "", type: "storage", warehouse: "MIA", locations: 10, capacity: 1000 });
+  const [zoneForm, setZoneForm] = useState({ code: "", name: "", type: "storage", warehouse: "", locations: 10, capacity: 1000 });
   const [editZoneTarget, setEditZoneTarget] = useState<Zone | null>(null);
   const [deleteZoneTarget, setDeleteZoneTarget] = useState<Zone | null>(null);
 
-  // Add Location modal (LOC-03 Extended Properties)
+  // Add Location modal (LOC-03 Extended Properties & Stage 3 Weight Limits)
   const [showLoc, setShowLoc] = useState(false);
   const [locForm, setLocForm] = useState({
     zone: "PICK-A",
@@ -96,6 +103,8 @@ export function Locations() {
     palletCapacity: 1,
     boxCapacity: 50,
     weightCapacity: 1000,
+    max_weight_kg: "" as string | number,
+    level_weight_limit: "" as string | number,
     allowedOwners: "",
     active: true,
     allowed_manufacturers: "",
@@ -104,32 +113,103 @@ export function Locations() {
   const [editLocTarget, setEditLocTarget] = useState<Loc | null>(null);
   const [deleteLocTarget, setDeleteLocTarget] = useState<Loc | null>(null);
 
+  // Picking Simulator State (Stage 4)
+  const [simSku, setSimSku] = useState("");
+  const [simWarehouse, setSimWarehouse] = useState("");
+  const [simOwner, setSimOwner] = useState("");
+  const [simCustomer, setSimCustomer] = useState("");
+  const [simQty, setSimQty] = useState(1);
+  const [simStrategy, setSimStrategy] = useState("FEFO");
+  const [simLoading, setSimLoading] = useState(false);
+  const [simResult, setSimResult] = useState<any | null>(null);
+
+  const handleRunSimulatePicking = async () => {
+    if (!simSku.trim()) {
+      toast.error("Please enter a SKU to simulate");
+      return;
+    }
+    const wh = simWarehouse || selectedWarehouse || warehouses[0]?.code;
+    if (!wh) {
+      toast.error("Please select a warehouse");
+      return;
+    }
+    setSimLoading(true);
+    try {
+      const res = await storageRulesService.simulatePicking({
+        sku: simSku.trim(),
+        warehouse: wh,
+        owner: simOwner.trim() || undefined,
+        customer: simCustomer.trim() || undefined,
+        qtyNeeded: Number(simQty) || 1,
+        strategy: simStrategy
+      });
+      setSimResult(res);
+      if (res.success) {
+        toast.success(`Simulation succeeded: ${res.totalAllocatedQty} units allocated`);
+      } else {
+        toast.warning(`Simulation shortfall: ${res.shortfallQty} units unallocated`);
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Simulation failed");
+    } finally {
+      setSimLoading(false);
+    }
+  };
+
   const { items: pagedLocs, allItems: locs, pagination, page, setPage, isLoading, reload } = usePaginatedList<Loc>(
     locationsListService,
     {
-      apiParams: { search: search.toLowerCase(), warehouse: selectedWarehouse },
+      apiParams: { search: search.toLowerCase(), ...(selectedWarehouse ? { warehouse: selectedWarehouse } : {}) },
       deps: [search, selectedWarehouse],
     }
   );
 
   async function loadData() {
+    if (!selectedWarehouse) {
+      setZones([]);
+      setRules([]);
+      return;
+    }
+
     try {
-      const [whs, zonesData, rulesData] = await Promise.all([
-        warehousesService.getAll(),
-        zonesService.getAll({ warehouse: selectedWarehouse }),
-        fetch(`/api/v1/storage-rules`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
-        }).then(res => res.json()).catch(() => [])
-      ]);
-      const whList = (whs || []) as any[];
+      const zonesData = await zonesService.getAll({ warehouse: selectedWarehouse });
       setZones((zonesData as Zone[]) || []);
-      setWarehouses(whList);
-      setRules(Array.isArray(rulesData) ? rulesData : []);
-      if (whList.length > 0 && !selectedWarehouse) setSelectedWarehouse(whList[0].code);
     } catch (err) {
-      toast.error(t.common?.error || "Failed to load data");
+      console.error("Failed to load zones", err);
+      toast.error(t.common?.error || "Failed to load zones");
+      setZones([]);
+    }
+
+    try {
+      const res = await fetch(`/api/v1/storage-rules?warehouse=${selectedWarehouse}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
+      });
+      const rulesData = await res.json();
+      setRules(Array.isArray(rulesData) ? rulesData : []);
+    } catch {
+      setRules([]);
     }
   }
+
+  useEffect(() => {
+    let isMounted = true;
+    async function initWarehouses() {
+      try {
+        const whs = await warehousesService.getAll();
+        const whList = (whs || []) as any[];
+        if (!isMounted) return;
+        setWarehouses(whList);
+        if (whList.length > 0) {
+          setSelectedWarehouse(prev => prev || whList[0].code);
+        }
+      } catch (err) {
+        console.error("Failed to load warehouses", err);
+        toast.error(t.common?.error || "Failed to load warehouses");
+      }
+    }
+    initWarehouses();
+    return () => { isMounted = false; };
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -240,11 +320,15 @@ export function Locations() {
   const handleAddZone = async () => {
     try {
       if (!zoneForm.code || !zoneForm.name) { toast.error("Code and Name are required"); return; }
+      const payload = {
+        ...zoneForm,
+        warehouse: zoneForm.warehouse || selectedWarehouse
+      };
       if (editZoneTarget) {
-        await zonesService.update(editZoneTarget._id, zoneForm);
+        await zonesService.update(editZoneTarget._id, payload);
         toast.success(`Zone ${zoneForm.code} updated`);
       } else {
-        await zonesService.create(zoneForm);
+        await zonesService.create(payload);
         toast.success(`Zone ${zoneForm.code} created`);
       }
       setShowZone(false);
@@ -270,13 +354,27 @@ export function Locations() {
   const handleAddLoc = async () => {
     try {
       if (!locForm.zone || !locForm.aisle || !locForm.shelf) { toast.error("Zone, Aisle, and Shelf are required"); return; }
-      const payload = {
+      const locCode = (editLocTarget?.code) || (locForm.bin 
+        ? `${locForm.zone}-${locForm.aisle}-${locForm.shelf}-${locForm.bin}` 
+        : `${locForm.zone}-${locForm.aisle}-${locForm.shelf}`);
+      const payload: any = {
         ...locForm,
+        code: locCode,
         warehouse: selectedWarehouse,
         allowed_manufacturers: locForm.allowed_manufacturers.split(',').map(s => s.trim()).filter(Boolean),
         allowed_families: locForm.allowed_families.split(',').map(s => s.trim()).filter(Boolean),
         allowedOwners: locForm.allowedOwners.split(',').map(s => s.trim()).filter(Boolean),
       };
+      if (locForm.max_weight_kg !== "" && locForm.max_weight_kg !== null && locForm.max_weight_kg !== undefined) {
+        payload.max_weight_kg = Number(locForm.max_weight_kg);
+      } else {
+        delete payload.max_weight_kg;
+      }
+      if (locForm.level_weight_limit !== "" && locForm.level_weight_limit !== null && locForm.level_weight_limit !== undefined) {
+        payload.level_weight_limit = Number(locForm.level_weight_limit);
+      } else {
+        delete payload.level_weight_limit;
+      }
       if (editLocTarget) {
         await locationsService.update(editLocTarget._id, payload);
         toast.success(`Location updated`);
@@ -528,6 +626,8 @@ export function Locations() {
                               palletCapacity: loc.palletCapacity ?? 1,
                               boxCapacity: loc.boxCapacity ?? 50,
                               weightCapacity: loc.weightCapacity ?? 1000,
+                              max_weight_kg: loc.max_weight_kg ?? "",
+                              level_weight_limit: loc.level_weight_limit ?? "",
                               allowedOwners: loc.allowedOwners?.join(', ') || "",
                               active: loc.active !== false,
                               allowed_manufacturers: (loc as any).allowed_manufacturers?.join(', ') || "",
@@ -588,13 +688,304 @@ export function Locations() {
         </div>
       )}
 
+      {/* Picking Simulator Tab (Stage 4 Read-Only Simulator) */}
+      {view === ("simulators" as any) && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-foreground">Picking Allocation Dry-Run Simulator</h3>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    STAGE 4 READ-ONLY
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Simulate candidate location selection, FEFO shelf-life validation, pick-face prioritization, and owner isolation.
+                  <strong> 100% read-only: Zero database mutations or inventory reservations are executed.</strong>
+                </p>
+              </div>
+            </div>
+
+            {/* Input Form */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4 pt-4 border-t border-border">
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase">SKU *</label>
+                <input
+                  type="text"
+                  value={simSku}
+                  onChange={(e) => setSimSku(e.target.value)}
+                  placeholder="e.g. COLD-01"
+                  className="w-full mt-1 px-3 py-1.5 text-xs bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase">Warehouse</label>
+                <select
+                  value={simWarehouse || selectedWarehouse}
+                  onChange={(e) => setSimWarehouse(e.target.value)}
+                  className="w-full mt-1 px-2.5 py-1.5 text-xs bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary"
+                >
+                  {warehouses.map((w) => (
+                    <option key={w.code} value={w.code}>{w.code} — {w.name}</option>
+                  ))}
+                  {warehouses.length === 0 && <option value="">No Warehouses</option>}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase">Owner (3PL)</label>
+                <input
+                  type="text"
+                  value={simOwner}
+                  onChange={(e) => setSimOwner(e.target.value)}
+                  placeholder="e.g. Apple Distribution"
+                  className="w-full mt-1 px-3 py-1.5 text-xs bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase">Customer</label>
+                <input
+                  type="text"
+                  value={simCustomer}
+                  onChange={(e) => setSimCustomer(e.target.value)}
+                  placeholder="e.g. Retail Client A"
+                  className="w-full mt-1 px-3 py-1.5 text-xs bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase">Qty Needed</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={simQty}
+                  onChange={(e) => setSimQty(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-full mt-1 px-3 py-1.5 text-xs bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground uppercase">Strategy</label>
+                <select
+                  value={simStrategy}
+                  onChange={(e) => setSimStrategy(e.target.value)}
+                  className="w-full mt-1 px-2.5 py-1.5 text-xs bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary font-bold"
+                >
+                  <option value="FEFO">FEFO (Expiry)</option>
+                  <option value="FIFO">FIFO (Creation)</option>
+                  <option value="LIFO">LIFO (Newest)</option>
+                  <option value="FPFO">FPFO (Batch)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={handleRunSimulatePicking}
+                disabled={simLoading}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all disabled:opacity-50"
+              >
+                <Play className="size-3.5 fill-current" />
+                {simLoading ? "Evaluating..." : "Run Pick Simulation"}
+              </button>
+            </div>
+          </div>
+
+          {/* Simulation Results Display */}
+          {simResult && (
+            <div className="space-y-4 animate-pop-in">
+              {/* Status Banner */}
+              <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                simResult.success
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                  : "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
+              }`}>
+                <div className="flex items-center gap-3">
+                  {simResult.success ? (
+                    <CheckCircle2 className="size-6 shrink-0" />
+                  ) : (
+                    <AlertCircle className="size-6 shrink-0" />
+                  )}
+                  <div>
+                    <div className="font-bold text-sm">
+                      {simResult.success ? "Allocation Success" : "Shortfall Detected"}
+                    </div>
+                    <div className="text-xs opacity-90 mt-0.5">
+                      Requested: <strong>{simResult.requestedQty}</strong> units |
+                      Allocated: <strong>{simResult.totalAllocatedQty}</strong> units |
+                      Shortfall: <strong>{simResult.shortfallQty}</strong> units |
+                      Strategy Applied: <strong>{simResult.strategyApplied}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 text-xs font-mono">
+                  <span className="px-2.5 py-1 rounded bg-secondary/80 text-foreground border border-border">
+                    Pick-Face: <strong>{simResult.pickFaceVsReserve?.pickFaceAllocatedQty || 0}</strong>
+                  </span>
+                  <span className="px-2.5 py-1 rounded bg-secondary/80 text-foreground border border-border">
+                    Reserve: <strong>{simResult.pickFaceVsReserve?.reserveAllocatedQty || 0}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Shelf-Life Source Precedence Card */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 mb-2 font-bold text-xs text-foreground">
+                  <ShieldCheck className="size-4 text-primary" /> Shelf-Life Hierarchy & Validation
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div className="p-2.5 bg-secondary/40 rounded-lg">
+                    <div className="text-muted-foreground text-[11px]">Applied Source</div>
+                    <div className="font-bold text-foreground mt-0.5">{simResult.shelfLifeValidation?.source}</div>
+                  </div>
+                  <div className="p-2.5 bg-secondary/40 rounded-lg">
+                    <div className="text-muted-foreground text-[11px]">Effective Minimum</div>
+                    <div className="font-bold text-foreground mt-0.5">{simResult.shelfLifeValidation?.effectiveMinDays} days</div>
+                  </div>
+                  <div className="p-2.5 bg-secondary/40 rounded-lg">
+                    <div className="text-muted-foreground text-[11px]">Customer Requirement</div>
+                    <div className="font-bold text-foreground mt-0.5">
+                      {simResult.shelfLifeValidation?.customerMinDays !== null ? `${simResult.shelfLifeValidation.customerMinDays} days` : "None"}
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-secondary/40 rounded-lg">
+                    <div className="text-muted-foreground text-[11px]">Product Requirement</div>
+                    <div className="font-bold text-foreground mt-0.5">
+                      {simResult.shelfLifeValidation?.productMinDays !== null ? `${simResult.shelfLifeValidation.productMinDays} days` : "None"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Allocation Breakdown Table */}
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="p-3 bg-secondary/30 border-b border-border flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground">Selected Allocation Lines</span>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    {simResult.allocatedLocations?.length || 0} location(s)
+                  </span>
+                </div>
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-secondary/50 text-muted-foreground border-b border-border font-bold">
+                    <tr>
+                      <th className="px-3 py-2">Location</th>
+                      <th className="px-3 py-2">Tier</th>
+                      <th className="px-3 py-2">Lot Number</th>
+                      <th className="px-3 py-2">Expiry Date</th>
+                      <th className="px-3 py-2">Owner</th>
+                      <th className="px-3 py-2 text-right">Allocated Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {simResult.allocatedLocations?.map((alloc: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-secondary/20">
+                        <td className="px-3 py-2 font-mono font-bold text-foreground">{alloc.location}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            alloc.isPickFace ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"
+                          }`}>
+                            {alloc.isPickFace ? "PICK FACE" : "RESERVE"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono">{alloc.lotNumber || "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {alloc.expiryDate ? new Date(alloc.expiryDate).toLocaleDateString() : "Non-perishable"}
+                        </td>
+                        <td className="px-3 py-2">{alloc.owner || "Default"}</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold text-foreground">{alloc.allocatedQty}</td>
+                      </tr>
+                    ))}
+                    {(!simResult.allocatedLocations || simResult.allocatedLocations.length === 0) && (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                          No locations allocated. Check inventory availability or rejection reasons below.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rejected Candidates Table */}
+              {simResult.rejectedCandidates?.length > 0 && (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 overflow-hidden">
+                  <div className="p-3 bg-destructive/10 border-b border-destructive/20 flex items-center justify-between">
+                    <span className="text-xs font-bold text-destructive flex items-center gap-1.5">
+                      <XCircle className="size-4" />
+                      Rejected Candidate Lots ({simResult.rejectedCandidates.length})
+                    </span>
+                  </div>
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-destructive/10 text-destructive border-b border-destructive/20 font-bold">
+                      <tr>
+                        <th className="px-3 py-2">Location</th>
+                        <th className="px-3 py-2">Lot</th>
+                        <th className="px-3 py-2">Available</th>
+                        <th className="px-3 py-2">Rejection Reason</th>
+                        <th className="px-3 py-2">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-destructive/10">
+                      {simResult.rejectedCandidates.map((rej: any, idx: number) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-2 font-mono font-bold">{rej.location}</td>
+                          <td className="px-3 py-2 font-mono">{rej.lotNumber || "—"}</td>
+                          <td className="px-3 py-2 font-mono">{rej.qtyAvailable}</td>
+                          <td className="px-3 py-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-destructive/15 text-destructive">
+                              {rej.reason}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground text-[11px]">{rej.details}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Evaluation Step Trace */}
+              {simResult.trace?.length > 0 && (
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-3 text-xs font-bold text-foreground">
+                    <Activity className="size-4 text-primary" /> Evaluation Audit Trace
+                  </div>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto font-mono text-[11px]">
+                    {simResult.trace.map((tr: any, idx: number) => (
+                      <div key={idx} className="flex items-start gap-2 text-muted-foreground">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                          tr.status === "MATCHED" || tr.status === "SUCCESS" ? "bg-emerald-500/15 text-emerald-500" :
+                          tr.status === "FAILED" || tr.status === "SHORTFALL" ? "bg-destructive/15 text-destructive" :
+                          tr.status === "SIMULATED" || tr.status === "ALLOCATED" ? "bg-primary/15 text-primary" :
+                          "bg-secondary text-foreground"
+                        }`}>
+                          {tr.status}
+                        </span>
+                        <span className="text-foreground font-semibold shrink-0">[{tr.step}]</span>
+                        <span>{tr.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Add Zone Modal */}
       <Modal open={showZone} onClose={() => setShowZone(false)} title={t.locations.addZone} subtitle={t.locations.zoneName} footer={<><ModalCancel onClose={() => setShowZone(false)} /><ModalSubmit onClick={handleAddZone}>{t.common.create}</ModalSubmit></>}>
         <Row>
           <Field label={t.locations.zoneName} required><Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value.toUpperCase() })} placeholder="PICK-C" /></Field>
           <Field label={t.common.warehouse} required><Select value={zoneForm.warehouse} onChange={(e) => setZoneForm({ ...zoneForm, warehouse: e.target.value })}>
             {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-            {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
+            {warehouses.length === 0 && <option value="">{t.common?.noWarehouses || "No warehouses"}</option>}
           </Select></Field>
         </Row>
         <Field label={t.locations.zoneName} required><Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Picking Zone C" /></Field>
@@ -632,6 +1023,10 @@ export function Locations() {
             </Select>
           </Field>
           <Field label="Weight Cap (kg)"><Input type="number" value={locForm.weightCapacity} onChange={(e) => setLocForm({ ...locForm, weightCapacity: Number(e.target.value) })} /></Field>
+        </Row>
+        <Row>
+          <Field label="Max Weight (kg)"><Input type="number" value={locForm.max_weight_kg} onChange={(e) => setLocForm({ ...locForm, max_weight_kg: e.target.value === "" ? "" : Number(e.target.value) })} placeholder="Location limit" /></Field>
+          <Field label="Level Weight Limit (kg)"><Input type="number" value={locForm.level_weight_limit} onChange={(e) => setLocForm({ ...locForm, level_weight_limit: e.target.value === "" ? "" : Number(e.target.value) })} placeholder="Tier limit (e.g. 1500)" /></Field>
         </Row>
         <Row>
           <Field label="Min Temp (°C)"><Input type="number" value={locForm.tempMin} onChange={(e) => setLocForm({ ...locForm, tempMin: Number(e.target.value) })} /></Field>

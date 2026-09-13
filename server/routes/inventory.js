@@ -3,6 +3,11 @@ import { protect, requireRole } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/Product.js';
+import { lotRecallService } from '../services/lotRecallService.js';
+import { abcEngine } from '../services/abcEngine.js';
+import { parseGS1Barcode } from '../utils/gs1Parser.js';
+import { replenishmentEngine } from '../services/replenishmentEngine.js';
+import WarehouseTask from '../models/WarehouseTask.js';
 
 const router = express.Router();
 
@@ -107,6 +112,27 @@ router.get('/search', async (req, res, next) => {
   }
 });
 
+// POST Parse GS1 Barcode (Pure Functional Parser Adapter)
+router.post('/barcodes/parse', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const { barcode } = req.body || {};
+    if (barcode === undefined || barcode === null) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_GS1_BARCODE', message: 'Barcode string is required in request body' }
+      });
+    }
+
+    const result = parseGS1Barcode(barcode);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET resolve barcode (Unified Barcode Resolver)
 router.get('/resolve-barcode/:barcode', async (req, res, next) => {
@@ -206,53 +232,163 @@ async function validateBarcodes(companyId, body, currentId = null) {
 
 // POST Atomic Lot Recall (< 2s performance requirement)
 router.post('/lots/recall', requireOpsRole, async (req, res, next) => {
-  const startTime = Date.now();
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { lotNumber, sku, reason } = req.body;
+    const { lotNumber, sku, warehouse, owner, quantity, reason, recallId } = req.body;
     if (!lotNumber) return res.status(400).json({ message: 'lotNumber is required for recall' });
 
-    const query = { company: req.user.company, lotNumber };
-    if (sku) query.sku = sku;
+    const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
 
-    // Single Atomic Bulk Update Transaction
-    const InventoryBalance = (await import('../models/InventoryBalance.js')).default;
-    const PickTask = (await import('../models/PickTask.js')).default;
-    const ActivityLog = (await import('../models/ActivityLog.js')).default;
-
-    const balResult = await InventoryBalance.updateMany(
-      query,
-      { $set: { isRecalled: true, isBlocked: true, recallReason: reason || 'Quality Hazard / Recall Event' } }
-    );
-
-    // Block pending picking tasks referencing recalled lot
-    const pickResult = await PickTask.updateMany(
-      { company: req.user.company, status: 'pending', 'items.lotNumber': lotNumber },
-      { $set: { status: 'blocked', blockReason: `Lot ${lotNumber} Recalled: ${reason || 'Quality Hazard'}` } }
-    );
-
-    const durationMs = Date.now() - startTime;
-
-    // Record immutable audit event
-    await ActivityLog.create({
-      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      action: 'LOT_RECALL_EXECUTED',
-      module: 'Inventory',
-      user: req.user.name || 'System Admin',
-      userId: req.user._id,
-      company: req.user.company,
-      details: `Atomic Lot Recall executed for Lot #${lotNumber}. ${balResult.modifiedCount} balances blocked, ${pickResult.modifiedCount} pick tasks suspended. Execution time: ${durationMs}ms.`
-    });
-
-    res.json({
-      success: true,
+    const result = await lotRecallService.executeIdempotentLotRecall({
+      companyId: req.user.company,
       lotNumber,
-      balancesBlocked: balResult.modifiedCount,
-      pickTasksBlocked: pickResult.modifiedCount,
-      durationMs,
-      message: `Atomic Lot Recall completed cleanly in ${durationMs}ms.`
+      sku,
+      warehouse: warehouse !== undefined ? warehouse : req.context?.warehouse?.code,
+      owner,
+      quantity,
+      reason,
+      recallId,
+      idempotencyKey,
+      user: req.user
     });
+
+    res.json(result);
+  } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({ message: err.message });
+    }
+    next(err);
+  }
+});
+
+// POST Trigger ABC Classification Recalculation (Rolling 30-Day Confirmed Pick Volume)
+router.post('/abc/recalculate', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const { referenceDate } = req.body || {};
+    const refDate = referenceDate ? new Date(referenceDate) : new Date();
+
+    const result = await abcEngine.calculateCompanyABC(req.user.company, refDate);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET Company ABC Classifications Summary
+router.get('/abc', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const products = await Model.find(
+      { company: req.user.company },
+      'sku name category sku_abc_class abc_calc_date abc_pick_count_period abc_class_override'
+    ).sort({ abc_pick_count_period: -1, sku: 1 });
+
+    const summary = {
+      totalProducts: products.length,
+      counts: { A: 0, B: 0, C: 0 },
+      products: products.map(p => {
+        const effClass = p.abc_class_override || p.sku_abc_class || 'C';
+        if (summary.counts[effClass] !== undefined) summary.counts[effClass]++;
+        return {
+          _id: p._id,
+          sku: p.sku,
+          name: p.name,
+          category: p.category,
+          calculatedClass: p.sku_abc_class || 'C',
+          effectiveClass: effClass,
+          volume: p.abc_pick_count_period || 0,
+          calcDate: p.abc_calc_date || null,
+          hasOverride: Boolean(p.abc_class_override),
+          override: p.abc_class_override || null
+        };
+      })
+    };
+
+    res.json(summary);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================
+// STAGE 7: REPLENISHMENT ENGINE ENDPOINTS
+// ==========================================
+
+// GET Replenishment tasks
+router.get('/replenishment/tasks', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const query = { company: req.user.company, task_type: 'replenishment' };
+    if (req.query.warehouse) query.warehouse = req.query.warehouse;
+    if (req.query.status) query.status = req.query.status;
+
+    const tasks = await WarehouseTask.find(query).sort({ priority: 1, createdAt: -1 });
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST Evaluate pick faces / dry-run simulator
+router.post('/replenishment/evaluate', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const warehouse = req.body.warehouse || req.headers['x-warehouse-code'] || 'MIA';
+    const dryRun = Boolean(req.body.dryRun);
+
+    if (dryRun) {
+      const sim = await replenishmentEngine.simulateReplenishment(req.user.company, warehouse);
+      return res.json(sim);
+    }
+
+    const evalResult = await replenishmentEngine.evaluateWarehouse(req.user.company, warehouse);
+    res.json(evalResult);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST Reserve replenishment
+router.post('/replenishment/reserve', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
+    const warehouse = req.body.warehouse || req.headers['x-warehouse-code'] || 'MIA';
+
+    const result = await replenishmentEngine.reserveReplenishment(req.user.company, {
+      ...req.body,
+      warehouse,
+      user: req.user?.name || 'system',
+      idempotencyKey
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST Complete replenishment
+router.post('/replenishment/:id/complete', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const result = await replenishmentEngine.completeReplenishment(req.user.company, req.params.id, req.user?.name || 'system');
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST Cancel replenishment
+router.post('/replenishment/:id/cancel', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const result = await replenishmentEngine.cancelReplenishment(req.user.company, req.params.id, req.user?.name || 'system');
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -41,5 +41,6 @@ const pickTaskSchema = new mongoose.Schema({
 pickTaskSchema.index({ company: 1, taskId: 1 }, { unique: true });
 pickTaskSchema.index({ company: 1, orderId: 1 });
 pickTaskSchema.index({ company: 1, owner: 1 });
+pickTaskSchema.index({ company: 1, status: 1, completedAt: -1 });
 
 export default mongoose.model('PickTask', pickTaskSchema);

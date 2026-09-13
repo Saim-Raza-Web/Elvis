@@ -20,18 +20,29 @@ const warehouseTaskSchema = new mongoose.Schema({
   assignment_mode: { type: String, enum: ['auto', 'manual', 'self', 'zone_broadcast'], default: 'auto' },
 
   // Task details
+  taskId: { type: String },
   sku: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+  sku_code: { type: String },
   lot_number: { type: String },
   qty: { type: Number },
   
+  warehouse: { type: String },
+  owner: { type: String },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'], default: 'COMPANY' },
+
   source_location: { type: mongoose.Schema.Types.ObjectId, ref: 'Location' },
+  source_bin: { type: String },
   destination_location: { type: mongoose.Schema.Types.ObjectId, ref: 'Location' },
+  destination_bin: { type: String },
   zone: { type: mongoose.Schema.Types.ObjectId, ref: 'Zone' },
   
   reference_id: { type: String }, // e.g., ASN ID, Order ID, Recall ID
 
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
+
+warehouseTaskSchema.index({ company: 1, taskId: 1 }, { sparse: true });
+warehouseTaskSchema.index({ company: 1, warehouse: 1, task_type: 1, status: 1 });
 
 warehouseTaskSchema.index({ company: 1, status: 1, priority: 1 });
 warehouseTaskSchema.index({ company: 1, assigned_to: 1, status: 1 });

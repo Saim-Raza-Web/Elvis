@@ -103,6 +103,7 @@ export const ROUTE_MODULE_MAP = {
   billing: 'billing',
   accounting: 'billing',
   'fiscal-periods': 'billing',
+  payments: 'billing',
   reports: 'reports',
   settings: 'settings',
   admin: 'admin',
@@ -111,4 +112,5 @@ export const ROUTE_MODULE_MAP = {
   clients: 'inventory',
   suppliers: 'inventory',
   categories: 'inventory',
+  'expiry-alerts': 'inventory',
 };

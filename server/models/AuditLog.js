@@ -43,16 +43,15 @@ const auditLogSchema = new mongoose.Schema({
 }, { timestamps: false }); // Disable automatic timestamps to enforce immutability
 
 // Enforce immutability using a pre-hook on update/delete operations
-auditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate', 'deleteOne', 'deleteMany', 'findOneAndDelete', 'remove'], function(next) {
-  next(new Error('Audit logs are immutable and cannot be updated or deleted.'));
+auditLogSchema.pre(['updateOne', 'updateMany', 'findOneAndUpdate', 'deleteOne', 'deleteMany', 'findOneAndDelete'], function() {
+  throw new Error('Audit logs are immutable and cannot be updated or deleted.');
 });
 
 // Enforce immutability on document save if it's not new
-auditLogSchema.pre('save', function(next) {
+auditLogSchema.pre('save', function() {
   if (!this.isNew) {
-    return next(new Error('Audit logs are immutable and cannot be updated.'));
+    throw new Error('Audit logs are immutable and cannot be updated.');
   }
-  next();
 });
 
 auditLogSchema.index({ company: 1, timestamp: -1 });

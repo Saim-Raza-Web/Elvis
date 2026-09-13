@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/v1/expiry-alerts/cron",
+      "schedule": "0 6 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.js" },
     { "source": "/(.*)", "destination": "/index.html" }

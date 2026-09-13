@@ -24,9 +24,13 @@ const customerSchema = new mongoose.Schema({
     country: { type: String, default: 'Spain' }
   },
   paymentTerms: { type: String, default: 'Net 30' }, // Net 15, Net 30, Net 60, Due on Receipt
+  deliveryTerms: {
+    minShelfLifeDays: { type: Number, min: 0 }
+  },
   iban: { type: String, default: '', trim: true },
   bankInfo: { type: String, default: '', trim: true },
   tier: { type: String, enum: ['bronze', 'silver', 'gold', 'platinum'], default: 'bronze' },
+  exclusive_client: { type: Boolean, default: false },
   notes: { type: String, default: '' },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   active: { type: Boolean, default: true },

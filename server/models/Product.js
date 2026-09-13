@@ -46,6 +46,7 @@ const productSchema = new mongoose.Schema({
   // Storage Rules v3 Lot & Expiry
   fefo: { type: Boolean, default: false },
   lot_tracking: { type: Boolean, default: false },
+  min_shelf_life_days: { type: Number, min: 0 },
   hazmat_class: { type: String, enum: ['FOOD', 'CHEMICAL', 'PHARMA', 'HAZMAT', 'COSMETIC', 'ELECTRONIC', 'GENERAL'], default: 'GENERAL' },
 
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }

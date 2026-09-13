@@ -19,9 +19,24 @@ export function evaluateConditions(conditions, context) {
 
 function evaluateSingleCondition(condition, context) {
   const { field, operator, value } = condition;
+
+  // Special case for HL-03: owner is exclusive_client
+  if (field === 'owner' && value === 'exclusive_client') {
+    const isExcl = Boolean(context?.isExclusiveClient || context?.exclusive_client);
+    if (operator === 'is' || operator === 'yes') return isExcl;
+    if (operator === 'is_not' || operator === 'no') return !isExcl;
+    return false;
+  }
   
   // Resolve context value based on the field mapping
   const actualValue = resolveFieldValue(field, context);
+
+  // Missing data evaluates to false (unless checking 'no')
+  if (actualValue === undefined || actualValue === null) {
+    if (operator === 'no') return true;
+    if (operator === 'is_not') return value !== undefined && value !== null && value !== '';
+    return false;
+  }
 
   switch (operator) {
     case 'is':
@@ -64,7 +79,7 @@ function evaluateSingleCondition(condition, context) {
       return Boolean(actualValue) === true || String(actualValue).toLowerCase() === 'true';
 
     case 'no':
-      return Boolean(actualValue) === false || String(actualValue).toLowerCase() === 'false' || actualValue === undefined || actualValue === null;
+      return Boolean(actualValue) === false || String(actualValue).toLowerCase() === 'false';
 
     default:
       // Unknown operator, fail safe
@@ -73,20 +88,24 @@ function evaluateSingleCondition(condition, context) {
 }
 
 function resolveFieldValue(field, context) {
+  if (!context) return undefined;
   switch (field) {
-    case 'product_category': return context.category;
+    case 'product_category': return context.category !== undefined ? context.category : context.product_category;
     case 'owner': return context.owner;
-    case 'temperature': return context.tempRequirement;
+    case 'temperature': return context.tempRequirement !== undefined ? context.tempRequirement : context.temperature;
     case 'sku': return context.sku;
-    case 'pallet_weight': return context.palletWeight;
-    case 'abc_class': return context.abcClass;
-    case 'has_lot_expiry': return context.expiryDate ? true : false;
+    case 'pallet_weight': return context.palletWeight !== undefined ? context.palletWeight : context.pallet_weight;
+    case 'abc_class': return context.abcClass !== undefined ? context.abcClass : context.abc_class;
+    case 'has_lot_expiry': 
+      if (context.hasLotExpiry !== undefined) return context.hasLotExpiry;
+      if (context.has_lot_expiry !== undefined) return context.has_lot_expiry;
+      return context.expiryDate ? true : false;
     case 'supplier': return context.supplier;
-    case 'pallet_type': return context.palletType;
-    case 'qc_status': return context.qcStatus;
-    case 'hazmat_class': return context.isHazmat ? 'hazmat' : 'none'; // simplified, depends on exact data
-    case 'is_crossdock': return context.isCrossdock;
+    case 'pallet_type': return context.palletType !== undefined ? context.palletType : context.pallet_type;
+    case 'qc_status': return context.qcStatus !== undefined ? context.qcStatus : context.qc_status;
+    case 'hazmat_class': return context.hazmatClass || context.hazmat_class || (context.isHazmat ? 'HAZMAT' : undefined);
+    case 'is_crossdock': return context.isCrossdock !== undefined ? context.isCrossdock : context.is_crossdock;
     default:
-      return context[field]; // Fallback to direct property
+      return context[field];
   }
 }

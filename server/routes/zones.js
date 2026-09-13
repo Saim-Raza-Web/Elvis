@@ -52,6 +52,8 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 
     if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
       data.warehouse = req.context.warehouse.id;
+    } else if (req.body.warehouse) {
+      return res.status(400).json({ message: 'A valid warehouse is required to create a zone.' });
     }
 
     const item = await Model.create(data);
@@ -65,9 +67,17 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const updateData = { ...req.body };
+
+    if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
+      updateData.warehouse = req.context.warehouse.id;
+    } else if (req.body.warehouse) {
+      delete updateData.warehouse;
+    }
+
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
-      req.body, 
+      updateData, 
       { new: true }
     );
     if (!item) return res.status(404).json({ message: 'Not found' });

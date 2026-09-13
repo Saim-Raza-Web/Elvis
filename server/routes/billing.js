@@ -320,6 +320,32 @@ router.put('/:id', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
+    // Reject direct client tampering with authoritative financial fields
+    const FORBIDDEN_FINANCIAL_FIELDS = [
+      'amountPaid',
+      'outstandingAmount',
+      'payments',
+      'accountingJournalEntryId',
+      'reversalJournalEntryId',
+      'reversedAt',
+      'reversedBy',
+      'reversalReason',
+      'historicalReconciliationState'
+    ];
+    for (const field of FORBIDDEN_FINANCIAL_FIELDS) {
+      if (req.body[field] !== undefined) {
+        return res.status(400).json({
+          message: `Direct modification of financial field '${field}' is forbidden. Use authoritative payment allocation endpoints.`
+        });
+      }
+    }
+
+    if (req.body.status === 'paid' || req.body.status === 'partially_paid') {
+      return res.status(400).json({
+        message: `Invoice status cannot be manually set to '${req.body.status}'. Use the payment allocation endpoint.`
+      });
+    }
+
     const invoice = await Invoice.findOne({
       $or: [
         { _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : new mongoose.Types.ObjectId() },
@@ -337,6 +363,13 @@ router.put('/:id', async (req, res, next) => {
 
     const { customerId, lines, issuedDate, dueDate, paymentTerms, notes, bankInfo, status } = req.body;
 
+    // Disallow modifying lines or customer on issued, sent, or partially_paid invoices
+    if (invoice.status !== 'draft' && (lines !== undefined || customerId !== undefined)) {
+      return res.status(400).json({
+        message: `Cannot modify lines or customer on a non-draft invoice ('${invoice.status}').`
+      });
+    }
+
     // Update customer reference if changed
     if (customerId && String(customerId) !== String(invoice.customerId)) {
       const customer = await Customer.findOne({ _id: customerId, company: req.user.company });
@@ -349,7 +382,7 @@ router.put('/:id', async (req, res, next) => {
       invoice.customer = customer.name;
     }
 
-    // Recalculate lines if provided
+    // Recalculate lines if provided (draft invoices only)
     if (Array.isArray(lines) && lines.length > 0) {
       try {
         const calcResult = calculateInvoice(lines);
@@ -380,8 +413,9 @@ router.put('/:id', async (req, res, next) => {
 
       const allowedTransitions = {
         draft: ['cancelled'],
-        issued: ['sent', 'paid', 'cancelled'],
-        sent: ['paid', 'cancelled'],
+        issued: ['sent', 'cancelled'],
+        sent: ['cancelled'],
+        partially_paid: ['cancelled'],
         paid: [],
         cancelled: []
       };

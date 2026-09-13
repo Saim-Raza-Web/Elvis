@@ -709,6 +709,10 @@ router.get('/inventory-reconciliation', requireRole('admin', 'manager'), async (
       return res.status(400).json({ message: 'Invalid endDate format. Use ISO 8601 (e.g. 2026-12-31).' });
     }
 
+    if (!startDate && !endDate && req.query.mode !== 'historical') {
+      return next();
+    }
+
     const results = await runReconciliation(req.user.company, { startDate, endDate });
 
     res.json({ count: results.length, results });

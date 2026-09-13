@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { round2 } from '../services/invoiceCalculationEngine.js';
 
 const invoiceLineSchema = new mongoose.Schema({
   itemType: { type: String, enum: ['product', 'service'], default: 'product' },
@@ -13,6 +14,15 @@ const invoiceLineSchema = new mongoose.Schema({
   lineSubtotal: { type: Number, required: true },
   lineTax: { type: Number, required: true },
   lineTotal: { type: Number, required: true }
+}, { _id: false });
+
+const invoicePaymentSummarySchema = new mongoose.Schema({
+  paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment', required: true },
+  paymentNumber: { type: String, required: true, trim: true },
+  allocationId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  allocatedAmount: { type: Number, required: true, min: 0.01 },
+  allocatedAt: { type: Date, default: Date.now, required: true },
+  allocatedBy: { type: String, default: 'System' }
 }, { _id: false });
 
 const invoiceSchema = new mongoose.Schema({
@@ -36,8 +46,27 @@ const invoiceSchema = new mongoose.Schema({
   }],
   status: { 
     type: String, 
-    enum: ['draft', 'issued', 'sent', 'paid', 'cancelled'], 
+    enum: ['draft', 'issued', 'sent', 'partially_paid', 'paid', 'cancelled'], 
     default: 'draft' 
+  },
+  amountPaid: { 
+    type: Number, 
+    default: 0,
+    min: 0 
+  },
+  outstandingAmount: { 
+    type: Number, 
+    default: function() {
+      if (this.historicalReconciliationState === 'MANUAL_REVIEW_REQUIRED') return null;
+      if (this.status === 'cancelled') return 0;
+      return this.grandTotal !== undefined ? this.grandTotal : 0;
+    }
+  },
+  payments: [invoicePaymentSummarySchema],
+  currency: { 
+    type: String, 
+    default: 'EUR',
+    enum: ['EUR']
   },
   issuedDate: { type: Date, default: Date.now },
   dueDate: { type: Date },
@@ -58,14 +87,57 @@ const invoiceSchema = new mongoose.Schema({
   }],
   accountingTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' },
   accountingJournalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
+  reversedAt: { type: Date, default: null },
+  reversedBy: { type: String, default: null },
+  reversalReason: { type: String, default: '' },
+  reversalJournalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry', default: null },
+  historicalReconciliationState: { 
+    type: String, 
+    enum: ['LEGACY_UNVERIFIED', 'MANUAL_REVIEW_REQUIRED', null], 
+    default: null 
+  },
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
   shipments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shipment' }],
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 
+// Schema-level protection & Invariant Hooks
+invoiceSchema.pre('save', function() {
+  if (typeof this.amountPaid === 'number') {
+    this.amountPaid = round2(this.amountPaid);
+  }
+  if (typeof this.outstandingAmount === 'number') {
+    this.outstandingAmount = round2(this.outstandingAmount);
+  }
+  if (Array.isArray(this.payments)) {
+    for (const p of this.payments) {
+      if (typeof p.allocatedAmount === 'number') {
+        p.allocatedAmount = round2(p.allocatedAmount);
+      }
+    }
+  }
+
+  // Cancelled invoice balances must strictly be zero
+  if (this.status === 'cancelled') {
+    this.amountPaid = 0;
+    this.outstandingAmount = 0;
+  } else if (this.historicalReconciliationState === 'MANUAL_REVIEW_REQUIRED') {
+    this.outstandingAmount = null;
+  } else {
+    if (this.amountPaid !== null && this.amountPaid !== undefined && this.amountPaid < 0) {
+      throw new Error('Invoice amountPaid cannot be negative.');
+    }
+    if (this.outstandingAmount !== null && this.outstandingAmount !== undefined && this.outstandingAmount < 0) {
+      throw new Error('Invoice outstandingAmount cannot be negative.');
+    }
+  }
+});
+
 invoiceSchema.index({ company: 1, invoiceNumber: 1 }, { unique: true });
 invoiceSchema.index({ company: 1, customerId: 1 });
 invoiceSchema.index({ company: 1, status: 1 });
 invoiceSchema.index({ company: 1, issuedDate: -1 });
+invoiceSchema.index({ company: 1, historicalReconciliationState: 1 });
+invoiceSchema.index({ company: 1, 'payments.allocationId': 1 });
 
 export default mongoose.model('Invoice', invoiceSchema);

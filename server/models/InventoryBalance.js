@@ -33,5 +33,6 @@ inventoryBalanceSchema.index({ company: 1, warehouse: 1, sku: 1, owner: 1, lotNu
 inventoryBalanceSchema.index({ company: 1, warehouse: 1, sku: 1, owner: 1 });
 inventoryBalanceSchema.index({ company: 1, warehouse: 1, bin: 1 });
 inventoryBalanceSchema.index({ company: 1, sku: 1, owner: 1 });
+inventoryBalanceSchema.index({ company: 1, lotNumber: 1 });
 
 export default mongoose.model('InventoryBalance', inventoryBalanceSchema);

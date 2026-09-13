@@ -17,8 +17,8 @@ const locationSchema = new mongoose.Schema({
   maxVolume: { type: Number, default: 10 },
   zoneType: { type: String, enum: ['AMBIENT', 'COLD_STORAGE', 'HAZMAT', 'PALLET_RACK'], default: 'AMBIENT' },
   status: { type: String, enum: ['AVAILABLE', 'BLOCKED', 'MAINTENANCE', 'RESERVED', 'CYCLE_COUNT', 'ACTIVE', 'LOCKED'], default: 'AVAILABLE' },
-  locationType: { type: String, enum: ['PALLET', 'SHELF', 'FLOOR', 'STAGING', 'OVERFLOW', 'pallet_floor', 'shelf_box', 'bin', 'pick_face', 'dispatch', 'returns', 'quarantine', 'blocked'], default: 'pallet_floor' },
-  type: { type: String, enum: ['PALLET', 'SHELF', 'FLOOR', 'STAGING', 'OVERFLOW', 'pallet_floor', 'shelf_box', 'bin', 'pick_face', 'dispatch', 'returns', 'quarantine', 'blocked'], default: 'pallet_floor' },
+  locationType: { type: String, enum: ['PALLET', 'SHELF', 'FLOOR', 'STAGING', 'OVERFLOW', 'pallet_floor', 'shelf_box', 'bin', 'pick_face', 'PICK_FACE', 'dispatch', 'returns', 'quarantine', 'blocked'], default: 'pallet_floor' },
+  type: { type: String, enum: ['PALLET', 'SHELF', 'FLOOR', 'STAGING', 'OVERFLOW', 'pallet_floor', 'shelf_box', 'bin', 'pick_face', 'PICK_FACE', 'dispatch', 'returns', 'quarantine', 'blocked'], default: 'pallet_floor' },
   tempMin: { type: Number, default: 15 },
   tempMax: { type: Number, default: 25 },
   palletCapacity: { type: Number, default: 1 },
@@ -32,8 +32,26 @@ const locationSchema = new mongoose.Schema({
   // Storage Rules v3 properties
   is_pick_face: { type: Boolean, default: false },
   max_pallets: { type: Number, default: 1 },
-  max_weight_kg: { type: Number },
-  level_weight_limit: { type: Number },
+  max_weight_kg: { 
+    type: Number,
+    validate: {
+      validator: function (v) {
+        if (v === null || v === undefined) return true;
+        return typeof v === 'number' && v > 0;
+      },
+      message: 'max_weight_kg must be greater than zero.'
+    }
+  },
+  level_weight_limit: { 
+    type: Number,
+    validate: {
+      validator: function (v) {
+        if (v === null || v === undefined) return true;
+        return typeof v === 'number' && v > 0;
+      },
+      message: 'level_weight_limit must be greater than zero.'
+    }
+  },
   temperature_type: { type: String, enum: ['ambient', 'chilled_2_8', 'frozen_minus18', 'controlled_15_25'] },
   allowed_categories: [{ type: String }],
   single_owner_enforced: { type: Boolean, default: true },
@@ -42,9 +60,25 @@ const locationSchema = new mongoose.Schema({
   max_stock: { type: Number },
   notes: { type: String },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
-}, { timestamps: true });
+}, { 
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
 
-locationSchema.pre('save', function () {
+// Deprecated legacy alias: weight_limit maps directly to max_weight_kg
+locationSchema.virtual('weight_limit')
+  .get(function () {
+    return this.max_weight_kg;
+  })
+  .set(function (val) {
+    this.max_weight_kg = val;
+  });
+
+locationSchema.pre('validate', function () {
+  if (this.weight_limit !== undefined && this.max_weight_kg === undefined) {
+    this.max_weight_kg = this.weight_limit;
+  }
   if (this.locationType && !this.type) this.type = this.locationType;
   if (this.type && !this.locationType) this.locationType = this.type;
 });

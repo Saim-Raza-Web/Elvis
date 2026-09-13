@@ -107,29 +107,86 @@ router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { code, warehouse = 'MIA', maxUnits = 500, maxWeight = 1000, maxVolume = 10, zoneType = 'AMBIENT', status = 'ACTIVE' } = req.body;
-
-    if (!code || !String(code).trim()) {
-      return res.status(400).json({ message: 'Location code is required (e.g. Z1-A1-R1-S1-B1).' });
+    if (!req.context || !req.context.warehouse || req.context.warehouse.invalid) {
+      return res.status(400).json({ message: 'A valid warehouse is required to create a location.' });
     }
 
-    const existing = await Location.findOne({ code: code.trim(), company: req.user.company });
+    const resolvedWarehouseId = req.context.warehouse.id;
+    const warehouseCode = req.context.warehouse.code;
+    const { code, maxUnits = 500, maxWeight = 1000, maxVolume = 10, zoneType = 'AMBIENT', status = 'ACTIVE' } = req.body;
+
+    let finalCode = code && String(code).trim();
+    if (!finalCode) {
+      if (req.body.zone && req.body.aisle && req.body.shelf) {
+        finalCode = `${req.body.zone}-${req.body.aisle}-${req.body.shelf}${req.body.bin ? `-${req.body.bin}` : ''}`;
+      } else {
+        return res.status(400).json({ message: 'Location code is required (e.g. Z1-A1-R1-S1-B1).' });
+      }
+    }
+
+    const existing = await Location.findOne({ code: finalCode, warehouse: resolvedWarehouseId, company: req.user.company });
     if (existing) {
-      return res.status(400).json({ message: `Location code '${code.trim()}' already exists in warehouse ${warehouse}.` });
+      return res.status(400).json({ message: `Location code '${finalCode}' already exists in warehouse ${warehouseCode}.` });
     }
 
-    const item = await Location.create({
+    // Resolve Zone if provided
+    let resolvedZoneId = null;
+    if (req.body.zone) {
+      const zoneInput = String(req.body.zone).trim();
+      if (mongoose.Types.ObjectId.isValid(zoneInput) && zoneInput.length === 24) {
+        const zoneDoc = await Zone.findOne({ _id: zoneInput, company: req.user.company });
+        if (zoneDoc) resolvedZoneId = zoneDoc._id;
+      } else {
+        const zoneDoc = await Zone.findOne({ code: zoneInput, company: req.user.company, warehouse: resolvedWarehouseId })
+          || await Zone.findOne({ code: zoneInput, company: req.user.company });
+        if (zoneDoc) resolvedZoneId = zoneDoc._id;
+      }
+    }
+
+    // Weight limits validation
+    let maxWeightKg = undefined;
+    if (req.body.max_weight_kg !== undefined && req.body.max_weight_kg !== null && req.body.max_weight_kg !== '') {
+      maxWeightKg = Number(req.body.max_weight_kg);
+      if (isNaN(maxWeightKg) || maxWeightKg <= 0) {
+        return res.status(400).json({ message: 'max_weight_kg must be greater than zero.' });
+      }
+    } else if (req.body.weight_limit !== undefined && req.body.weight_limit !== null && req.body.weight_limit !== '') {
+      maxWeightKg = Number(req.body.weight_limit);
+      if (isNaN(maxWeightKg) || maxWeightKg <= 0) {
+        return res.status(400).json({ message: 'max_weight_kg must be greater than zero.' });
+      }
+    }
+
+    let levelWeightLimit = undefined;
+    if (req.body.level_weight_limit !== undefined && req.body.level_weight_limit !== null && req.body.level_weight_limit !== '') {
+      levelWeightLimit = Number(req.body.level_weight_limit);
+      if (isNaN(levelWeightLimit) || levelWeightLimit <= 0) {
+        return res.status(400).json({ message: 'level_weight_limit must be greater than zero.' });
+      }
+    }
+
+    const locationData = {
       ...req.body,
-      code: code.trim(),
-      warehouse,
+      code: finalCode,
+      warehouse: resolvedWarehouseId,
       maxUnits: Number(maxUnits) || 500,
       maxWeight: Number(maxWeight) || 1000,
       maxVolume: Number(maxVolume) || 10,
       zoneType,
       status,
       company: req.user.company
-    });
+    };
 
+    if (maxWeightKg !== undefined) locationData.max_weight_kg = maxWeightKg;
+    if (levelWeightLimit !== undefined) locationData.level_weight_limit = levelWeightLimit;
+
+    if (resolvedZoneId) {
+      locationData.zone = resolvedZoneId;
+    } else if (req.body.zone && !mongoose.Types.ObjectId.isValid(req.body.zone)) {
+      delete locationData.zone;
+    }
+
+    const item = await Location.create(locationData);
     res.status(201).json(item);
   } catch (err) { next(err); }
 });
@@ -138,9 +195,50 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const updateData = { ...req.body };
+
+    if (updateData.max_weight_kg !== undefined && updateData.max_weight_kg !== null && updateData.max_weight_kg !== '') {
+      updateData.max_weight_kg = Number(updateData.max_weight_kg);
+      if (isNaN(updateData.max_weight_kg) || updateData.max_weight_kg <= 0) {
+        return res.status(400).json({ message: 'max_weight_kg must be greater than zero.' });
+      }
+    } else if (updateData.weight_limit !== undefined && updateData.weight_limit !== null && updateData.weight_limit !== '') {
+      updateData.max_weight_kg = Number(updateData.weight_limit);
+      if (isNaN(updateData.max_weight_kg) || updateData.max_weight_kg <= 0) {
+        return res.status(400).json({ message: 'max_weight_kg must be greater than zero.' });
+      }
+    }
+
+    if (updateData.level_weight_limit !== undefined && updateData.level_weight_limit !== null && updateData.level_weight_limit !== '') {
+      updateData.level_weight_limit = Number(updateData.level_weight_limit);
+      if (isNaN(updateData.level_weight_limit) || updateData.level_weight_limit <= 0) {
+        return res.status(400).json({ message: 'level_weight_limit must be greater than zero.' });
+      }
+    }
+
+    if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
+      updateData.warehouse = req.context.warehouse.id;
+    } else {
+      delete updateData.warehouse;
+    }
+
+    if (updateData.zone) {
+      const zoneInput = String(updateData.zone).trim();
+      if (mongoose.Types.ObjectId.isValid(zoneInput) && zoneInput.length === 24) {
+        const zoneDoc = await Zone.findOne({ _id: zoneInput, company: req.user.company });
+        if (zoneDoc) updateData.zone = zoneDoc._id;
+        else delete updateData.zone;
+      } else {
+        const zoneDoc = await Zone.findOne({ code: zoneInput, company: req.user.company });
+        if (zoneDoc) updateData.zone = zoneDoc._id;
+        else delete updateData.zone;
+      }
+    }
+
     const item = await Location.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company },
-      req.body,
+      updateData,
       { new: true, runValidators: true }
     );
     if (!item) return res.status(404).json({ message: 'Location not found' });
@@ -243,6 +341,21 @@ router.post('/import-csv', requireOpsRole, async (req, res, next) => {
         errors.push(`Row ${rowNum}: Invalid temperature_type '${loc.temperature_type}'. Allowed: ambient, chilled_2_8, frozen_minus18, controlled_15_25.`);
       }
 
+      if (loc.level_weight_limit !== undefined && loc.level_weight_limit !== null && loc.level_weight_limit !== '') {
+        const lvlW = Number(loc.level_weight_limit);
+        if (isNaN(lvlW) || lvlW <= 0) {
+          errors.push(`Row ${rowNum}: level_weight_limit must be greater than zero.`);
+        }
+      }
+
+      const maxWVal = loc.max_weight_kg !== undefined ? loc.max_weight_kg : loc.weight_limit;
+      if (maxWVal !== undefined && maxWVal !== null && maxWVal !== '') {
+        const maxW = Number(maxWVal);
+        if (isNaN(maxW) || maxW <= 0) {
+          errors.push(`Row ${rowNum}: max_weight_kg must be greater than zero.`);
+        }
+      }
+
       docsToInsert.push({
         ...loc,
         code: cleanCode,
@@ -255,7 +368,8 @@ router.post('/import-csv', requireOpsRole, async (req, res, next) => {
         temperature_type: loc.temperature_type ? loc.temperature_type.toLowerCase() : undefined,
         single_lot_enforced: Boolean(loc.single_lot_enforced),
         max_pallets: loc.max_pallets ? Number(loc.max_pallets) : 0,
-        level_weight_limit: loc.level_weight_limit ? Number(loc.level_weight_limit) : 0,
+        max_weight_kg: maxWVal ? Number(maxWVal) : undefined,
+        level_weight_limit: loc.level_weight_limit ? Number(loc.level_weight_limit) : undefined,
         min_stock: loc.min_stock ? Number(loc.min_stock) : 0,
         max_stock: loc.max_stock ? Number(loc.max_stock) : 0
       });

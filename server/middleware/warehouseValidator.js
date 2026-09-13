@@ -12,9 +12,9 @@ export const validateWarehouse = async (req, res, next) => {
     // Collect explicitly declared top-level warehouse candidates
     const inputs = new Set();
     
-    if (req.params.warehouse) inputs.add(String(req.params.warehouse).trim());
-    if (req.query.warehouse) inputs.add(String(req.query.warehouse).trim());
-    if (req.body && req.body.warehouse) inputs.add(String(req.body.warehouse).trim());
+    if (req.params.warehouse && String(req.params.warehouse).trim()) inputs.add(String(req.params.warehouse).trim());
+    if (req.query.warehouse && String(req.query.warehouse).trim()) inputs.add(String(req.query.warehouse).trim());
+    if (req.body && req.body.warehouse && String(req.body.warehouse).trim()) inputs.add(String(req.body.warehouse).trim());
 
     if (inputs.size === 0) {
       return next(); // Proceed without validation if no warehouse is provided

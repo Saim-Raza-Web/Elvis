@@ -95,6 +95,9 @@ import integrationsRoutes from './routes/integrations.js';
 import purchaseOrdersRoutes from './routes/purchase_orders.js';
 import complianceRoutes from './routes/compliance.js';
 import fiscalPeriodsRoutes from './routes/fiscal_periods.js';
+import paymentsRoutes from './routes/payments.js';
+import simulatorsRoutes from './routes/simulators.js';
+import expiryAlertsRoutes from './routes/expiry_alerts.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -145,6 +148,9 @@ mountModuleRoute('/api/v1/categories', categoriesRoutes);
 mountModuleRoute('/api/v1/purchase-orders', purchaseOrdersRoutes);
 mountModuleRoute('/api/v1/compliance', complianceRoutes);
 mountModuleRoute('/api/v1/fiscal-periods', fiscalPeriodsRoutes);
+mountModuleRoute('/api/v1/payments', paymentsRoutes);
+mountModuleRoute('/api/v1/simulators', simulatorsRoutes);
+app.use('/api/v1/expiry-alerts', expiryAlertsRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');
@@ -170,10 +176,45 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
+
+function initStandaloneDailyScheduler() {
+  if (process.env.NODE_ENV === 'test') return;
+
+  const runScheduledJob = async () => {
+    try {
+      console.log('[Scheduler] Executing automated daily expiry verification job...');
+      const { expiryWorker } = await import('./services/expiryWorker.js');
+      const res = await expiryWorker.runDailyExpiryWorker({
+        dryRun: false,
+        evaluationNow: new Date()
+      });
+      console.log(`[Scheduler] Daily expiry verification completed: ${res.totalCompanies} companies processed.`);
+    } catch (err) {
+      console.error('[Scheduler] Daily expiry verification failed:', err.message);
+    }
+  };
+
+  const now = new Date();
+  const nextRun = new Date(now);
+  nextRun.setUTCHours(6, 0, 0, 0);
+  if (nextRun <= now) {
+    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+  }
+  const initialDelayMs = nextRun.getTime() - now.getTime();
+
+  console.log(`[Scheduler] Registered standalone daily expiry verification job. Next execution at ${nextRun.toISOString()} (in ${Math.round(initialDelayMs / 60000)} min).`);
+
+  setTimeout(() => {
+    runScheduledJob();
+    setInterval(runScheduledJob, 24 * 60 * 60 * 1000);
+  }, initialDelayMs);
+}
+
 if (!process.env.VERCEL) {
   connectToDatabase().then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
+      initStandaloneDailyScheduler();
     });
   }).catch(err => {
     console.error('Failed to connect to MongoDB:', err);

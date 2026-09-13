@@ -46,33 +46,42 @@ router.post('/simulate-putaway', async (req, res, next) => {
 });
 
 // POST dry-run simulator for Picking
-router.post('/simulate-picking', async (req, res, next) => {
+export async function handleSimulatePicking(req, res, next) {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
     if (req.context && req.context.warehouses && req.context.warehouses.length > 1) {
       return res.status(400).json({ message: 'Multiple warehouses provided. This endpoint requires exactly one warehouse.' });
     }
-    const warehouse = req.context?.warehouse?.code;
-    const { sku, owner, qtyNeeded, strategy, minPickUnit } = req.body;
+    const warehouse = req.context?.warehouse?.code || req.body.warehouse;
+    const { sku, owner, customer, qtyNeeded, quantity, qty, strategy, minPickUnit, evaluationNow } = req.body;
     
     if (!warehouse) return res.status(400).json({ message: 'Warehouse is required' });
+    if (!sku) return res.status(400).json({ message: 'SKU is required' });
 
+    const requestedQty = Number(qtyNeeded || quantity || qty) || 1;
+
+    // FORCED DRY-RUN: Simulator must ALWAYS be read-only, regardless of client payload
     const result = await pickingEngine.evaluatePickAllocation({
       companyId: req.user.company,
       warehouse,
       sku,
       owner,
-      qtyNeeded: Number(qtyNeeded) || 1,
+      customer,
+      qtyNeeded: requestedQty,
       strategy: strategy || 'FEFO',
-      minPickUnit: minPickUnit || 'EA'
+      minPickUnit: minPickUnit || 'EA',
+      dryRun: true, // Explicitly forced true
+      evaluationNow: evaluationNow ? new Date(evaluationNow) : undefined
     });
 
     res.json(result);
   } catch (err) {
     next(err);
   }
-});
+}
+
+router.post('/simulate-picking', handleSimulatePicking);
 
 // GET suggest location for a product (uses putawayEngine)
 router.get('/suggest/:sku', async (req, res, next) => {
@@ -96,11 +105,55 @@ router.get('/suggest/:sku', async (req, res, next) => {
   }
 });
 
+import { seedCanonicalStorageRules } from '../services/storageRuleSeeder.js';
+
+// POST /api/v1/storage-rules/seed — Idempotent Canonical 11 Rules Seeder
+router.post('/seed', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    if (!req.context || !req.context.warehouse || req.context.warehouse.invalid) {
+      return res.status(400).json({ message: 'A valid warehouse is required to seed storage rules.' });
+    }
+
+    const warehouseId = req.context.warehouse.id;
+    const { overwriteCustom = false } = req.body || {};
+
+    const result = await seedCanonicalStorageRules({
+      companyId: req.user.company,
+      warehouseId,
+      overwriteCustom: Boolean(overwriteCustom)
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully processed canonical storage rules for warehouse ${req.context.warehouse.code}.`,
+      ...result
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET all
 router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const result = await paginateQuery(Model, { company: req.user.company }, req, { sort: 'priority' });
+    const query = { company: req.user.company };
+
+    if (req.context && req.context.warehouse) {
+      if (req.context.warehouse.invalid) {
+        query.warehouse = null;
+      } else {
+        query.warehouse = req.context.warehouse.id;
+      }
+    }
+
+    if (req.query.ruleType) {
+      query.ruleType = req.query.ruleType;
+    }
+
+    const result = await paginateQuery(Model, query, req, { sort: 'priority' });
     res.json(result);
   } catch (err) {
     next(err);
@@ -124,6 +177,9 @@ router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
+    if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
+      data.warehouse = req.context.warehouse.id;
+    }
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {
