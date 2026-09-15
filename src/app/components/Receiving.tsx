@@ -286,6 +286,8 @@ export function Receiving() {
 
   const handleOpenAddModal = async () => {
     const newForm = blankASN();
+    newForm.warehouse = warehouses.length > 0 ? warehouses[0].code : "MIA";
+    newForm.owner = clients.length > 0 ? clients[0].name : "Default Owner";
     try {
       const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const res = await fetch("/api/v1/receiving/next-po", { headers: { Authorization: `Bearer ${token}` } });
@@ -307,7 +309,7 @@ export function Receiving() {
     };
     window.addEventListener("open-new-asn", handler);
     return () => window.removeEventListener("open-new-asn", handler);
-  }, []);
+  }, [warehouses, clients]);
 
   // Compute stats
   const stats = useMemo(() => {
