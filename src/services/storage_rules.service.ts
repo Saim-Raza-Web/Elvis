@@ -20,6 +20,11 @@ export const storageRulesService = {
     const response = await api.delete('/storage-rules/' + id);
     return response.data;
   },
+  seedCanonical: async (warehouseCode: string) => {
+    const response = await api.post('/storage-rules/seed', { warehouse: warehouseCode });
+    return response.data;
+  },
+
   simulatePutaway: async (payload: any) => {
     const response = await api.post('/storage-rules/simulate-putaway', payload);
     return response.data;

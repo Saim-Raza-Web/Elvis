@@ -4,6 +4,7 @@ import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/Product.js';
 import { lotRecallService } from '../services/lotRecallService.js';
+import { handleExecuteLotRecall } from './lot_recalls.js';
 import { abcEngine } from '../services/abcEngine.js';
 import { parseGS1Barcode } from '../utils/gs1Parser.js';
 import { replenishmentEngine } from '../services/replenishmentEngine.js';
@@ -231,36 +232,7 @@ async function validateBarcodes(companyId, body, currentId = null) {
 }
 
 // POST Atomic Lot Recall (< 2s performance requirement)
-router.post('/lots/recall', requireOpsRole, async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-
-    const { lotNumber, sku, warehouse, owner, quantity, reason, recallId } = req.body;
-    if (!lotNumber) return res.status(400).json({ message: 'lotNumber is required for recall' });
-
-    const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
-
-    const result = await lotRecallService.executeIdempotentLotRecall({
-      companyId: req.user.company,
-      lotNumber,
-      sku,
-      warehouse: warehouse !== undefined ? warehouse : req.context?.warehouse?.code,
-      owner,
-      quantity,
-      reason,
-      recallId,
-      idempotencyKey,
-      user: req.user
-    });
-
-    res.json(result);
-  } catch (err) {
-    if (err.status === 409) {
-      return res.status(409).json({ message: err.message });
-    }
-    next(err);
-  }
-});
+router.post('/lots/recall', requireOpsRole, handleExecuteLotRecall);
 
 // POST Trigger ABC Classification Recalculation (Rolling 30-Day Confirmed Pick Volume)
 router.post('/abc/recalculate', requireOpsRole, async (req, res, next) => {

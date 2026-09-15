@@ -113,4 +113,13 @@ export const ROUTE_MODULE_MAP = {
   suppliers: 'inventory',
   categories: 'inventory',
   'expiry-alerts': 'inventory',
+  replenishment: 'inventory',
+  'lot-recalls': 'inventory',
+  recall: 'inventory',
+  'abc-classification': 'inventory',
+  sscc: 'inventory',
+  'putaway-rules': 'inventory',
+  'picking-rules': 'inventory',
+  tasks: 'inventory',
+  overrides: 'inventory',
 };

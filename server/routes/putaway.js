@@ -19,8 +19,8 @@ import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import InventoryValuationEngine from '../services/InventoryValuationEngine.js';
 import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
 import Company from '../models/Company.js';
-import Return from '../models/Return.js';
-
+import LocationOverride from '../models/LocationOverride.js';
+import { calculateLocationActiveWeight, resolveDefaultLevelLimit, getSiblingLocationsOnLevel } from '../services/putawayEngine.js';
 
 const router = express.Router();
 router.use(protect);
@@ -375,10 +375,45 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: `Step 1 Security Failure: Scan shelf/bin barcode is required. Proposed location is '${proposedLocation}'.` });
     }
 
-    if (providedBin.toUpperCase() !== proposedLocation.toUpperCase() && !req.body.allowMisbinOverride) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: `Wrong location. Scanned: ${providedBin}. Expected: ${proposedLocation}.` });
+    let overrideDoc = null;
+    if (providedBin.toUpperCase() !== proposedLocation.toUpperCase()) {
+      if (!req.body.overrideId) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: `Wrong location. Scanned: '${providedBin}'. Expected: '${proposedLocation}'. Location overrides require an approved LocationOverride record (overrideId). Passing 'allowMisbinOverride' is retired and strictly prohibited.`
+        });
+      }
+
+      overrideDoc = await LocationOverride.findOne({
+        _id: req.body.overrideId,
+        company: req.user.company,
+        taskId: task.taskId,
+        status: 'APPROVED',
+        overrideLocation: providedBin.toUpperCase()
+      }).session(session);
+
+      if (!overrideDoc) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(403).json({
+          message: `Security Rejection: No authorized, approved LocationOverride found for Task ${task.taskId} to location '${providedBin}'.`
+        });
+      }
+
+      if (overrideDoc.warehouse !== (task.warehouse || 'MIA').toUpperCase()) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: `Warehouse mismatch on override: Override is for warehouse '${overrideDoc.warehouse}', but task is in '${task.warehouse}'.`
+        });
+      }
+    } else if (req.body.overrideId) {
+      overrideDoc = await LocationOverride.findOne({
+        _id: req.body.overrideId,
+        company: req.user.company,
+        taskId: task.taskId
+      }).session(session);
     }
 
     const targetBinCode = providedBin;
@@ -416,10 +451,10 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       // Point 2: Mis-bin Rejection / Storage Compatibility Rule Check
       if (task.toLocation && task.toLocation !== 'RECEIVING-BUFFER' && task.toLocation !== 'Z-RECEIVING') {
         const expectedLoc = await Location.findOne({ code: task.toLocation, company: req.user.company }).session(session);
-        if (expectedLoc && expectedLoc.zone && loc.zone && expectedLoc.zone !== loc.zone && !req.body.allowMisbinOverride) {
+        if (expectedLoc && expectedLoc.zone && loc.zone && String(expectedLoc.zone) !== String(loc.zone) && !overrideDoc) {
           await session.abortTransaction();
           session.endSession();
-          return res.status(400).json({ message: `Mis-bin Rejection: Task ${task.taskId} requires zone '${expectedLoc.zone}', but scanned bin '${targetBinCode}' is in zone '${loc.zone}'.` });
+          return res.status(400).json({ message: `Mis-bin Rejection: Task ${task.taskId} requires zone '${expectedLoc.zone}', but scanned bin '${targetBinCode}' is in zone '${loc.zone}'. Location override authorization required.` });
         }
       }
 
@@ -479,6 +514,48 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
           session.endSession();
           return res.status(400).json({ message: `Lot Integrity Violation: Location ${targetBinCode} is occupied by another Lot Number ('${existingInTargetBin.find(e => e.lotNumber !== taskLot)?.lotNumber}').` });
         }
+      }
+
+      // Weight Limits Revalidation at physical completion
+      const { currentWeight: currentLocWeight } = await calculateLocationActiveWeight(req.user.company, loc.code);
+      const palletTare = 25;
+      const singlePalletGross = (product?.pallet_weight_kg || 0) + palletTare;
+      let palletCount = 1;
+      if (req.body.pallets && Number(req.body.pallets) > 0) {
+        palletCount = Number(req.body.pallets);
+      } else if (product?.base_uom === 'PLT' && Number(qty) > 0) {
+        palletCount = Number(qty);
+      }
+      const totalIncomingWeight = singlePalletGross > 25 ? (palletCount * singlePalletGross) : (qty * (product?.weight || 10));
+
+      const locLimit = (loc.max_weight_kg !== null && loc.max_weight_kg !== undefined && loc.max_weight_kg > 0)
+        ? loc.max_weight_kg
+        : (loc.weight_limit !== null && loc.weight_limit !== undefined && loc.weight_limit > 0)
+          ? loc.weight_limit
+          : (loc.weightCapacity || loc.maxWeight || 1000);
+
+      if ((currentLocWeight + totalIncomingWeight) > locLimit) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: `Individual Weight Limit Exceeded: Location '${targetBinCode}' current load ${currentLocWeight}kg + incoming ${totalIncomingWeight}kg exceeds max limit ${locLimit}kg.`
+        });
+      }
+
+      const levelLimit = resolveDefaultLevelLimit(loc);
+      const siblings = await getSiblingLocationsOnLevel(req.user.company, loc);
+      let currentLevelWeight = 0;
+      for (const sib of siblings) {
+        const { currentWeight: sibW } = await calculateLocationActiveWeight(req.user.company, sib.code);
+        currentLevelWeight += sibW;
+      }
+
+      if ((currentLevelWeight + totalIncomingWeight) > levelLimit) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          message: `Aggregate Level Weight Limit Exceeded: Level current load ${currentLevelWeight}kg + incoming ${totalIncomingWeight}kg exceeds beam limit ${levelLimit}kg.`
+        });
       }
 
       // Point 3: Atomic Concurrent Multi-Task Capacity Check inside Session Transaction
@@ -577,15 +654,16 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       company: req.user.company
     }], { session });
 
-    // 6. Update PutawayTask with Atomic OCC Increment
+    // 6. Update PutawayTask with Atomic OCC Increment & Preserve Original Intent
     const updatedTask = await PutawayTask.findOneAndUpdate(
       { _id: task._id, status: { $ne: 'completed' }, __v: task.__v },
       {
         $set: {
           qty,
           status: 'completed',
-          toLocation: targetBinCode,
           destinationBin: targetBinCode,
+          originalDestination: task.toLocation || task.destinationBin || 'RECEIVING-BUFFER',
+          overrideId: overrideDoc ? overrideDoc._id : null,
           completedAt: new Date(),
           completedBy: operator,
           assignedTo: task.assignedTo || operator

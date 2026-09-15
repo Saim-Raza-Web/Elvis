@@ -2,6 +2,17 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { canAccessModule } from '../config/permissions.js';
 
+export function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[FATAL] JWT_SECRET environment variable is not configured in production');
+    }
+    return 'fallback_secret_key';
+  }
+  return secret;
+}
+
 export const protect = async (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -13,21 +24,20 @@ export const protect = async (req, res, next) => {
   }
 
   try {
-    const secret = process.env.JWT_SECRET || 'fallback_secret_key';
+    const secret = getJwtSecret();
     const decoded = jwt.verify(token, secret);
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) {
       return res.status(401).json({ message: 'User belonging to this token no longer exists' });
     }
     if (!req.user.company) {
-      const Company = (await import('../models/Company.js')).default;
-      const fallbackCompany = await Company.findOne({});
-      if (fallbackCompany) {
-        req.user.company = fallbackCompany._id;
-      }
+      return res.status(403).json({ message: 'User has no associated company context' });
     }
     next();
   } catch (error) {
+    if (error.message && error.message.includes('[FATAL] JWT_SECRET')) {
+      return res.status(500).json({ message: error.message });
+    }
     res.status(401).json({ message: 'Not authorized, token failed' });
   }
 };

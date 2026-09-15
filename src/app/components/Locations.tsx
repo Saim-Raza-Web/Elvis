@@ -10,6 +10,7 @@ import { warehousesService } from "../../services/warehouses.service";
 import { zonesService } from "../../services/zones.service";
 import { storageRulesService } from "../../services/storage_rules.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+import { StorageRulesManager } from "./StorageRulesManager";
 
 const locationsListService: ListService<Loc> = {
   getAll: async (params) => {
@@ -651,40 +652,15 @@ export function Locations() {
         </div>
       )}
 
-      {/* Rules Tab Error Boundary & Empty State (LOC-01) */}
+      {/* Rules Tab — uses shared StorageRulesManager component (correct conditions[] schema) */}
       {view === "rules" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {(Array.isArray(rules) && rules.length > 0) ? rules.map((rule, i) => (
-            <div key={rule._id || i} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold" style={{ fontSize: "0.875rem" }}>{rule.name}</span>
-                    {rule.isActive ? <StatusBadge status="active" /> : <StatusBadge status="blocked" />}
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-2">
-                    IF <strong className="text-foreground">{rule.conditionType}</strong> = <strong className="text-foreground">{rule.conditionValue}</strong>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    THEN PUT IN <strong className="text-primary">{rule.targetZone}</strong>
-                  </div>
-                </div>
-                <div className="flex gap-1 items-center">
-                  <span className="text-xs font-bold bg-secondary px-2 py-1 rounded">Priority: {rule.priority}</span>
-                  <button onClick={() => { setEditRuleTarget(rule); setRuleForm({ name: rule.name, conditionType: rule.conditionType, conditionValue: rule.conditionValue, targetZone: rule.targetZone, targetLocationType: rule.targetLocationType, priority: rule.priority }); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"><Edit3 className="size-3.5" /></button>
-                  <button onClick={() => setDeleteRuleTarget(rule)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><AlertTriangle className="size-3.5" /></button>
-                </div>
-              </div>
-            </div>
-          )) : (
-            <div className="col-span-full p-12 text-center bg-card rounded-xl border border-border space-y-3">
-              <Boxes className="size-10 text-muted-foreground mx-auto opacity-40" />
-              <div className="font-bold text-base text-foreground">No rules configured. Go to Settings &gt; Storage Rules to create them.</div>
-              <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                Storage rules dynamically govern putaway location proposals based on product category, temperature limits, and client owner isolation.
-              </p>
-            </div>
-          )}
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldCheck className="size-4 text-primary" />
+            <span className="text-sm font-bold text-foreground">Storage Rules</span>
+            <span className="text-[11px] text-muted-foreground">Manage from Settings &gt; Storage Rules for full admin controls</span>
+          </div>
+          <StorageRulesManager isAdmin={false} compact={true} />
         </div>
       )}
 

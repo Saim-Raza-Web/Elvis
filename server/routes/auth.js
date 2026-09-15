@@ -2,7 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
-import { protect } from '../middleware/auth.js';
+import { protect, getJwtSecret } from '../middleware/auth.js';
 
 import Company from '../models/Company.js';
 
@@ -30,7 +30,7 @@ router.post('/register', async (req, res, next) => {
     company.users.push(user._id);
     await company.save();
     
-    const secret = process.env.JWT_SECRET || 'fallback_secret_key';
+    const secret = getJwtSecret();
     const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
 
     const token = jwt.sign({ id: user._id }, secret, {
@@ -57,7 +57,7 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
     
-    const secret = process.env.JWT_SECRET || 'fallback_secret_key';
+    const secret = getJwtSecret();
     const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
 
     const token = jwt.sign({ id: user._id }, secret, {

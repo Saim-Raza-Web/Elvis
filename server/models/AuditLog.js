@@ -10,6 +10,10 @@ const auditLogSchema = new mongoose.Schema({
       'putaway_confirmed', 
       'pick_confirmed', 
       'override_requested', 
+      'override_approved',
+      'override_rejected',
+      'override_escalated',
+      'override_resolved',
       'location_blocked', 
       'lot_recalled', 
       'replenishment_triggered', 
@@ -34,6 +38,10 @@ const auditLogSchema = new mongoose.Schema({
   
   reference_id: { type: String }, // ID of related task, ASN, sales order or adjustment
   reason_code: { type: Number },
+  reason_code_canonical: {
+    type: String,
+    enum: ['SPACE_CONSTRAINT', 'CUSTOMER_REQUEST', 'DAMAGE', 'WEIGHT_LIMIT', 'TEMPERATURE_MISMATCH', 'OTHER']
+  },
   reason_text: { type: String },
   
   previous_value: { type: mongoose.Schema.Types.Mixed }, // JSON state before event

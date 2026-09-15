@@ -11,6 +11,7 @@ import { ROLE_DEFINITIONS, PERMISSION_MODULES } from "../../utils/permissions";
 import { Tag } from "lucide-react";
 import { Suppliers } from "./Suppliers";
 import { ProductCategories } from "./ProductCategories";
+import { StorageRulesManager } from "./StorageRulesManager";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
 
@@ -30,12 +31,16 @@ export function Settings() {
     { id: "owners", label: "Clients / 3PL Owners", icon: Building2 },
     { id: "suppliers", label: "Suppliers Master", icon: Truck },
     { id: "categories", label: "Product Categories", icon: Tag },
+    { id: "storage-rules", label: "Storage Rules", icon: Shield },
     { id: "notifications", label: t.settings.notifications, icon: settingsTabIcons[1] },
     { id: "security", label: t.settings.security, icon: settingsTabIcons[2] },
     { id: "team", label: t.settings.team, icon: settingsTabIcons[3] },
     { id: "roles", label: t.settings.roles, icon: settingsTabIcons[4] },
     { id: "api", label: t.settings.apiKeys, icon: settingsTabIcons[5] },
   ];
+  // Determine if current user is admin for Storage Rules seed button
+  const currentUserRaw = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}"); } catch { return {}; } })();
+  const currentUserIsAdmin = currentUserRaw?.role === "admin" || currentUserRaw?.role === "manager";
   const [activeTab, setActiveTab] = useState("general");
   const [companyName, setCompanyName] = useState("demologistics HQ");
   const [timezone, setTimezone] = useState("America/New_York");
@@ -462,6 +467,19 @@ export function Settings() {
 
         {activeTab === "categories" && (
           <ProductCategories />
+        )}
+
+        {activeTab === "storage-rules" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 mb-2">
+              <Shield className="size-5 text-primary" />
+              <div>
+                <h2 className="text-base font-bold text-foreground">Storage Rules</h2>
+                <p className="text-xs text-muted-foreground">Configure putaway routing rules. Canonical rules are auto-evaluated by the putaway engine in priority order.</p>
+              </div>
+            </div>
+            <StorageRulesManager isAdmin={currentUserIsAdmin} compact={false} />
+          </div>
         )}
 
         {activeTab === "branding" && (

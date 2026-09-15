@@ -7,6 +7,9 @@ const pickTaskLineSchema = new mongoose.Schema({
   pickedQty: { type: Number, default: 0 },
   shortfallQty: { type: Number, default: 0 },
   sourceLocation: { type: String, default: 'STAGING-A' },
+  originalSourceLocation: { type: String, default: '' },
+  executedLocation: { type: String, default: '' },
+  overrideId: { type: mongoose.Schema.Types.ObjectId, ref: 'LocationOverride', default: null },
   inventoryOwner: { type: String, default: '' },
   ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER', 'UNKNOWN'], required: true, default: 'UNKNOWN' },
   status: { type: String, enum: ['pending', 'picked', 'partial', 'shortfall'], default: 'pending' }

@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { protect, requireRole } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
@@ -214,5 +215,119 @@ router.delete('/:id', requireOpsRole, async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Creates an Express router alias for a specific ruleType (e.g. PUTAWAY or PICKING).
+ * Enforces ruleType server-side across all operations (GET, POST, PUT, DELETE)
+ * preventing client-side ruleType tampering.
+ *
+ * @param {'PUTAWAY'|'PICKING'} forcedRuleType
+ * @returns {express.Router}
+ */
+export function createRuleTypeRouter(forcedRuleType) {
+  const aliasRouter = express.Router();
+  aliasRouter.use(protect);
+  aliasRouter.use(validateWarehouse);
+
+  // Enforce server-side ruleType on all incoming queries and bodies
+  aliasRouter.use((req, res, next) => {
+    if (req.query && typeof req.query === 'object') {
+      req.query.ruleType = forcedRuleType;
+    }
+
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+      req.body.ruleType = forcedRuleType;
+    }
+    next();
+  });
+
+  // GET / — List rules strictly scoped to forcedRuleType
+  aliasRouter.get('/', async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+      const query = { company: req.user.company, ruleType: forcedRuleType };
+
+      if (req.context && req.context.warehouse) {
+        if (req.context.warehouse.invalid) {
+          query.warehouse = null;
+        } else {
+          query.warehouse = req.context.warehouse.id;
+        }
+      }
+
+      const result = await paginateQuery(Model, query, req, { sort: 'priority' });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /:id — Fetch rule ensuring it belongs to forcedRuleType
+  aliasRouter.get('/:id', async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        return res.status(404).json({ message: `Rule not found for type ${forcedRuleType}` });
+      }
+      const item = await Model.findOne({ _id: req.params.id, company: req.user.company, ruleType: forcedRuleType });
+      if (!item) return res.status(404).json({ message: `Rule not found for type ${forcedRuleType}` });
+      res.json(item);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST / — Create rule strictly forced to forcedRuleType
+  aliasRouter.post('/', requireOpsRole, async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+      const data = { ...req.body, company: req.user.company, ruleType: forcedRuleType };
+      if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
+        data.warehouse = req.context.warehouse.id;
+      }
+      const item = await Model.create(data);
+      res.status(201).json(item);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // PUT /:id — Update rule ensuring it belongs to forcedRuleType and cannot be morphed
+  aliasRouter.put('/:id', requireOpsRole, async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        return res.status(404).json({ message: `Rule not found for type ${forcedRuleType}` });
+      }
+      const updateData = { ...req.body, ruleType: forcedRuleType };
+      const item = await Model.findOneAndUpdate(
+        { _id: req.params.id, company: req.user.company, ruleType: forcedRuleType },
+        updateData,
+        { new: true }
+      );
+      if (!item) return res.status(404).json({ message: `Rule not found for type ${forcedRuleType}` });
+      res.json(item);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // DELETE /:id — Delete rule ensuring it belongs to forcedRuleType
+  aliasRouter.delete('/:id', requireOpsRole, async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        return res.status(404).json({ message: `Rule not found for type ${forcedRuleType}` });
+      }
+      const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company, ruleType: forcedRuleType });
+      if (!item) return res.status(404).json({ message: `Rule not found for type ${forcedRuleType}` });
+      res.json({ message: 'Deleted successfully' });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return aliasRouter;
+}
 
 export default router;

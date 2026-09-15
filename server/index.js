@@ -17,7 +17,11 @@ const app = express();
 // Middleware
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(morgan('dev'));
 
 // MongoDB Connection
@@ -43,6 +47,7 @@ async function connectToDatabase() {
 
 // Database connection middleware for Serverless
 app.use(async (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
   try {
     await connectToDatabase();
     next();
@@ -98,6 +103,15 @@ import fiscalPeriodsRoutes from './routes/fiscal_periods.js';
 import paymentsRoutes from './routes/payments.js';
 import simulatorsRoutes from './routes/simulators.js';
 import expiryAlertsRoutes from './routes/expiry_alerts.js';
+import replenishmentRoutes from './routes/replenishment.js';
+import lotRecallsRoutes from './routes/lot_recalls.js';
+import recallAliasRoutes from './routes/recall.js';
+import abcClassificationRoutes from './routes/abc_classification.js';
+import ssccRoutes from './routes/sscc.js';
+import putawayRulesRoutes from './routes/putaway_rules.js';
+import pickingRulesRoutes from './routes/picking_rules.js';
+import tasksRoutes from './routes/tasks.js';
+import overridesRoutes from './routes/overrides.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -151,6 +165,15 @@ mountModuleRoute('/api/v1/fiscal-periods', fiscalPeriodsRoutes);
 mountModuleRoute('/api/v1/payments', paymentsRoutes);
 mountModuleRoute('/api/v1/simulators', simulatorsRoutes);
 app.use('/api/v1/expiry-alerts', expiryAlertsRoutes);
+mountModuleRoute('/api/v1/replenishment', replenishmentRoutes);
+mountModuleRoute('/api/v1/lot-recalls', lotRecallsRoutes);
+mountModuleRoute('/api/v1/recall', recallAliasRoutes);
+mountModuleRoute('/api/v1/abc-classification', abcClassificationRoutes);
+mountModuleRoute('/api/v1/sscc', ssccRoutes);
+mountModuleRoute('/api/v1/putaway-rules', putawayRulesRoutes);
+mountModuleRoute('/api/v1/picking-rules', pickingRulesRoutes);
+mountModuleRoute('/api/v1/tasks', tasksRoutes);
+mountModuleRoute('/api/v1/overrides', overridesRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');
@@ -210,7 +233,11 @@ function initStandaloneDailyScheduler() {
   }, initialDelayMs);
 }
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+  if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    console.error('❌ [FATAL] JWT_SECRET environment variable is not configured in production.');
+    throw new Error('[FATAL] JWT_SECRET environment variable is not configured in production');
+  }
   connectToDatabase().then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);

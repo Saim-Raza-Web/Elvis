@@ -195,6 +195,17 @@ router.post('/:provider/connect-token', protect, requireAdminOrManager, async (r
 // 3. OAUTH CALLBACK & TOKEN EXCHANGE (GET & POST)
 // ═════════════════════════════════════════════════════════════════════════════
 
+export function getClientBaseUrl() {
+  const clientUrl = process.env.CLIENT_URL;
+  if (!clientUrl) {
+    if (process.env.NODE_ENV === 'production') {
+      return null;
+    }
+    return 'http://localhost:5173';
+  }
+  return clientUrl.replace(/\/+$/, '');
+}
+
 async function handleCallbackLogic(req, res, next) {
   try {
     const rawState = req.query.state || req.body.state || req.query.user_id;
@@ -248,38 +259,25 @@ async function handleCallbackLogic(req, res, next) {
       store.isSandbox = isSandboxFinal;
       store.status = storeStatus;
       store.connectionMethod = 'oauth_redirect';
-      store.lastError = '';
-      if (region) store.region = region;
-      if (tokenResult.metadata || region || sites) {
-        store.metadata = new Map(Object.entries({
-          ...(tokenResult.metadata || {}),
-          ...(region ? { region } : {}),
-          ...(sites ? { sites } : {})
-        }));
+      if (tokenResult.scopes) store.scopes = tokenResult.scopes;
+      if (tokenResult.metadata) {
+        store.metadata = new Map(Object.entries(tokenResult.metadata));
       }
       await store.save();
     } else {
-      // Create new ConnectedStore
       store = new ConnectedStore({
         company: companyId,
         provider: provider.toUpperCase(),
-        storeName: customName || tokenResult.storeName || `${provider} Store`,
-        customStoreName: customName || tokenResult.storeName || `${provider} Store`,
+        storeName: (customName || tokenResult.storeUrl || provider).trim(),
+        customStoreName: (customName || '').trim(),
         storeUrl: tokenResult.storeUrl,
-        externalStoreId: tokenResult.externalStoreId || '',
-        marketplace: region || provider,
-        region: region || '',
         connectionMethod: 'oauth_redirect',
         isSandbox: isSandboxFinal,
         status: storeStatus,
         authType: 'OAUTH2',
         scopes: tokenResult.scopes || [],
         tokenExpiresAt: tokenResult.tokenExpiresAt,
-        metadata: {
-          ...(tokenResult.metadata || {}),
-          ...(region ? { region } : {}),
-          ...(sites ? { sites } : {})
-        },
+        metadata: tokenResult.metadata || {},
         createdBy: userId
       });
       store.setAccessToken(tokenResult.accessToken);
@@ -294,7 +292,12 @@ async function handleCallbackLogic(req, res, next) {
 
     // If request accepts HTML (browser navigation), redirect to frontend
     if (req.accepts('html') && !req.xhr) {
-      const clientBase = process.env.CLIENT_URL || 'http://localhost:5173';
+      const clientBase = getClientBaseUrl();
+      if (!clientBase) {
+        return res.status(500).json({
+          message: 'CLIENT_URL environment variable is not configured in production for OAuth redirection'
+        });
+      }
       const clientUrl = `${clientBase}/?page=ecommerce&connected=true&store=${encodeURIComponent(store.storeName)}&sandbox=${isSandboxFinal}`;
       return res.redirect(clientUrl);
     }
@@ -306,8 +309,10 @@ async function handleCallbackLogic(req, res, next) {
     });
   } catch (err) {
     if (req.accepts('html') && !req.xhr) {
-      const clientBase = process.env.CLIENT_URL || 'http://localhost:5173';
-      return res.redirect(`${clientBase}/?page=ecommerce&error=${encodeURIComponent(err.message)}`);
+      const clientBase = getClientBaseUrl();
+      if (clientBase) {
+        return res.redirect(`${clientBase}/?page=ecommerce&error=${encodeURIComponent(err.message)}`);
+      }
     }
     next(err);
   }
@@ -508,13 +513,29 @@ router.post('/webhooks/:provider/:storeId', async (req, res) => {
   try {
     const { provider, storeId } = req.params;
     const store = await ConnectedStore.findById(storeId);
-    if (!store || store.status !== 'connected') {
+    const activeStatuses = ['connected', 'syncing', 'sandbox_connected'];
+    if (!store || !activeStatuses.includes(store.status)) {
       return res.status(404).json({ message: 'Store not found or inactive' });
     }
 
-    const providerInstance = providerRegistry.get(provider);
-    if (store.webhookSecret && !providerInstance.verifyWebhookSignature(req, store.webhookSecret)) {
-      return res.status(401).json({ message: 'Invalid webhook signature' });
+    let providerInstance;
+    try {
+      providerInstance = providerRegistry.get(provider);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+    if (!providerInstance) {
+      return res.status(400).json({ message: `Unsupported integration provider: ${provider}` });
+    }
+
+    const requiresSignature = providerInstance.requiresWebhookSignature !== false;
+    if (requiresSignature) {
+      if (!store.webhookSecret) {
+        return res.status(401).json({ message: 'Store has no webhook signing secret configured' });
+      }
+      if (!providerInstance.verifyWebhookSignature(req, store.webhookSecret)) {
+        return res.status(401).json({ message: 'Invalid webhook signature' });
+      }
     }
 
     const event = providerInstance.parseWebhookEvent(req);

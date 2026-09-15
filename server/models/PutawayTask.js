@@ -17,6 +17,8 @@ const putawayTaskSchema = new mongoose.Schema({
   fromLocation: { type: String, default: 'Z-RECEIVING' },
   toLocation: { type: String, default: 'RECEIVING-BUFFER' },
   destinationBin: { type: String, default: '' },
+  originalDestination: { type: String, default: '' },
+  overrideId: { type: mongoose.Schema.Types.ObjectId, ref: 'LocationOverride', default: null },
   priority: {
     type: String,
     enum: ['normal', 'high', 'urgent'],

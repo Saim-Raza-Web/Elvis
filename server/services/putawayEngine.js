@@ -140,7 +140,8 @@ export const putawayEngine = {
     palletWeight = null,
     incomingWeight = null,
     isGrossWeight = false,
-    abcClass = null
+    abcClass = null,
+    excludedLocations = []
   }) => {
     const trace = [];
 
@@ -326,6 +327,13 @@ export const putawayEngine = {
       locQuery.locationType = { $nin: ['PICK_FACE', 'pick_face'] }; // usually RESERVE or PALLET_RACK
     }
 
+    if (Array.isArray(excludedLocations) && excludedLocations.length > 0) {
+      const cleanEx = excludedLocations.map(c => String(c).trim().toUpperCase()).filter(Boolean);
+      if (cleanEx.length > 0) {
+        locQuery.code = { $nin: cleanEx };
+      }
+    }
+
     let candidateLocations = await Location.find(locQuery).sort({ code: 1 });
     
     if (candidateLocations.length === 0 && targetZone && appliedAction !== 'fixed_location') {
@@ -336,6 +344,12 @@ export const putawayEngine = {
       });
       const fallbackLocQuery = { company: companyId, active: { $ne: false } };
       if (resolvedWarehouseId) fallbackLocQuery.warehouse = resolvedWarehouseId;
+      if (Array.isArray(excludedLocations) && excludedLocations.length > 0) {
+        const cleanEx = excludedLocations.map(c => String(c).trim().toUpperCase()).filter(Boolean);
+        if (cleanEx.length > 0) {
+          fallbackLocQuery.code = { $nin: cleanEx };
+        }
+      }
       candidateLocations = await Location.find(fallbackLocQuery).sort({ code: 1 });
     }
 
@@ -348,6 +362,10 @@ export const putawayEngine = {
     // 5. Evaluate each location against physical constraints & Lot Integrity
     for (const loc of candidateLocations) {
       const locCode = loc.code;
+
+      if (Array.isArray(excludedLocations) && excludedLocations.some(e => String(e).trim().toUpperCase() === String(locCode).trim().toUpperCase())) {
+        continue;
+      }
 
       // Exclusion A: Temperature Bounds
       if (tempRequirement !== null && tempRequirement !== undefined) {

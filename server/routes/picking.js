@@ -13,6 +13,7 @@ import ActivityLog from '../models/ActivityLog.js';
 import Notification from '../models/Notification.js';
 import PackTask from '../models/PackTask.js';
 import Product from '../models/Product.js';
+import LocationOverride from '../models/LocationOverride.js';
 import { generatePickDeliveryNotePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();
@@ -213,15 +214,47 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       const update = Array.isArray(lineUpdates) ? lineUpdates.find(u => u.sku === item.sku) : null;
       
       // Step 1 Validation: Check scanned location against expected source location
+      let lineOverrideDoc = null;
       if (update && update.scannedLocation) {
         const expectedLoc = (item.sourceLocation || 'STAGING-A').trim().toUpperCase();
         const scannedLoc = String(update.scannedLocation).trim().toUpperCase();
         if (scannedLoc !== expectedLoc) {
-          await session.abortTransaction();
-          session.endSession();
-          return res.status(400).json({
-            message: `Wrong location. Scanned: ${update.scannedLocation}. Expected: ${item.sourceLocation || 'STAGING-A'}`
-          });
+          if (!update.overrideId) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+              message: `Wrong location for SKU '${item.sku}'. Scanned: ${update.scannedLocation}. Expected: ${item.sourceLocation || 'STAGING-A'}. Location overrides require an approved LocationOverride record (overrideId).`
+            });
+          }
+
+          lineOverrideDoc = await LocationOverride.findOne({
+            _id: update.overrideId,
+            company: req.user.company,
+            taskId: task.taskId,
+            taskLineId: item._id,
+            status: 'APPROVED',
+            overrideLocation: scannedLoc
+          }).session(session);
+
+          if (!lineOverrideDoc) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(403).json({
+              message: `Security Rejection: No authorized, approved LocationOverride found for PickTask ${task.taskId} line ${item._id} to location '${scannedLoc}'.`
+            });
+          }
+
+          if (lineOverrideDoc.warehouse !== (task.warehouse || 'MIA').toUpperCase()) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+              message: `Warehouse mismatch on pick override: Override is for warehouse '${lineOverrideDoc.warehouse}', but task is in '${task.warehouse}'.`
+            });
+          }
+
+          item.originalSourceLocation = expectedLoc;
+          item.executedLocation = scannedLoc;
+          item.overrideId = lineOverrideDoc._id;
         }
       }
 
@@ -236,7 +269,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       totalShortfall += shortfall;
       if (shortfall > 0) hasShortfall = true;
 
-      const binCode = update?.sourceLocation || item.sourceLocation || 'STAGING-A';
+      const binCode = (update && update.scannedLocation ? String(update.scannedLocation).trim().toUpperCase() : null) || update?.sourceLocation || item.sourceLocation || 'STAGING-A';
 
       // OWNER ISOLATION: Deduct stock ONLY from matching (company, warehouse, sku, owner, bin)
       if (actualPicked > 0) {
