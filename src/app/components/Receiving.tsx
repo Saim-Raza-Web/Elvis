@@ -13,6 +13,7 @@ import { receivingService } from "../../services/receiving.service";
 import { inventoryService } from "../../services/inventory.service";
 import { locationsService } from "../../services/locations.service";
 import { incidentsService } from "../../services/incidents.service";
+import { warehousesService } from "../../services/warehouses.service";
 import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { suppliersService, type Supplier } from "../../services/suppliers.service";
 import { settingsService } from "../../services/settings.service";
@@ -174,12 +175,14 @@ export function Receiving() {
   );
 
   const [clients, setClients] = useState<ClientOwner[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
   const [blindReceiving, setBlindReceiving] = useState(false);
   const [skuWarnings, setSkuWarnings] = useState<Record<number, string>>({});
 
   useEffect(() => {
     clientsService.getAll().then(res => setClients(Array.isArray(res) ? res : [])).catch(() => setClients([]));
+    warehousesService.getAll({ all: true }).then(res => setWarehouses(Array.isArray(res) ? res : [])).catch(() => setWarehouses([]));
     suppliersService.getAll().then(res => setSuppliersList(Array.isArray(res) ? res : [])).catch(() => setSuppliersList([]));
     settingsService.getCompanySettings().then(res => {
       if (res) setBlindReceiving(Boolean(res.blindReceiving));
