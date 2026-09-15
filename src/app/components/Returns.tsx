@@ -55,10 +55,10 @@ export function Returns() {
 
   // Listen for header button CustomEvent
   useEffect(() => {
-    const handler = () => { setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" }); setShowAdd(true); };
+    const handler = () => { setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" }); setShowAdd(true); };
     window.addEventListener("open-create-return", handler);
     return () => window.removeEventListener("open-create-return", handler);
-  }, []);
+  }, [warehouses]);
 
   async function handleCreate() {
     if (!form.order || !form.customer) { toast.error(t.common?.error || "Order and customer required."); return; }

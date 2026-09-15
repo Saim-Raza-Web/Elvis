@@ -502,10 +502,10 @@ export function Orders() {
   }, []);
 
   useEffect(() => {
-    const handler = () => { setForm(blankForm()); setShowAdd(true); };
+    const handler = () => { setForm({ ...blankForm(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" }); setShowAdd(true); };
     window.addEventListener("open-new-order", handler);
     return () => window.removeEventListener("open-new-order", handler);
-  }, []);
+  }, [warehouses]);
 
   function openEdit(o: Order) {
     setEditTarget(o);
