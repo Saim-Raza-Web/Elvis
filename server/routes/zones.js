@@ -50,6 +50,10 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
 
+    // 'locations' from the frontend is a numeric count, not an ObjectId array.
+    // Strip it so Mongoose doesn't attempt to cast a number into [ObjectId].
+    delete data.locations;
+
     if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
       data.warehouse = req.context.warehouse.id;
     } else if (req.body.warehouse) {
@@ -68,6 +72,9 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const updateData = { ...req.body };
+
+    // Strip numeric locations count sent by the frontend; ref array is managed separately.
+    delete updateData.locations;
 
     if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
       updateData.warehouse = req.context.warehouse.id;
