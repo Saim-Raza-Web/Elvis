@@ -14,7 +14,7 @@ import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
 import { Camera, QrCode } from "lucide-react";
 import { exportToCSV } from "../../lib/csvExport";
 
-type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; unitBarcode?: string; caseBarcode?: string; caseMultiplier?: number; };
+type Product = { _id: string; sku: string; name: string; category: string; manufacturer?: string; brand?: string; qty_available: number; qty_reserved: number; qty_blocked: number; qty_ecommerce: number; qty_customer: number; owner: string; price: number; warehouse: string; status: string; reorder_point?: number; min_stock?: number; max_stock?: number; safety_stock?: number; supplier_lead_time_days?: number; unitBarcode?: string; caseBarcode?: string; caseMultiplier?: number; qcProfile?: string; };
 
 const categories = ["All", "Widgets", "Hardware", "Electronics", "Industrial", "Accessories", "Packaging"];
 
@@ -56,7 +56,7 @@ export function Inventory() {
   const [showCatalogScanner, setShowCatalogScanner] = useState(false);
   const [catalogScanTarget, setCatalogScanTarget] = useState<"unitBarcode" | "caseBarcode" | null>(null);
 
-  const { items: productList, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<Product>(inventoryService, { limit: 25 });
+  const { items: productList, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<Product>(inventoryService as any, { limit: 25 });
 
   async function loadData() {
     try {
@@ -112,8 +112,8 @@ export function Inventory() {
         setEditTarget(null);
       }
       reload();
-    } catch (err) {
-      toast.error(t.common?.error || "Failed to save product");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to save product");
     }
   }
 
@@ -124,8 +124,8 @@ export function Inventory() {
       toast.success(`Product deleted.`);
       setDeleteTarget(null);
       reload();
-    } catch (err) {
-      toast.error(t.common?.error || "Failed to delete product");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to delete product");
     }
   }
 
@@ -453,7 +453,7 @@ export function Inventory() {
       </Modal>
 
       {/* Barcode Modal */}
-      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title={t.common?.printSKUBarcode || "Print SKU Barcode"} size="sm">
+      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title={t.common?.printSKUBarcode || "Print SKU Barcode"} width="sm">
         {barcodeTarget && (
           <div className="p-4">
             <p className="text-sm text-muted-foreground mb-4 text-center">
