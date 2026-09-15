@@ -53,11 +53,15 @@ export function Returns() {
     warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
   }, []);
 
+  function openAdd() {
+    setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" });
+    setShowAdd(true);
+  }
+
   // Listen for header button CustomEvent
   useEffect(() => {
-    const handler = () => { setForm({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" }); setShowAdd(true); };
-    window.addEventListener("open-create-return", handler);
-    return () => window.removeEventListener("open-create-return", handler);
+    window.addEventListener("open-create-return", openAdd);
+    return () => window.removeEventListener("open-create-return", openAdd);
   }, [warehouses]);
 
   async function handleCreate() {
@@ -166,7 +170,7 @@ export function Returns() {
             style={{ fontSize: "0.875rem" }}
           />
         </div>
-        <PrimaryButton icon={Undo2} onClick={() => setShowAdd(true)}>{t.returns.createReturn}</PrimaryButton>
+        <PrimaryButton icon={Undo2} onClick={openAdd}>{t.returns.createReturn}</PrimaryButton>
       </div>
 
       {/* Table */}

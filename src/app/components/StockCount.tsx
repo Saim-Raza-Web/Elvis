@@ -114,6 +114,11 @@ export function StockCount() {
     loadData();
   }, []);
 
+  function openAdd() {
+    setForm({ ...blankCount(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" });
+    setShowAdd(true);
+  }
+
   async function handleCreate() {
     try {
       await stockCountsService.create(form);
@@ -243,7 +248,7 @@ export function StockCount() {
             style={{ fontSize: "0.875rem" }}
           />
         </div>
-        <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.stockCount?.newCount || "New Count"}</PrimaryButton>
+        <PrimaryButton icon={Plus} onClick={openAdd}>{t.stockCount?.newCount || "New Count"}</PrimaryButton>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">

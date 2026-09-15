@@ -501,10 +501,14 @@ export function Orders() {
     loadMeta();
   }, []);
 
+  function openAdd() {
+    setForm({ ...blankForm(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" });
+    setShowAdd(true);
+  }
+
   useEffect(() => {
-    const handler = () => { setForm({ ...blankForm(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" }); setShowAdd(true); };
-    window.addEventListener("open-new-order", handler);
-    return () => window.removeEventListener("open-new-order", handler);
+    window.addEventListener("open-new-order", openAdd);
+    return () => window.removeEventListener("open-new-order", openAdd);
   }, [warehouses]);
 
   function openEdit(o: Order) {
@@ -674,7 +678,7 @@ export function Orders() {
         >
           <Download className="size-4" /> {t.orders?.exportCSV || "Export CSV"}
         </button>
-        <PrimaryButton icon={Plus} onClick={() => { setForm(blankForm()); setShowAdd(true); }}>
+        <PrimaryButton icon={Plus} onClick={openAdd}>
           {t.orders.newOrder}
         </PrimaryButton>
       </div>
