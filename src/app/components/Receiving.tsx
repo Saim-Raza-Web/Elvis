@@ -95,6 +95,7 @@ const blankLine = (): ProductLine => ({
 const blankASN = () => ({
   supplier: "",
   owner: "Default Owner",
+  ownerType: "COMPANY",
   poNumber: "",
   origin: "",
   carrier: "DHL",
@@ -291,6 +292,7 @@ export function Receiving() {
     const newForm = blankASN();
     newForm.warehouse = warehouses.length > 0 ? warehouses[0].code : "MIA";
     newForm.owner = clients.length > 0 ? clients[0].name : "Default Owner";
+    newForm.ownerType = clients.length > 0 ? "CUSTOMER" : "COMPANY";
     try {
       const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const res = await fetch("/api/v1/receiving/next-po", { headers: { Authorization: `Bearer ${token}` } });
