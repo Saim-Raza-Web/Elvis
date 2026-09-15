@@ -92,12 +92,22 @@ export function Inventory() {
 
   // Listen for header button CustomEvent
   useEffect(() => {
-    const handler = () => { setForm({ ...blankProduct(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" }); setShowAdd(true); };
+    const handler = () => { 
+      const defaultWh = warehouses.length > 0 ? warehouses[0].code : "MIA";
+      const defaultOwner = clientOwners.length > 0 ? clientOwners[0].name : "Apple Distribution 3PL";
+      setForm({ ...blankProduct(), warehouse: defaultWh, owner: defaultOwner }); 
+      setShowAdd(true); 
+    };
     window.addEventListener("open-add-product", handler);
     return () => window.removeEventListener("open-add-product", handler);
-  }, []);
+  }, [warehouses, clientOwners]);
 
-  function openAdd() { setForm({ ...blankProduct(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" }); setShowAdd(true); }
+  function openAdd() { 
+    const defaultWh = warehouses.length > 0 ? warehouses[0].code : "MIA";
+    const defaultOwner = clientOwners.length > 0 ? clientOwners[0].name : "Apple Distribution 3PL";
+    setForm({ ...blankProduct(), warehouse: defaultWh, owner: defaultOwner }); 
+    setShowAdd(true); 
+  }
   function openEdit(p: Product) { setEditTarget(p); setForm({ ...p }); }
   async function handleSave() {
     if (!form.sku || !form.name) { toast.error(t.common?.error || "SKU and name are required."); return; }
