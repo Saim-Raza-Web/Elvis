@@ -186,6 +186,10 @@ router.post('/', requireOpsRole, async (req, res, next) => {
       delete locationData.zone;
     }
 
+    // Strip empty-string ObjectId fields — Mongoose cannot cast "" to ObjectId
+    if (!locationData.sku || String(locationData.sku).trim() === '') delete locationData.sku;
+    if (!locationData.product || String(locationData.product).trim() === '') delete locationData.product;
+
     const item = await Location.create(locationData);
     res.status(201).json(item);
   } catch (err) { next(err); }
@@ -235,6 +239,10 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
         else delete updateData.zone;
       }
     }
+
+    // Strip empty-string ObjectId fields — Mongoose cannot cast "" to ObjectId
+    if (!updateData.sku || String(updateData.sku).trim() === '') delete updateData.sku;
+    if (!updateData.product || String(updateData.product).trim() === '') delete updateData.product;
 
     const item = await Location.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company },
