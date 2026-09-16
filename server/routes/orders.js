@@ -234,7 +234,10 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
     
     if (requestedQty <= 0) continue; // Skip lines that are already fully fulfilled
 
-    const taskOwner = (order.company_name || order.customer || 'Default Owner').trim();
+    // For B2C orders, the customer is the destination, not the inventory owner. Default to Internal Stock.
+    const taskOwner = order.order_type === 'B2B' 
+      ? (order.company_name || order.customer || 'Internal Stock').trim() 
+      : 'Internal Stock';
 
     try {
       const allocationResult = await pickingEngine.evaluatePickAllocation({
@@ -307,7 +310,10 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
   );
   const taskId = `PICK-2026-${String(counter.seq).padStart(6, '0')}`;
 
-  const taskOwner = (order.company_name || order.customer || 'Default Owner').trim();
+  // Task owner for B2B can be the client name; for B2C it usually pulls from Internal Stock
+  const taskOwner = order.order_type === 'B2B' 
+      ? (order.company_name || order.customer || 'Internal Stock').trim() 
+      : 'Internal Stock';
   const totalQty = lines.reduce((sum, l) => sum + l.orderedQty, 0);
 
   const newTask = await PickTask.create([{
