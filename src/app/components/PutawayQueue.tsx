@@ -172,7 +172,7 @@ export function PutawayQueue() {
         reasonText: overrideForm.reasonText
       };
       
-      const res = await api.post('/api/overrides', payload);
+      const res = await api.post('/overrides', payload);
       
       if (res.data?.override?._id) {
         if (res.data.override.status === 'APPROVED') {
