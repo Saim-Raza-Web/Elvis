@@ -683,7 +683,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
         // Propose destination location & generate Putaway Task immediately
         const proposed = await putawayEngine.evaluatePutawayLocation({
           companyId: req.user.company,
-          warehouse: req.context.warehouse._id,
+          warehouse,
           sku,
           owner: itemOwner,
           qty: qtyNum,
