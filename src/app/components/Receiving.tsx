@@ -1230,7 +1230,14 @@ export function Receiving() {
               <Field label="Inventory Owner * (3PL)" required hint="Mandatory for 3PL multi-tenant stock isolation">
                 <Select
                   value={form.owner}
-                  onChange={(e) => updateFormHeader("owner", e.target.value)}
+                  onChange={(e) => {
+                    const ownerVal = e.target.value;
+                    setForm(prev => ({ 
+                      ...prev, 
+                      owner: ownerVal, 
+                      ownerType: ownerVal === "Internal Stock" ? "COMPANY" : "CUSTOMER" 
+                    }));
+                  }}
                 >
                   <option value="">-- Select Registered Owner --</option>
                   {(Array.isArray(clients) ? clients : []).map(c => (
