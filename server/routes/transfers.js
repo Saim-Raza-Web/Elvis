@@ -106,7 +106,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     const sku = item.sku;
     
     // Determine Owner (Assume default if not provided)
-    const owner = item.owner || 'Default Owner';
+    const owner = item.owner || 'Internal Stock';
 
     // 1. INTRA-WAREHOUSE BIN-TO-BIN TRANSFER (Instant Physical Move)
     if (fromWh === toWh) {
