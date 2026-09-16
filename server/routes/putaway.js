@@ -720,6 +720,18 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       }
 
       if (!costResolved) {
+        const productFallback = await Product.findOne({ sku: task.sku, company: req.user.company }).session(session);
+        if (productFallback && productFallback.price != null) {
+          expectedCost = productFallback.price;
+          costResolved = true;
+        } else {
+          // Absolute fallback to 0.00 so putaway is never fully blocked for missing cost
+          expectedCost = 0.00;
+          costResolved = true;
+        }
+      }
+
+      if (!costResolved) {
         await session.abortTransaction();
         session.endSession();
         return res.status(400).json({ message: `Inventory Accounting Violation: Cannot determine immutable PO unit cost for company-owned stock putaway on SKU ${task.sku}. Putaway aborted.` });
