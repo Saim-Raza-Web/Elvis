@@ -12,7 +12,7 @@ import { locationsService } from "../../services/locations.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { useLang } from "../LangContext";
 import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
-import { api } from "../../services/api";
+import api from "../../services/api";
 
 type PutawayTask = {
   _id: string;
