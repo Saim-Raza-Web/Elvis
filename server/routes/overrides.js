@@ -720,7 +720,11 @@ router.post('/', async (req, res, next) => {
       return res.status(safetyCheck.status).json({ message: safetyCheck.message });
     }
 
-    // Create LocationOverride with PENDING status
+    // Auto-approve if requested by admin/manager
+    const isAutoApprove = req.user.role === 'admin' || req.user.role === 'manager';
+    const initialStatus = isAutoApprove ? 'APPROVED' : 'PENDING';
+
+    // Create LocationOverride with appropriate status
     const created = await LocationOverride.create([{
       company: req.user.company,
       warehouse: taskWarehouseCode,
@@ -734,9 +738,12 @@ router.post('/', async (req, res, next) => {
       overrideLocation: overrideLocation.trim().toUpperCase(),
       reasonCode,
       reasonText: reasonText || '',
-      status: 'PENDING',
+      status: initialStatus,
       requestedBy: req.user._id,
       requestedByEmail: req.user.email || '',
+      authorizedBy: isAutoApprove ? req.user._id : null,
+      authorizedByEmail: isAutoApprove ? req.user.email || '' : '',
+      authorizedAt: isAutoApprove ? new Date() : null,
       rejectionCount: 0,
       rejectionHistory: []
     }], { session });
