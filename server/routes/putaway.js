@@ -33,7 +33,7 @@ async function nextPutawayNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'putaway', company },
+    { _id: `putaway_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );

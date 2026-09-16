@@ -24,7 +24,7 @@ const requireOpsRole = requireRole('admin', 'manager');
 /** Generate sequential order ID: ORD-000001, ORD-000002... */
 async function nextOrderId(company) {
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'order', company },
+    { _id: `order_${company}`, company },
     { $inc: { seq: 1 } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );

@@ -26,7 +26,7 @@ async function nextQcNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'qc', company },
+    { _id: `qc_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );
@@ -38,7 +38,7 @@ async function nextPutawayNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'putaway', company },
+    { _id: `putaway_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );
@@ -50,7 +50,7 @@ async function nextRtvNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'rtv', company },
+    { _id: `rtv_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );

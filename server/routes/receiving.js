@@ -33,7 +33,7 @@ async function nextAsnNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'asn', company },
+    { _id: `asn_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );
@@ -45,7 +45,7 @@ async function nextPutawayNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'putaway', company },
+    { _id: `putaway_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );
@@ -61,7 +61,7 @@ export async function nextPoNumber(company, session) {
   let attempts = 0;
   while (attempts < 20) {
     const counter = await Counter.findOneAndUpdate(
-      { _id: counterId, company },
+      { _id: `${counterId}_${company}`, company },
       { $inc: { seq: 1 } },
       opts
     );
@@ -195,7 +195,7 @@ router.get('/next-po', async (req, res, next) => {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const currentYear = new Date().getFullYear();
     const counterId = `po_${currentYear}`;
-    const counter = await Counter.findOne({ _id: counterId, company: req.user.company });
+    const counter = await Counter.findOne({ _id: `${counterId}_${req.user.company}`, company: req.user.company });
     const nextSeq = (counter?.seq || 0) + 1;
     const poNumber = `PO-${currentYear}-${String(nextSeq).padStart(5, '0')}`;
     res.json({ poNumber });

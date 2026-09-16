@@ -285,7 +285,7 @@ function drawFooterDisclaimer(doc, dnNumber, dateStr) {
 // ── Sequential Number Helper ───────────────────────────────────
 async function getNextDeliveryNoteNumber(company) {
   const counter = await Counter.findOneAndUpdate(
-    { _id: 'delivery_note', company },
+    { _id: `delivery_note_${company}`, company },
     { $inc: { seq: 1 } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );

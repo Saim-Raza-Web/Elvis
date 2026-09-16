@@ -34,7 +34,7 @@ async function generateNextBillNumber(companyId, session = null) {
   while (!billNumber && attempts < 50) {
     attempts++;
     const counter = await Counter.findOneAndUpdate(
-      { _id: counterId, company: companyId },
+      { _id: `${counterId}_${companyId}`, company: companyId },
       { $inc: { seq: 1 } },
       counterOpts
     );
@@ -56,7 +56,7 @@ async function generateNextJournalEntryNumber(companyId, session = null) {
   while (!entryNumber && attempts < 50) {
     attempts++;
     const counter = await Counter.findOneAndUpdate(
-      { _id: counterId, company: companyId },
+      { _id: `${counterId}_${companyId}`, company: companyId },
       { $inc: { seq: 1 } },
       counterOpts
     );
@@ -72,7 +72,7 @@ async function generateNextImportLogNumber(companyId) {
   const currentYear = new Date().getFullYear();
   const counterId = `coa_import_${currentYear}_${companyId}`;
   const counter = await Counter.findOneAndUpdate(
-    { _id: counterId, company: companyId },
+    { _id: `${counterId}_${companyId}`, company: companyId },
     { $inc: { seq: 1 } },
     { new: true, upsert: true }
   );

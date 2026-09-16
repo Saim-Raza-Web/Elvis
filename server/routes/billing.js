@@ -35,7 +35,7 @@ async function generateNextInvoiceNumber(companyId, session = null) {
   while (!invoiceNumber && attempts < 50) {
     attempts++;
     const counter = await Counter.findOneAndUpdate(
-      { _id: counterId, company: companyId },
+      { _id: `${counterId}_${companyId}`, company: companyId },
       { $inc: { seq: 1 } },
       counterOpts
     );

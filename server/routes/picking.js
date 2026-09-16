@@ -85,7 +85,7 @@ router.post('/batches', requireOpsRole, async (req, res, next) => {
 
     const batchOwner = owners[0];
     const counter = await Counter.findOneAndUpdate(
-      { _id: 'pick_batch', company: req.user.company },
+      { _id: `pick_batch_${req.user.company}`, company: req.user.company },
       { $inc: { seq: 1 } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -355,7 +355,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     const order = await Order.findOne({ orderId: task.orderId, company: req.user.company }).session(session);
 
     let dnCounter = await Counter.findOneAndUpdate(
-      { _id: 'outbound_delivery_note', company: req.user.company },
+      { _id: `outbound_delivery_note_${req.user.company}`, company: req.user.company },
       { $inc: { seq: 1 } },
       { upsert: true, new: true, setDefaultsOnInsert: true, session }
     );
@@ -363,7 +363,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     let existingDoc = await Document.findOne({ documentNumber: dnNumber, company: req.user.company }).session(session);
     while (existingDoc) {
       dnCounter = await Counter.findOneAndUpdate(
-        { _id: 'outbound_delivery_note', company: req.user.company },
+        { _id: `outbound_delivery_note_${req.user.company}`, company: req.user.company },
         { $inc: { seq: 1 } },
         { new: true, session }
       );

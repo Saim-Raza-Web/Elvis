@@ -22,7 +22,7 @@ async function nextTaskNumber(prefix, company, session) {
   if (session) opts.session = session;
   const counterId = prefix.toLowerCase() === 'put' ? 'putaway' : prefix.toLowerCase();
   const counter = await Counter.findOneAndUpdate(
-    { _id: counterId, company },
+    { _id: `${counterId}_${company}`, company },
     { $inc: { seq: 1 } },
     opts
   );
