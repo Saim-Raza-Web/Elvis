@@ -20,6 +20,7 @@ import InventoryValuationEngine from '../services/InventoryValuationEngine.js';
 import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
 import Company from '../models/Company.js';
 import LocationOverride from '../models/LocationOverride.js';
+import Return from '../models/Return.js';
 import { calculateLocationActiveWeight, resolveDefaultLevelLimit, getSiblingLocationsOnLevel } from '../services/putawayEngine.js';
 
 const router = express.Router();
