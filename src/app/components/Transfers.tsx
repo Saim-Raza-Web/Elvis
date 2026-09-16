@@ -18,7 +18,7 @@ const typeColor: Record<string, string> = {
   transfer: "bg-info/15 text-info",
 };
 
-const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "MIA", from_loc: "", to_wh: "LAX", to_loc: "", type: "transfer", requestedBy: "Admin" });
+const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "", from_loc: "", to_wh: "", to_loc: "", type: "transfer", requestedBy: "Admin" });
 
 function mapTransfer(d: any): Transfer {
   return { ...(d as Transfer), id: (d.transferId as string) || (d._id as string) };
@@ -55,7 +55,16 @@ export function Transfers() {
   );
 
   useEffect(() => {
-    warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
+    warehousesService.getAll({ all: true }).then(data => {
+      setWarehouses(data);
+      if (data && data.length > 0) {
+        setForm(prev => ({
+          ...prev,
+          from_wh: data.some(w => w.code === prev.from_wh) ? prev.from_wh : data[0].code,
+          to_wh: data.some(w => w.code === prev.to_wh) ? prev.to_wh : data[0].code
+        }));
+      }
+    }).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
   }, []);
 
   const handleSkuLookup = async (val: string) => {
@@ -78,10 +87,20 @@ export function Transfers() {
 
   // Listen for header button CustomEvent
   useEffect(() => {
-    const handler = () => { setForm(blankTransfer()); setShowAdd(true); };
+    const handler = () => {
+      setForm(prev => {
+        const blank = blankTransfer();
+        return {
+          ...blank,
+          from_wh: warehouses.length > 0 ? warehouses[0].code : "",
+          to_wh: warehouses.length > 0 ? warehouses[0].code : ""
+        };
+      });
+      setShowAdd(true);
+    };
     window.addEventListener("open-new-transfer", handler);
     return () => window.removeEventListener("open-new-transfer", handler);
-  }, []);
+  }, [warehouses]);
 
   async function handleCreate() {
     if (!form.sku || !form.from_loc || !form.to_loc) { toast.error(t.common?.error || "SKU and locations are required."); return; }
@@ -145,7 +164,17 @@ export function Transfers() {
             </button>
           ))}
         </div>
-        <PrimaryButton icon={Plus} onClick={() => setShowAdd(true)}>{t.transfers.newTransfer}</PrimaryButton>
+        <PrimaryButton icon={Plus} onClick={() => {
+          setForm(prev => {
+            const blank = blankTransfer();
+            return {
+              ...blank,
+              from_wh: warehouses.length > 0 ? warehouses[0].code : "",
+              to_wh: warehouses.length > 0 ? warehouses[0].code : ""
+            };
+          });
+          setShowAdd(true);
+        }}>{t.transfers.newTransfer}</PrimaryButton>
       </div>
 
       {/* Transfer cards */}

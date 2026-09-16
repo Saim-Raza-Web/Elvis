@@ -221,7 +221,7 @@ export function Returns() {
                     <div className="bg-card border border-primary/20 rounded-lg p-4 animate-fade-in-up">
                       <h4 className="font-bold text-sm mb-3 text-primary">Return Inspection & QC</h4>
                       <div className="flex gap-2 mb-3">
-                        <Input placeholder={t.common?.scanReturnedSKU || "Scan Returned SKU..."} id={`ret-sku-${r.id}`} className="flex-1" />
+                        <Input placeholder={t.common?.scanReturnedSKU || "Scan Returned SKU..."} id={`ret-sku-${r.id}`} className="flex-1 min-w-[200px]" />
                         <Input type="number" placeholder={t.common?.qty || "Qty"} id={`ret-qty-${r.id}`} className="w-24" />
                         <Select id={`ret-status-${r.id}`} className="w-32">
                           <option value="restock">{t.common?.restock || "Restock"}</option>
