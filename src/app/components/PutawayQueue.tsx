@@ -12,6 +12,7 @@ import { locationsService } from "../../services/locations.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 import { useLang } from "../LangContext";
 import { CameraBarcodeScanner } from "./CameraBarcodeScanner";
+import { api } from "../../services/api";
 
 type PutawayTask = {
   _id: string;
@@ -68,6 +69,11 @@ export function PutawayQueue() {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignOperatorEmail, setAssignOperatorEmail] = useState("");
   const [executeModalOpen, setExecuteModalOpen] = useState(false);
+
+  // Override State
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [overrideForm, setOverrideForm] = useState({ overrideLocation: '', reasonCode: 'SPACE_CONSTRAINT', reasonText: '' });
+  const [activeOverrideId, setActiveOverrideId] = useState<string | null>(null);
 
   // Barcode execution states
   const [scannedTaskBarcode, setScannedTaskBarcode] = useState("");
@@ -145,8 +151,46 @@ export function PutawayQueue() {
     setLocationError(null);
     setSkuError(null);
     setSelectedBin(""); // MUST START COMPLETELY EMPTY!
+    setActiveOverrideId(null);
     setExecuteModalOpen(true);
     loadLocations();
+  };
+
+  const handleRequestOverride = async () => {
+    if (!selectedTask || !overrideForm.overrideLocation) {
+      toast.error("Please enter a new location");
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      const payload = {
+        taskId: selectedTask.taskId,
+        taskType: 'putaway',
+        proposedLocation: selectedTask.toLocation || selectedTask.destinationBin,
+        overrideLocation: overrideForm.overrideLocation,
+        reasonCode: overrideForm.reasonCode,
+        reasonText: overrideForm.reasonText
+      };
+      
+      const res = await api.post('/api/overrides', payload);
+      
+      if (res.data?.override?._id) {
+        if (res.data.override.status === 'APPROVED') {
+          toast.success("Override Approved automatically (Admin role).");
+          setActiveOverrideId(res.data.override._id);
+          setScannedBinBarcode(res.data.override.overrideLocation);
+          setSelectedBin(res.data.override.overrideLocation);
+          setLocationError(null);
+        } else {
+          toast.success("Location Override Requested. Awaiting Approval.");
+        }
+      }
+      setShowOverrideModal(false);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Failed to request override");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Execute Putaway Task with Step-by-Step Validation & Partial Putaway Support
@@ -168,10 +212,12 @@ export function PutawayQueue() {
     }
 
     if (enteredBin.toUpperCase() !== proposedLocation.toUpperCase()) {
-      const errMsg = `Wrong location. Scanned: ${enteredBin}. Expected: ${proposedLocation}.`;
-      setLocationError(errMsg);
-      toast.error(errMsg);
-      return;
+      if (!activeOverrideId) {
+        const errMsg = `Wrong location. Scanned: ${enteredBin}. Expected: ${proposedLocation}. Override required.`;
+        setLocationError(errMsg);
+        toast.error(errMsg);
+        return;
+      }
     }
 
     // Step 2 Validation: Product SKU Barcode Check MUST be entered and match expected SKU
@@ -218,6 +264,7 @@ export function PutawayQueue() {
         destinationBin: enteredBin,
         executedQty: executedQty,
         expiryDate: scannedExpiryDate || undefined,
+        overrideId: activeOverrideId || undefined,
         __v: selectedTask.__v
       });
 
@@ -574,14 +621,29 @@ export function PutawayQueue() {
               )}
 
               {/* Dynamic Location Proposal Banner */}
-              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg space-y-1">
+              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-emerald-800 dark:text-emerald-300">Proposed Location:</span>
-                  <span className="font-mono font-extrabold text-sm text-emerald-600 dark:text-emerald-400 bg-card px-2.5 py-1 border border-emerald-500/30 rounded">
-                    {selectedTask.toLocation || selectedTask.destinationBin || "MIA-Z1-A1-S1-B1"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {activeOverrideId && (
+                      <span className="text-[10px] font-bold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                        OVERRIDDEN
+                      </span>
+                    )}
+                    <span className="font-mono font-extrabold text-sm text-emerald-600 dark:text-emerald-400 bg-card px-2.5 py-1 border border-emerald-500/30 rounded">
+                      {activeOverrideId ? selectedBin : (selectedTask.toLocation || selectedTask.destinationBin || "MIA-Z1-A1-S1-B1")}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-[11px] text-muted-foreground">Verified against Storage Rules, Zone & Capacity.</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-[11px] text-muted-foreground">Verified against Storage Rules, Zone & Capacity.</p>
+                  <button 
+                    onClick={() => setShowOverrideModal(true)}
+                    className="text-[11px] font-bold text-amber-600 hover:text-amber-700 underline"
+                  >
+                    Change Bin / Override
+                  </button>
+                </div>
               </div>
 
               {/* Task Details Summary Card */}
@@ -642,7 +704,7 @@ export function PutawayQueue() {
                   type="text"
                   readOnly
                   value={scannedBinBarcode || selectedBin}
-                  placeholder={`Scan shelf barcode (must match ${selectedTask.toLocation || selectedTask.destinationBin})`}
+                  placeholder={`Scan shelf barcode (must match ${activeOverrideId ? selectedBin : (selectedTask.toLocation || selectedTask.destinationBin)})`}
                   className={`w-full p-2.5 border rounded-lg outline-none cursor-not-allowed text-xs font-mono mb-1 ${
                     scannedBinBarcode || selectedBin
                       ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-bold'
@@ -780,6 +842,70 @@ export function PutawayQueue() {
               >
                 <CheckCircle2 className="size-4" />
                 {isSubmitting ? t.putaway.executing : "Confirm & Execute Putaway"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Override Location Modal ── */}
+      {showOverrideModal && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl max-w-sm w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="size-5" /> Request Location Override
+            </h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold mb-1">New Location (Bin Barcode)</label>
+                <input
+                  type="text"
+                  value={overrideForm.overrideLocation}
+                  onChange={(e) => setOverrideForm(p => ({ ...p, overrideLocation: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. AMBIENT-A01-S01-B02"
+                  className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Reason Code</label>
+                <select
+                  value={overrideForm.reasonCode}
+                  onChange={(e) => setOverrideForm(p => ({ ...p, reasonCode: e.target.value }))}
+                  className="w-full p-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary"
+                >
+                  <option value="SPACE_CONSTRAINT">Bin is full / Space Constraint</option>
+                  <option value="DAMAGE">Damaged Rack / Unsafe</option>
+                  <option value="TEMPERATURE_MISMATCH">Temperature / Zone Mismatch</option>
+                  <option value="OTHER">Other (Specify below)</option>
+                </select>
+              </div>
+              {overrideForm.reasonCode === 'OTHER' && (
+                <div>
+                  <label className="block font-semibold mb-1">Reason Description</label>
+                  <textarea
+                    value={overrideForm.reasonText}
+                    onChange={(e) => setOverrideForm(p => ({ ...p, reasonText: e.target.value }))}
+                    className="w-full p-2 border border-border rounded-lg bg-secondary/50 outline-none"
+                    rows={2}
+                    placeholder="Must be at least 10 characters..."
+                  ></textarea>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowOverrideModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-medium hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleRequestOverride}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
+              >
+                {isSubmitting ? "Requesting..." : "Confirm Override"}
               </button>
             </div>
           </div>
