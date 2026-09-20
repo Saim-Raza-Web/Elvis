@@ -395,14 +395,14 @@ export const pickingEngine = {
         const lotCmp = (a.lotNumber || '').localeCompare(b.lotNumber || '');
         if (lotCmp !== 0) return lotCmp;
         // Fallback for non-perishable lots
-        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        return new Date(a.entryDate || a.createdAt || 0).getTime() - new Date(b.entryDate || b.createdAt || 0).getTime();
       };
       pickFaceList.sort(sortFefo);
       reserveList.sort(sortFefo);
     } else if (appliedStrategy === 'LIFO') {
       const sortLifo = (a, b) => {
-        const timeA = new Date(a.createdAt || 0).getTime();
-        const timeB = new Date(b.createdAt || 0).getTime();
+        const timeA = new Date(a.entryDate || a.createdAt || 0).getTime();
+        const timeB = new Date(b.entryDate || b.createdAt || 0).getTime();
         if (timeA !== timeB) return timeB - timeA;
         const binCmp = (a.bin || '').localeCompare(b.bin || '');
         if (binCmp !== 0) return binCmp;
@@ -423,9 +423,13 @@ export const pickingEngine = {
     } else {
       // Default FIFO (oldest first)
       const sortFifo = (a, b) => {
-        const timeA = new Date(a.createdAt || 0).getTime();
-        const timeB = new Date(b.createdAt || 0).getTime();
+        const timeA = new Date(a.entryDate || a.createdAt || 0).getTime();
+        const timeB = new Date(b.entryDate || b.createdAt || 0).getTime();
         if (timeA !== timeB) return timeA - timeB;
+        
+        const lotCmp = (a.lotNumber || '').localeCompare(b.lotNumber || '');
+        if (lotCmp !== 0) return lotCmp;
+
         const binCmp = (a.bin || '').localeCompare(b.bin || '');
         if (binCmp !== 0) return binCmp;
         return String(a._id).localeCompare(String(b._id));
@@ -483,7 +487,7 @@ export const pickingEngine = {
         const reservedDoc = await InventoryBalance.findOneAndUpdate(
           { _id: rec._id, qtyAvailable: { $gte: pickQty } },
           { $inc: { qtyAvailable: -pickQty, qtyReserved: pickQty } },
-          { new: true, session }
+          { returnDocument: 'after', session }
         );
 
         if (reservedDoc) {
@@ -491,7 +495,7 @@ export const pickingEngine = {
           const productUpdate = await Product.findOneAndUpdate(
             { sku: rec.sku, company: companyId },
             { $inc: { qty_available: -pickQty } },
-            { new: true, session }
+            { returnDocument: 'after', session }
           );
 
           if (!productUpdate) {

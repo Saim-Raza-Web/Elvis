@@ -1218,13 +1218,6 @@ export function Receiving() {
                   {(Array.isArray(suppliersList) ? suppliersList : []).map(s => (
                     <option key={s._id} value={s.name}>{s.name} ({s.country || 'Spain'})</option>
                   ))}
-                  {(!Array.isArray(suppliersList) || suppliersList.length === 0) && (
-                    <>
-                      <option value="Acme Global Suppliers">Acme Global Suppliers</option>
-                      <option value="TechParts International">TechParts International</option>
-                      <option value="Logistics Direct SA">Logistics Direct SA</option>
-                    </>
-                  )}
                 </Select>
               </Field>
               <Field label="Inventory Owner * (3PL)" required hint="Mandatory for 3PL multi-tenant stock isolation">
@@ -1243,10 +1236,6 @@ export function Receiving() {
                   {(Array.isArray(clients) ? clients : []).map(c => (
                     <option key={c._id} value={c.name}>{c.name}</option>
                   ))}
-                  <option value="Client Alpha">Client Alpha</option>
-                  <option value="Apple Distribution 3PL">Apple Distribution 3PL</option>
-                  <option value="Acme Logistics 3PL">Acme Logistics 3PL</option>
-                  <option value="Global Retail Corp">Global Retail Corp</option>
                   <option value="Internal Stock">Internal Stock</option>
                 </Select>
               </Field>

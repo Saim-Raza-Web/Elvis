@@ -11,6 +11,7 @@ import PickTask from '../models/PickTask.js';
 import PutawayTask from '../models/PutawayTask.js';
 import Counter from '../models/Counter.js';
 import IdempotencyRecord from '../models/IdempotencyRecord.js';
+import { validateOwnerMaster } from '../utils/ownerValidation.js';
 
 const router = express.Router();
 router.use(protect);
@@ -57,6 +58,14 @@ router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
+
+    // G-01: Validate owner against Client master when ownerType is CUSTOMER
+    if (data.ownerType === 'CUSTOMER' || (data.owner && !data.ownerType)) {
+      const ownerTypeToCheck = data.ownerType || 'CUSTOMER';
+      const ownerError = await validateOwnerMaster(data.owner, ownerTypeToCheck, req.user.company);
+      if (ownerError) return res.status(422).json({ message: ownerError });
+    }
+
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) { next(err); }
@@ -125,7 +134,10 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 
         await InventoryBalance.findOneAndUpdate(
           { company: req.user.company, warehouse: toWh, sku, bin: toLoc, owner, ownerType: transferOwnerType, lotNumber: 'DEFAULT-LOT' },
-          { $inc: { qtyAvailable: qty } },
+          { 
+            $inc: { qtyAvailable: qty },
+            $min: { entryDate: sourceBal.entryDate || new Date() }
+          },
           { upsert: true, new: true, session }
         );
 

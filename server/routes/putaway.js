@@ -1000,6 +1000,12 @@ router.put('/:id/execute', requireOpsRole, async (req, res, next) => {
         return res.status(400).json({ message: `Lot Integrity Violation: Location ${proposedLocation} is occupied by another Lot Number ('${existingInTargetBin.find(e => e.lotNumber !== taskLot)?.lotNumber}').` });
       }
     }
+    
+    // Fetch source balance to preserve entryDate chronology (RF-P08)
+    const sourceBal = await InventoryBalance.findOne({
+      company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, bin: task.fromLocation || 'STAGING-A'
+    });
+    const sourceEntryDate = sourceBal?.entryDate || new Date();
 
     // Update balances
     await InventoryBalance.findOneAndUpdate(
@@ -1010,7 +1016,10 @@ router.put('/:id/execute', requireOpsRole, async (req, res, next) => {
 
     await InventoryBalance.findOneAndUpdate(
       { company: req.user.company, warehouse, sku: task.sku, owner: taskOwner, bin: proposedLocation },
-      { $inc: { qtyAvailable: qty } },
+      { 
+        $inc: { qtyAvailable: qty },
+        $min: { entryDate: sourceEntryDate }
+      },
       { upsert: true }
     );
 

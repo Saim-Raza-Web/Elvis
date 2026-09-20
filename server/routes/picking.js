@@ -14,6 +14,7 @@ import Notification from '../models/Notification.js';
 import PackTask from '../models/PackTask.js';
 import Product from '../models/Product.js';
 import LocationOverride from '../models/LocationOverride.js';
+import User from '../models/User.js';
 import { generatePickDeliveryNotePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();
@@ -273,8 +274,87 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
 
       // OWNER ISOLATION: Deduct stock ONLY from matching (company, warehouse, sku, owner, bin)
       if (actualPicked > 0) {
-        // Use the real inventory owner stored at pick-task-creation time, fallback to taskOwner
         const deductOwner = item.inventoryOwner || taskOwner;
+        
+        // FIFO Enforcement Block (RF-P08)
+        const allEligibleBalances = await InventoryBalance.find({
+          company: req.user.company,
+          warehouse,
+          sku: item.sku,
+          owner: new RegExp(`^${deductOwner}$`, 'i'),
+          $or: [{ qtyAvailable: { $gt: 0 } }, { qtyReserved: { $gt: 0 } }]
+        }).session(session);
+
+        if (allEligibleBalances.length > 0) {
+          // Sort to find the absolute oldest entryDate
+          allEligibleBalances.sort((a, b) => new Date(a.entryDate || a.createdAt || 0).getTime() - new Date(b.entryDate || b.createdAt || 0).getTime());
+          const oldestAllowed = allEligibleBalances[0];
+          const oldestTime = new Date(oldestAllowed.entryDate || oldestAllowed.createdAt || 0).getTime();
+          
+          const selectedBalances = allEligibleBalances.filter(b => (b.bin || '').toUpperCase() === binCode);
+          if (selectedBalances.length > 0) {
+            // Sort selected descending to check the NEWEST stock in the selected bin
+            selectedBalances.sort((a, b) => new Date(b.entryDate || b.createdAt || 0).getTime() - new Date(a.entryDate || a.createdAt || 0).getTime());
+            const selectedTime = new Date(selectedBalances[0].entryDate || selectedBalances[0].createdAt || 0).getTime();
+            
+            // Allow 60 second margin for same-receipt batches
+            if (selectedTime > oldestTime + 60000) {
+              if (req.body.fifoOverride) {
+                // AUTHENTICATED SERVER-SIDE IDENTITY CHECK (RF-P08 Blocker #1 Fix)
+                const authenticatedUser = req.user;
+                if (!authenticatedUser || !['manager', 'admin'].includes((authenticatedUser.role || '').toLowerCase())) {
+                  await session.abortTransaction();
+                  session.endSession();
+                  return res.status(403).json({ message: `FIFO Override rejected: Authenticated user is not an authorized manager/supervisor.` });
+                }
+
+                // Compatibility check if frontend still sends supervisorId:
+                if (req.body.fifoOverride.supervisorId && String(req.body.fifoOverride.supervisorId) !== String(authenticatedUser._id)) {
+                  await session.abortTransaction();
+                  session.endSession();
+                  return res.status(403).json({ message: `FIFO Override rejected: Provided supervisorId does not match the authenticated session.` });
+                }
+
+                if (!req.body.fifoOverride.reason || String(req.body.fifoOverride.reason).trim() === '') {
+                  await session.abortTransaction();
+                  session.endSession();
+                  return res.status(400).json({ message: `FIFO Override rejected: Mandatory reason is missing or empty.` });
+                }
+                
+                const supervisor = authenticatedUser;
+                await InventoryTransaction.create([{
+                  transactionId: 'FIFO-OVR-' + Date.now(),
+                  type: 'FIFO_OVERRIDE_AUDIT',
+                  sku: item.sku,
+                  warehouse,
+                  bin: binCode,
+                  qty: actualPicked,
+                  owner: deductOwner,
+                  ownerType: 'COMPANY',
+                  referenceId: task.taskId,
+                  user: operator,
+                  company: req.user.company,
+                  metadata: {
+                    supervisorId: supervisor._id,
+                    supervisorName: supervisor.name,
+                    reason: req.body.fifoOverride.reason,
+                    oldestEligibleBin: oldestAllowed.bin,
+                    oldestEligibleDate: new Date(oldestTime),
+                    selectedDate: new Date(selectedTime)
+                  }
+                }], { session });
+              } else {
+                await session.abortTransaction();
+                session.endSession();
+                return res.status(400).json({
+                  message: `FIFO Violation: Older stock exists in bin ${oldestAllowed.bin}. You must pick the oldest stock first.`
+                });
+              }
+            }
+          }
+        }
+
+        // Use the real inventory owner stored at pick-task-creation time, fallback to taskOwner
         const binBalances = await InventoryBalance.find({ sku: item.sku, bin: binCode, company: req.user.company }).session(session);
         let balances = binBalances.filter(b => {
           if (!deductOwner) return true;
@@ -447,9 +527,9 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       }
     }
 
-    // Update Order status to 'picked' (or 'processing' if partial)
+    // Update Order status to 'READY FOR SHIPPING' (or 'processing' if partial)
     if (order) {
-      order.status = hasShortfall ? 'processing' : 'picked';
+      order.status = hasShortfall ? 'processing' : 'READY FOR SHIPPING';
       order.delivery_note_number = dnNumber;
       order.delivery_note_generated_at = new Date();
       await order.save({ session });

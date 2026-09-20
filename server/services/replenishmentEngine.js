@@ -428,7 +428,12 @@ export const replenishmentEngine = {
           lotNumber: sourceBal.lotNumber || 'DEFAULT-LOT'
         },
         {
-          $inc: { qtyAwaitingPutaway: actualQty },
+          $inc: {
+            qtyAwaitingPutaway: actualQty
+          },
+          $min: {
+            entryDate: updatedSourceBal.entryDate || new Date()
+          },
           $setOnInsert: {
             ownerType: sourceBal.ownerType || 'COMPANY',
             qtyAvailable: 0,

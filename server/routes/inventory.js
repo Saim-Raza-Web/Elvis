@@ -9,6 +9,9 @@ import { abcEngine } from '../services/abcEngine.js';
 import { parseGS1Barcode } from '../utils/gs1Parser.js';
 import { replenishmentEngine } from '../services/replenishmentEngine.js';
 import WarehouseTask from '../models/WarehouseTask.js';
+import Company from '../models/Company.js';
+import { validateOwnerMaster } from '../utils/ownerValidation.js';
+import * as XLSX from 'xlsx';
 
 const router = express.Router();
 
@@ -418,77 +421,255 @@ router.patch('/reclassify', requireOpsRole, async (req, res, next) => {
   }
 });
 
-// POST Initial Stock Load (Bypasses Putaway Tasks)
+// POST Initial Stock Load (Bulk / CSV support for RF-P19)
+// RF-P19 Requirements:
+//  - Each row is committed inside its own MongoDB transaction (full atomicity)
+//  - Product.qty_available synced via atomic $inc
+//  - entryDate preserved from row data or defaults to now
+//  - No MIA fallback: warehouse must be explicitly provided
+//  - Lot Integrity validated before write
+//  - G-01 owner validation enforced
 router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { sku, bin, qty, owner, ownerType, lotNumber, batchNumber, expiryDate } = req.body;
-    if (req.context && req.context.warehouses && req.context.warehouses.length > 1) {
-      return res.status(400).json({ message: 'Multiple warehouses provided. This endpoint requires exactly one warehouse.' });
-    }
+    // RF-P19: No MIA fallback — warehouse must be explicitly resolved
     const warehouse = req.context?.warehouse?.code;
-
-    if (!sku || !bin || qty === undefined || !warehouse) {
-      return res.status(400).json({ message: 'sku, bin, qty, and warehouse are required' });
-    }
-    
-    if (!ownerType || !['COMPANY', 'CUSTOMER'].includes(ownerType)) {
-      return res.status(400).json({ message: 'ownerType (COMPANY or CUSTOMER) is strictly required for physical inventory creation.' });
+    if (!warehouse) {
+      return res.status(400).json({
+        message: 'RF-P19: A specific warehouse must be provided in the request context. The MIA default is not permitted for initial stock loads.'
+      });
     }
 
+    const Warehouse = (await import('../models/Warehouse.js')).default;
+    const Location = (await import('../models/Location.js')).default;
     const InventoryBalance = (await import('../models/InventoryBalance.js')).default;
     const InventoryTransaction = (await import('../models/InventoryTransaction.js')).default;
     const ActivityLog = (await import('../models/ActivityLog.js')).default;
+    const mongoose = (await import('mongoose')).default;
 
-    // Hard Lot Integrity check: ONE LOCATION = ONE LOT + ONE SKU + ONE OWNER
-    const existing = await InventoryBalance.find({ company: req.user.company, bin, qtyAvailable: { $gt: 0 } });
-    if (existing.length > 0) {
-      if (existing.some(e => e.owner && owner && e.owner !== owner)) {
-        return res.status(400).json({ message: `Lot Integrity Violation: Location ${bin} is occupied by another 3PL Owner` });
-      }
-      if (existing.some(e => e.sku && e.sku !== sku)) {
-        return res.status(400).json({ message: `Lot Integrity Violation: Location ${bin} is occupied by another SKU` });
-      }
-      if (existing.some(e => e.lotNumber && lotNumber && e.lotNumber !== lotNumber)) {
-        return res.status(400).json({ message: `Lot Integrity Violation: Location ${bin} is occupied by another Lot Number` });
+    const warehouseDoc = await Warehouse.findOne({ code: warehouse, company: req.user.company });
+
+    let rawRows = null;
+    if (Array.isArray(req.body)) {
+      rawRows = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      if (req.body.csvData) {
+        const workbook = XLSX.read(req.body.csvData, { type: 'string' });
+        const sheetName = workbook.SheetNames[0];
+        rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      } else if (req.body.fileBase64) {
+        const buffer = Buffer.from(req.body.fileBase64, 'base64');
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      } else if (Object.keys(req.body).length > 0) {
+        rawRows = [req.body];
       }
     }
 
-    const balance = await InventoryBalance.findOneAndUpdate(
-      { company: req.user.company, warehouse: warehouse || 'MIA', sku, bin, owner: owner || 'Default 3PL', ownerType },
-      {
-        $inc: { qtyAvailable: Number(qty) },
-        $set: { lotNumber: lotNumber || 'INIT-LOT', batchNumber, expiryDate }
-      },
-      { upsert: true, new: true }
-    );
+    if (!rawRows || rawRows.length === 0) {
+      return res.status(400).json({ message: 'No data provided. Supply a JSON array or CSV/Excel file of stock rows.' });
+    }
 
-    await InventoryTransaction.create({
-      transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      company: req.user.company,
-      type: 'RECEIVING',
-      sku,
-      qty: Number(qty),
-      fromLocation: 'SYSTEM_LOAD',
-      toLocation: bin,
-      owner: owner || 'Default 3PL',
-      ownerType,
-      lotNumber: lotNumber || 'INIT-LOT',
-      user: req.user.name || 'System Admin'
+    // Normalize rows
+    const rows = rawRows.map((r, i) => {
+      const sku = (r.SKU || r.sku || '').trim();
+      const bin = (r.Location || r.location || r.bin || r.Bin || '').trim();
+      const qtyRaw = r.Quantity !== undefined ? r.Quantity : (r.quantity !== undefined ? r.quantity : (r.qty !== undefined ? r.qty : r.Qty));
+      const ownerRaw = r.Owner !== undefined ? r.Owner : r.owner;
+      const owner = ownerRaw !== undefined && ownerRaw !== null ? String(ownerRaw).trim() : '';
+      let ownerType = (r.OwnerType || r.ownerType || '').trim();
+      if (!ownerType) {
+        if (!owner || owner === 'Internal Stock' || owner === String(req.user.company)) {
+          ownerType = 'COMPANY';
+        } else {
+          ownerType = 'CUSTOMER';
+        }
+      }
+      const lotNumber = (r.Lot || r.lot || r.lotNumber || r.LotNumber || 'INIT-LOT').trim();
+      const batchNumber = (r.Batch || r.batch || r.batchNumber || r.BatchNumber || '').trim();
+      const expiryDate = r.ExpiryDate || r.expiryDate || r['Expiry Date'];
+      const entryDate = r.EntryDate || r['Entry Date'] || r.entryDate || r.date || r.Date;
+
+      return {
+        rowNum: i + 1,
+        sku,
+        bin,
+        qty: qtyRaw,
+        owner,
+        ownerType,
+        lotNumber,
+        batchNumber,
+        expiryDate,
+        entryDate
+      };
     });
 
-    await ActivityLog.create({
-      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      action: 'INITIAL_STOCK_LOAD',
-      module: 'Inventory',
-      user: req.user.name || 'System Admin',
-      userId: req.user._id,
-      company: req.user.company,
-      details: `Loaded ${qty} units of ${sku} directly to ${bin} (Lot: ${lotNumber || 'INIT-LOT'}).`
-    });
+    // ── PASS 1: Pre-validation of ALL rows before database mutation ───────────
+    const errors = [];
 
-    res.status(201).json({ message: 'Initial stock loaded successfully', balance });
+    for (const r of rows) {
+      if (!r.sku) {
+        errors.push(`Row ${r.rowNum}: sku is required.`);
+        continue;
+      }
+      if (!r.bin) {
+        errors.push(`Row ${r.rowNum}: bin is required.`);
+        continue;
+      }
+      if (r.qty === undefined || r.qty === null || isNaN(Number(r.qty)) || Number(r.qty) <= 0) {
+        errors.push(`Row ${r.rowNum}: qty must be a positive number.`);
+        continue;
+      }
+      if (!['COMPANY', 'CUSTOMER'].includes(r.ownerType)) {
+        errors.push(`Row ${r.rowNum}: ownerType (COMPANY or CUSTOMER) is strictly required.`);
+        continue;
+      }
+
+      // Check date validity
+      if (r.entryDate && isNaN(new Date(r.entryDate).getTime())) {
+        errors.push(`Row ${r.rowNum}: Invalid entryDate.`);
+        continue;
+      }
+
+      // Check product existence
+      const productDoc = await Model.findOne({ sku: r.sku, company: req.user.company });
+      if (!productDoc) {
+        errors.push(`Row ${r.rowNum}: SKU '${r.sku}' does not exist in catalog.`);
+        continue;
+      }
+
+      // Check location belongs to warehouse
+      if (warehouseDoc) {
+        const locDoc = await Location.findOne({ code: r.bin, company: req.user.company });
+        if (locDoc && locDoc.warehouse && locDoc.warehouse.toString() !== warehouseDoc._id.toString()) {
+          errors.push(`Row ${r.rowNum}: Location '${r.bin}' belongs to a different warehouse.`);
+          continue;
+        }
+      }
+
+      // G-01: Central Client/Owner Master Enforcement
+      const ownerError = await validateOwnerMaster(r.owner, r.ownerType, req.user.company);
+      if (ownerError) {
+        errors.push(`Row ${r.rowNum}: ${ownerError}`);
+        continue;
+      }
+
+      // Lot Integrity pre-check against existing balances
+      const existingSlot = await InventoryBalance.find({
+        company: req.user.company, bin: r.bin, qtyAvailable: { $gt: 0 }
+      });
+      if (existingSlot.length > 0) {
+        if (existingSlot.some(e => e.owner && r.owner && e.owner !== r.owner)) {
+          errors.push(`Row ${r.rowNum}: Lot Integrity Violation: Location ${r.bin} occupied by another 3PL Owner (${existingSlot[0].owner}).`);
+          continue;
+        }
+        if (existingSlot.some(e => e.sku && e.sku !== r.sku)) {
+          errors.push(`Row ${r.rowNum}: Lot Integrity Violation: Location ${r.bin} occupied by another SKU (${existingSlot[0].sku}).`);
+          continue;
+        }
+        if (existingSlot.some(e => e.lotNumber && r.lotNumber && e.lotNumber !== r.lotNumber)) {
+          errors.push(`Row ${r.rowNum}: Lot Integrity Violation: Location ${r.bin} occupied by another Lot Number (${existingSlot[0].lotNumber}).`);
+          continue;
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        message: 'All rows failed validation or import',
+        errors,
+        successful: 0
+      });
+    }
+
+    // ── PASS 2: Atomic Batch Execution inside a single session ─────────────
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const results = [];
+      for (const r of rows) {
+        const qtyNum = Number(r.qty);
+        const effectiveEntryDate = r.entryDate ? new Date(r.entryDate) : new Date();
+
+        // 1. Atomic InventoryBalance upsert
+        const balance = await InventoryBalance.findOneAndUpdate(
+          {
+            company: req.user.company,
+            warehouse,
+            sku: r.sku,
+            bin: r.bin,
+            owner: r.owner,
+            ownerType: r.ownerType,
+            lotNumber: r.lotNumber
+          },
+          {
+            $inc: { qtyAvailable: qtyNum },
+            $set: {
+              batchNumber: r.batchNumber || '',
+              expiryDate: r.expiryDate ? new Date(r.expiryDate) : undefined
+            },
+            $min: { entryDate: effectiveEntryDate }
+          },
+          { upsert: true, new: true, session }
+        );
+
+        // 2. InventoryTransaction record
+        await InventoryTransaction.create([{
+          transactionId: 'TXN-ISL-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+          company: req.user.company,
+          type: 'RECEIVING',
+          sku: r.sku,
+          qty: qtyNum,
+          warehouse,
+          bin: r.bin,
+          fromLocation: 'SYSTEM_LOAD',
+          toLocation: r.bin,
+          owner: r.owner,
+          ownerType: r.ownerType,
+          lotNumber: r.lotNumber,
+          batchNumber: r.batchNumber || '',
+          expiryDate: r.expiryDate ? new Date(r.expiryDate) : undefined,
+          entryDate: effectiveEntryDate,
+          user: req.user.name || req.user.email || 'System Admin'
+        }], { session });
+
+        // 3. RF-P19: Sync Product.qty_available atomically
+        await Model.findOneAndUpdate(
+          { company: req.user.company, sku: r.sku },
+          { $inc: { qty_available: qtyNum } },
+          { session }
+        );
+
+        // 4. Activity Log
+        await ActivityLog.create([{
+          logId: 'LOG-ISL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          action: 'INITIAL_STOCK_LOAD',
+          module: 'Inventory',
+          user: req.user.name || req.user.email || 'System Admin',
+          userId: req.user._id,
+          company: req.user.company,
+          details: `Loaded ${qtyNum} units of ${r.sku} to ${r.bin} in ${warehouse} (Lot: ${r.lotNumber}, EntryDate: ${effectiveEntryDate.toISOString().slice(0, 10)}).`
+        }], { session });
+
+        results.push({ row: r.rowNum, sku: r.sku, bin: r.bin, qty: qtyNum, balanceId: balance._id });
+      }
+
+      await session.commitTransaction();
+      session.endSession();
+
+      res.status(201).json({
+        message: `Initial stock loaded successfully (${results.length} rows).`,
+        imported: results.length,
+        results
+      });
+    } catch (txnErr) {
+      await session.abortTransaction();
+      session.endSession();
+      throw txnErr;
+    }
   } catch (err) {
     next(err);
   }
@@ -498,6 +679,18 @@ router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
 router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    // G-01: Central Client/Owner Master Enforcement
+    if (req.body.owner) {
+      const company = await Company.findById(req.user.company);
+      if (company && req.body.owner !== company.name) {
+        const ownerError = await validateOwnerMaster(req.body.owner, 'CUSTOMER', req.user.company);
+        if (ownerError) {
+          return res.status(400).json({ message: ownerError });
+        }
+      }
+    }
+
     await validateBarcodes(req.user.company, req.body);
     const data = { ...req.body, company: req.user.company };
     const item = await Model.create(data);
@@ -514,6 +707,18 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    // G-01: Central Client/Owner Master Enforcement
+    if (req.body.owner !== undefined) {
+      const company = await Company.findById(req.user.company);
+      if (company && req.body.owner && req.body.owner !== company.name) {
+        const ownerError = await validateOwnerMaster(req.body.owner, 'CUSTOMER', req.user.company);
+        if (ownerError) {
+          return res.status(400).json({ message: ownerError });
+        }
+      }
+    }
+
     await validateBarcodes(req.user.company, req.body, req.params.id);
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 

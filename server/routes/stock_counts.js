@@ -14,6 +14,7 @@ import JournalEntry from '../models/JournalEntry.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import InventoryValuationEngine from '../services/InventoryValuationEngine.js';
 import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
+import { validateOwnerMaster } from '../utils/ownerValidation.js';
 
 
 const router = express.Router();
@@ -109,6 +110,11 @@ async function processDiscrepancy(line, company, warehouse, session, operator) {
       }
       
       const newOwner = line.owner || 'Default Owner';
+      
+      const ownerError = await validateOwnerMaster(newOwner, line.ownerType, company);
+      if (ownerError) {
+        throw new Error(`Owner Validation Failed for discovered inventory SKU ${sku}: ${ownerError}`);
+      }
 
       await InventoryBalance.create([{
         company, warehouse, sku, bin, owner: newOwner, ownerType: line.ownerType, lotNumber: 'DEFAULT-LOT', qtyAvailable: line.discrepancy

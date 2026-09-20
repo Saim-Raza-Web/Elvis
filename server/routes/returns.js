@@ -12,6 +12,7 @@ import InventoryTransaction from '../models/InventoryTransaction.js';
 import PutawayTask from '../models/PutawayTask.js';
 import Counter from '../models/Counter.js';
 import IdempotencyRecord from '../models/IdempotencyRecord.js';
+import { validateOwnerMaster } from '../utils/ownerValidation.js';
 
 const router = express.Router();
 
@@ -62,6 +63,14 @@ router.post('/', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
+
+    // G-01: Validate owner against Client master when ownerType is CUSTOMER
+    const ownerTypeToCheck = data.ownerType || 'UNKNOWN';
+    if (ownerTypeToCheck === 'CUSTOMER') {
+      const ownerError = await validateOwnerMaster(data.owner, ownerTypeToCheck, req.user.company);
+      if (ownerError) return res.status(422).json({ message: ownerError });
+    }
+
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {
@@ -99,6 +108,18 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     const wasProcessed = existing.status === 'processed' || existing.status === 'refunded';
     const isProcessed = req.body.status === 'processed' || req.body.status === 'refunded';
 
+    const ownerToCheck = req.body.owner !== undefined ? req.body.owner : existing.owner;
+    const typeToCheck = req.body.ownerType !== undefined ? req.body.ownerType : existing.ownerType;
+    
+    if (typeToCheck === 'CUSTOMER') {
+      const ownerError = await validateOwnerMaster(ownerToCheck, typeToCheck, req.user.company);
+      if (ownerError) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({ message: ownerError });
+      }
+    }
+
     const item = await Model.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company }, 
       req.body, 
@@ -120,7 +141,10 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
           // Do NOT increment Product.qty_available.
           await InventoryBalance.findOneAndUpdate(
             { company: req.user.company, warehouse, sku: row.sku, owner: itemOwner, ownerType: itemOwnerType, bin: 'RETURNS-STAGING', lotNumber: 'DEFAULT-LOT' },
-            { $inc: { qtyAwaitingPutaway: row.qty } },
+            { 
+              $inc: { qtyAwaitingPutaway: row.qty },
+              $min: { entryDate: new Date() }
+            },
             { upsert: true, new: true, session }
           );
 
@@ -172,7 +196,10 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 
           await InventoryBalance.findOneAndUpdate(
             { company: req.user.company, warehouse, sku: row.sku, owner: itemOwner, ownerType: itemOwnerType, bin: 'QUARANTINE-REJECTS', lotNumber: 'DEFAULT-LOT' },
-            { $inc: { qtyQuarantine: row.qty } },
+            { 
+              $inc: { qtyQuarantine: row.qty },
+              $min: { entryDate: new Date() }
+            },
             { upsert: true, new: true, session }
           );
 
@@ -217,7 +244,10 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 
         await InventoryBalance.findOneAndUpdate(
           { company: req.user.company, warehouse, sku: product.sku, owner: itemOwner, ownerType: itemOwnerType, bin: 'RETURNS-STAGING', lotNumber: 'DEFAULT-LOT' },
-          { $inc: { qtyAwaitingPutaway: item.items } },
+          { 
+            $inc: { qtyAwaitingPutaway: item.items },
+            $min: { entryDate: new Date() }
+          },
           { upsert: true, new: true, session }
         );
 

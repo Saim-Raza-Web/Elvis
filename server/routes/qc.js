@@ -13,13 +13,14 @@ import ActivityLog from '../models/ActivityLog.js';
 import Product from '../models/Product.js';
 import ASN from '../models/ASN.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
-import { putawayEngine } from '../services/putawayEngine.js';
+import { putawayEngine, resolveStagingFallback } from '../services/putawayEngine.js';
+import QCProfile from '../models/QCProfile.js';
 
 const router = express.Router();
 router.use(protect);
 router.use(validateWarehouse);
 
-const requireOpsRole = requireRole('admin', 'manager');
+const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
 
 /** Atomic Sequential QC Number: QC-000001, QC-000002... */
 async function nextQcNumber(company, session) {
@@ -74,6 +75,42 @@ async function logActivity(req, action, module, detail, session) {
     }], opts);
   } catch (_) {}
 }
+
+// ── QC Profiles (G-03 Dynamic QC Profiles) ──
+
+router.get('/profiles', async (req, res, next) => {
+  try {
+    const profiles = await QCProfile.find({ company: req.user.company });
+    res.json(profiles);
+  } catch (err) { next(err); }
+});
+
+router.post('/profiles', requireOpsRole, async (req, res, next) => {
+  try {
+    const profile = await QCProfile.create({ ...req.body, company: req.user.company });
+    res.status(201).json(profile);
+  } catch (err) { next(err); }
+});
+
+router.put('/profiles/:id', requireOpsRole, async (req, res, next) => {
+  try {
+    const profile = await QCProfile.findOneAndUpdate(
+      { _id: req.params.id, company: req.user.company },
+      req.body,
+      { new: true }
+    );
+    if (!profile) return res.status(404).json({ message: 'Profile not found' });
+    res.json(profile);
+  } catch (err) { next(err); }
+});
+
+router.delete('/profiles/:id', requireOpsRole, async (req, res, next) => {
+  try {
+    const profile = await QCProfile.findOneAndDelete({ _id: req.params.id, company: req.user.company });
+    if (!profile) return res.status(404).json({ message: 'Profile not found' });
+    res.json({ message: 'Profile deleted' });
+  } catch (err) { next(err); }
+});
 
 /** QC State Machine Transition Lock */
 function isValidQcStateTransition(currentStatus, targetStatus) {
@@ -174,6 +211,29 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     qItem.inspectionId = qcId;
     await qItem.save({ session });
 
+    // G-03: Resolve QC Profile for dynamic field initialization
+    // Look up the product to find its qc_profile name, then resolve to a QCProfile document
+    let resolvedProfileId = null;
+    let resolvedProfileName = '';
+    let initialDynamicFields = {};
+
+    const productDoc = await Product.findOne({ sku: qItem.sku, company: req.user.company }).session(session);
+    if (productDoc && productDoc.qc_profile) {
+      const profileDoc = await QCProfile.findOne({
+        name: productDoc.qc_profile,
+        company: req.user.company
+      }).session(session);
+
+      if (profileDoc) {
+        resolvedProfileId = profileDoc._id;
+        resolvedProfileName = profileDoc.name;
+        // Initialize each required field in the profile as null so inspectors see the full checklist
+        for (const field of (profileDoc.fields || [])) {
+          initialDynamicFields[field.name] = null;
+        }
+      }
+    }
+
     const inspection = await QCInspection.create([{
       inspectionId: qcId,
       quarantineId: qItem.quarantineId,
@@ -189,10 +249,13 @@ router.post('/', requireOpsRole, async (req, res, next) => {
       inspector,
       inspectionDate: new Date(),
       status: 'under_inspection',
+      qcProfileId: resolvedProfileId || undefined,
+      qcProfileName: resolvedProfileName,
+      dynamicFields: initialDynamicFields,
       company: req.user.company
     }], { session });
 
-    await logActivity(req, 'QC_STARTED', 'QC', `Started inspection ${qcId} for SKU ${qItem.sku} (${qItem.qty} units)`, session);
+    await logActivity(req, 'QC_STARTED', 'QC', `Started inspection ${qcId} for SKU ${qItem.sku} (${qItem.qty} units)${resolvedProfileName ? ` using profile "${resolvedProfileName}"` : ''}`, session);
 
     await session.commitTransaction();
     session.endSession();
@@ -219,6 +282,13 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: `Cannot modify inspection in terminal state '${inspection.status}'.` });
     }
 
+    if (req.body.dynamicFields) {
+      if (!inspection.dynamicFields) inspection.dynamicFields = new Map();
+      for (const [k, v] of Object.entries(req.body.dynamicFields)) {
+        inspection.dynamicFields.set(k, v);
+      }
+      delete req.body.dynamicFields;
+    }
     Object.assign(inspection, req.body);
     const updated = await inspection.save();
 
@@ -291,6 +361,29 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       attachments
     } = req.body;
 
+    const inspectionDoc = await QCInspection.findOne({ inspectionId: qItem.inspectionId, company: req.user.company }).session(session);
+    
+    // Check required dynamic fields from QCProfile
+    if (inspectionDoc && inspectionDoc.qcProfileId) {
+      const profile = await QCProfile.findById(inspectionDoc.qcProfileId).session(session);
+      if (profile) {
+        const missingFields = [];
+        for (const field of profile.fields) {
+          if (field.required) {
+            const val = inspectionDoc.dynamicFields ? inspectionDoc.dynamicFields.get(field.name) : undefined;
+            if (val === null || val === undefined || val === '') {
+              missingFields.push(field.label || field.name);
+            }
+          }
+        }
+        if (missingFields.length > 0) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({ message: `Cannot approve QC. Missing required profile fields: ${missingFields.join(', ')}` });
+        }
+      }
+    }
+
     // Check Cold Chain temperature bounds
     const prodDoc = await Product.findOne({ sku: qItem.sku, company: req.user.company }).session(session);
     const isColdChain = Boolean(prodDoc && (prodDoc.category === 'COLD' || prodDoc.qc_profile === 'Cold Chain'));
@@ -321,10 +414,11 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: 'Approved quantity must be greater than 0. If rejecting all units, use Fail QC / RTV.' });
     }
 
-    // 1. Pipeline Refinement: Move approvedQty from qtyQuarantine -> qtyAwaitingPutaway
+    // 1. Pipeline Refinement: Move ONLY approvedQty from qtyQuarantine -> qtyAwaitingPutaway
+    // The rejectedQty remains in qtyQuarantine, maintaining physical traceability!
     await InventoryBalance.findOneAndUpdate(
       { company: req.user.company, warehouse, sku: qItem.sku, owner: qItem.owner, ownerType: qItem.ownerType, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
-      { $inc: { qtyQuarantine: -totalQty, qtyAwaitingPutaway: approvedQty } },
+      { $inc: { qtyQuarantine: -approvedQty, qtyAwaitingPutaway: approvedQty } },
       { upsert: true, new: true, session }
     );
 
@@ -361,46 +455,50 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
         notes: `Partial QC Rejection: ${rejectedQty} units routed to ${rejectionDestination || 'Quarantine'}`,
         company: req.user.company
       }], { session });
+      
+      // Clone QuarantineInventory to track the rejected portion
+      await QuarantineInventory.create([{
+        quarantineId: qItem.quarantineId + '-REJ',
+        asnId: qItem.asnId,
+        asnNumber: qItem.asnNumber,
+        sku: qItem.sku,
+        productName: qItem.productName,
+        warehouse: qItem.warehouse,
+        bin: qItem.bin,
+        qty: rejectedQty,
+        lotNumber: qItem.lotNumber,
+        batchNumber: qItem.batchNumber,
+        expiryDate: qItem.expiryDate,
+        owner: qItem.owner,
+        ownerType: qItem.ownerType,
+        status: 'qc_failed',
+        failReason: `Partial Rejection from ${qItem.quarantineId}`,
+        company: req.user.company
+      }], { session });
     }
 
-    // 3. Update QuarantineInventory Status -> awaiting_putaway
+    // 3. Update QuarantineInventory Status -> awaiting_putaway for the approved part
     qItem.status = 'awaiting_putaway';
     qItem.qty = approvedQty;
     await qItem.save({ session });
 
-    if (qItem.inspectionId) {
-      await QCInspection.findOneAndUpdate(
-        { inspectionId: qItem.inspectionId, company: req.user.company },
-        { 
-          status: 'qc_passed',
-          notes: notes || `Inspection Passed (${approvedQty} approved, ${rejectedQty} rejected)`,
-          arrivalTemp: arrivalTemp !== undefined ? Number(arrivalTemp) : undefined,
-          minTemp: minTemp !== undefined ? Number(minTemp) : undefined,
-          maxTemp: maxTemp !== undefined ? Number(maxTemp) : undefined,
-          humidityPct: humidityPct !== undefined ? Number(humidityPct) : undefined,
-          dataLogger: dataLogger || '',
-          tempRangeMin: Number(tempRangeMin),
-          tempRangeMax: Number(tempRangeMax),
-          approvedQty,
-          rejectedQty,
-          rejectionDestination: rejectionDestination || '',
-          attachments: Array.isArray(attachments) ? attachments : []
-        },
-        { session }
-      );
+    if (inspectionDoc) {
+      inspectionDoc.status = 'qc_passed';
+      inspectionDoc.notes = notes || `Inspection Passed (${approvedQty} approved, ${rejectedQty} rejected)`;
+      if (arrivalTemp !== undefined) inspectionDoc.arrivalTemp = Number(arrivalTemp);
+      if (minTemp !== undefined) inspectionDoc.minTemp = Number(minTemp);
+      if (maxTemp !== undefined) inspectionDoc.maxTemp = Number(maxTemp);
+      if (humidityPct !== undefined) inspectionDoc.humidityPct = Number(humidityPct);
+      inspectionDoc.dataLogger = dataLogger || '';
+      inspectionDoc.tempRangeMin = Number(tempRangeMin);
+      inspectionDoc.tempRangeMax = Number(tempRangeMax);
+      inspectionDoc.approvedQty = approvedQty;
+      inspectionDoc.rejectedQty = rejectedQty;
+      inspectionDoc.rejectionDestination = rejectionDestination || '';
+      inspectionDoc.attachments = Array.isArray(attachments) ? attachments : [];
+      
+      await inspectionDoc.save({ session });
     }
-
-    // 4. DYNAMIC LOCATION PROPOSAL & AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001) FOR APPROVED STOCK ONLY
-    const proposed = await putawayEngine.evaluatePutawayLocation({
-      companyId: req.user.company,
-      warehouse: qItem.warehouse,
-      sku: qItem.sku,
-      qty: approvedQty,
-      lotNumber: qItem.lotNumber
-    });
-
-    const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
-    const toBinCode = proposed.proposedBin;
 
     const targetAsnKey = qItem.asnId || qItem.asnNumber;
     const isObjId = targetAsnKey && mongoose.Types.ObjectId.isValid(targetAsnKey);
@@ -414,6 +512,34 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
     }).session(session);
     const itemOwner = asnDoc?.owner || qItem.owner || 'Default Owner';
     const itemSupplier = asnDoc?.supplier || '';
+
+    // 4. DYNAMIC LOCATION PROPOSAL & AUTOMATIC PUTAWAY TASK GENERATION (PUT-000001) FOR APPROVED STOCK ONLY
+    const proposed = await putawayEngine.evaluatePutawayLocation({
+      companyId: req.user.company,
+      warehouse: qItem.warehouse,
+      sku: qItem.sku,
+      owner: itemOwner,
+      qty: approvedQty,
+      lotNumber: qItem.lotNumber
+    });
+
+    const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
+
+    // RF-P01: Fall back to staging location if engine finds no valid putaway destination
+    let toBinCode = proposed.proposedBin;
+    if (!toBinCode) {
+      try {
+        toBinCode = await resolveStagingFallback(req.user.company, qItem.warehouse);
+      } catch (stagingErr) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({
+          message: `RF-P01: ${stagingErr.message}`,
+          sku: qItem.sku,
+          warehouse
+        });
+      }
+    }
 
     const putawayId = await nextPutawayNumber(req.user.company, session);
     const putawayTask = await PutawayTask.create([{

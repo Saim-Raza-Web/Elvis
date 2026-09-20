@@ -4,7 +4,7 @@ const inventoryTransactionSchema = new mongoose.Schema({
   transactionId: { type: String, required: true },
   type: {
     type: String,
-    enum: ['RECEIVING', 'QUARANTINE_HOLD', 'QC_RELEASE', 'QC_FAIL', 'RETURN_TO_VENDOR', 'PUTAWAY_CREATED', 'PUTAWAY_COMPLETE', 'ADJUSTMENT', 'TRANSFER', 'TRANSFER_OUT', 'TRANSFER_IN', 'PICK_EXECUTE', 'PICK_COMPLETE', 'RETURN', 'REPLENISHMENT_RESERVE', 'REPLENISHMENT_COMPLETE', 'REPLENISHMENT_CANCEL'],
+    enum: ['RECEIVING', 'QUARANTINE_HOLD', 'QC_RELEASE', 'QC_FAIL', 'RETURN_TO_VENDOR', 'PUTAWAY_CREATED', 'PUTAWAY_COMPLETE', 'ADJUSTMENT', 'TRANSFER', 'TRANSFER_OUT', 'TRANSFER_IN', 'PICK_EXECUTE', 'PICK_COMPLETE', 'RETURN', 'REPLENISHMENT_RESERVE', 'REPLENISHMENT_COMPLETE', 'REPLENISHMENT_CANCEL', 'FIFO_OVERRIDE_AUDIT'],
     required: true
   },
   sku: { type: String, required: true },
@@ -23,6 +23,7 @@ const inventoryTransactionSchema = new mongoose.Schema({
   referenceId: { type: String, default: '' },
   user: { type: String, default: 'system' },
   timestamp: { type: Date, default: Date.now },
+  metadata: { type: mongoose.Schema.Types.Mixed },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 

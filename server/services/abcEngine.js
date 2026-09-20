@@ -1,21 +1,20 @@
 import mongoose from 'mongoose';
 import Product from '../models/Product.js';
-import PickTask from '../models/PickTask.js';
+import Order from '../models/Order.js';
 import Company from '../models/Company.js';
 
 /**
  * Service: ABC Classification Engine (Stage 5B)
  *
  * Implements the frozen Stage 5B specification:
- * - Rolling 30-day confirmed pick volume.
- * - Source: PickTask with status in ['completed', 'partially_picked'].
- * - Excludes internal transfers (orderType === 'TRANSFER').
- * - Only counts actual confirmed physical quantity (items.pickedQty).
+ * - Rolling 30-day confirmed sales volume.
+ * - Source: Order with status indicating valid sales.
+ * - Only counts ordered quantity (product_lines.qty).
  * - Pareto thresholds:
  *     A: Cumulative volume through 80% (top mover guaranteed A)
  *     B: Cumulative volume >80% through 95%
  *     C: Cumulative volume >95% through 100%
- * - Zero confirmed picks default to 'C'.
+ * - Zero confirmed sales default to 'C'.
  * - Stable deterministic tie-break: confirmedPickVolume DESC, then sku ASC.
  * - Product materialized fields updated: sku_abc_class, abc_calc_date, abc_pick_count_period.
  * - abc_class_override is strictly preserved and never mutated.
@@ -41,26 +40,25 @@ export const abcEngine = {
     const refDate = new Date(referenceDate);
     const windowStart = new Date(refDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // 1. Aggregation Pipeline: 30-day rolling confirmed pick volume per SKU
+    // 1. Aggregation Pipeline: 30-day rolling sales volume per SKU
     const pipeline = [
       {
         $match: {
           company: companyObjectId,
-          status: { $in: ['completed', 'partially_picked'] },
-          orderType: { $ne: 'TRANSFER' }, // Exclude warehouse transfers
-          completedAt: { $gte: windowStart, $lte: refDate }
+          status: { $in: ['shipped', 'delivered', 'processing', 'picked', 'READY FOR SHIPPING', 'packed', 'partially_fulfilled'] },
+          date: { $gte: windowStart, $lte: refDate }
         }
       },
-      { $unwind: '$items' },
+      { $unwind: '$product_lines' },
       {
         $match: {
-          'items.pickedQty': { $gt: 0 } // Only confirmed physical picks
+          'product_lines.qty': { $gt: 0 } // Only positive sales quantities
         }
       },
       {
         $group: {
-          _id: '$items.sku',
-          confirmedPickVolume: { $sum: '$items.pickedQty' }
+          _id: '$product_lines.sku',
+          confirmedPickVolume: { $sum: '$product_lines.qty' }
         }
       },
       {
@@ -71,7 +69,7 @@ export const abcEngine = {
       }
     ];
 
-    const pickResults = await PickTask.aggregate(pipeline);
+    const pickResults = await Order.aggregate(pipeline);
 
     // 2. Fetch all products of the company
     const allProducts = await Product.find({ company: companyObjectId });

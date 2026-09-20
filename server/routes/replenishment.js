@@ -104,4 +104,19 @@ router.post('/:id/cancel', requireOpsRole, async (req, res, next) => {
   }
 });
 
+// POST /api/v1/replenishment/cron — Trigger auto-replenishment scheduler (Vercel Cron / admin)
+router.post('/cron', async (req, res, next) => {
+  try {
+    const { replenishmentScheduler } = await import('../services/replenishmentScheduler.js');
+    const tasks = await replenishmentScheduler.run();
+    res.json({
+      success: true,
+      message: `Auto-replenishment scan completed. Generated ${tasks.length} task(s).`,
+      tasks
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

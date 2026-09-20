@@ -231,11 +231,27 @@ export function PutawayQueue() {
 
     let resolvedSku = enteredSkuBarcode.toUpperCase();
     try {
-      const resolveRes = await inventoryService.resolveBarcode(enteredSkuBarcode).catch(() => null);
+      const resolveRes = await inventoryService.resolveBarcode(enteredSkuBarcode);
+      
+      // If the API returns successfully but found is false (handled by 404 in API, but just in case)
+      if (resolveRes && resolveRes.found === false) {
+        const errMsg = `Unknown barcode: '${enteredSkuBarcode}' does not match any product in catalog.`;
+        setSkuError(errMsg);
+        toast.error(errMsg);
+        return;
+      }
+      
       if (resolveRes && resolveRes.found) {
         resolvedSku = resolveRes.sku.toUpperCase();
       }
-    } catch (_) {}
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        const errMsg = `Unknown barcode: '${enteredSkuBarcode}' does not match any product in catalog.`;
+        setSkuError(errMsg);
+        toast.error(errMsg);
+        return;
+      }
+    }
 
     if (resolvedSku !== selectedTask.sku.toUpperCase()) {
       const errMsg = `Wrong product. Scanned: ${enteredSkuBarcode}. Expected: ${selectedTask.sku}.`;
@@ -622,8 +638,8 @@ export function PutawayQueue() {
 
               {/* Dynamic Location Proposal Banner */}
               <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Proposed Location:</span>
+                <div className="flex flex-col gap-2">
+                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Trasladar DESDE <span className="font-mono bg-card px-1 py-0.5 border border-emerald-500/30 rounded">{selectedTask.fromLocation || 'RECEIVING'}</span> HACIA</span>
                   <div className="flex items-center gap-2">
                     {activeOverrideId && (
                       <span className="text-[10px] font-bold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">

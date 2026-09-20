@@ -16,6 +16,7 @@ const inventoryBalanceSchema = new mongoose.Schema({
   lotNumber: { type: String, default: '' },
   batchNumber: { type: String, default: '' },
   expiryDate: { type: Date },
+  entryDate: { type: Date, required: true, default: Date.now },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, {
   timestamps: true,

@@ -67,3 +67,10 @@ server/PHASE*.md
 # PDF specs / temp files
 *.pdf
 server/*.pdf
+
+# Temporary, crash dumps & local logs
+.tmp/
+*.tmp
+*.log
+*.mdmp
+wms_text.txt

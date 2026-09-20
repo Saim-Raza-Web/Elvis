@@ -12,6 +12,8 @@ import { evaluateOrderForProcurement } from '../services/procurement.service.js'
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { pickingEngine } from '../services/pickingEngine.js';
 import mongoose from 'mongoose';
+import Company from '../models/Company.js';
+import { validateOwnerMaster } from '../utils/ownerValidation.js';
 
 const router = express.Router();
 router.use(protect);
@@ -141,6 +143,18 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     // Ensure status is set to pending on create
     data.status = 'pending';
 
+    // H — ShortfallQty Production Initialization (forensic fix)
+    // shortfallQty=0 semantically means "line fully fulfilled".
+    // A new order line has its full qty outstanding, so initialize to qty.
+    // The pick-release engine (ensurePickTaskForOrder) then sets it to the
+    // actual remaining backorder quantity after allocation.
+    if (Array.isArray(data.product_lines)) {
+      data.product_lines = data.product_lines.map(line => ({
+        ...line,
+        shortfallQty: Number(line.qty) || 0
+      }));
+    }
+
     const item = await Order.create(data);
 
     // Notifications (non-blocking)
@@ -216,6 +230,46 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
     throw new Error(`Cannot release order ${order.orderId} to fulfillment: Order contains 0 product lines.`);
   }
 
+  // G-01: Central Client/Owner Master Enforcement for B2B Outbound Release
+  let taskOwner = 'Internal Stock';
+  let ownerType = 'COMPANY';
+
+  if (order.order_type === 'B2B') {
+    const explicitOwner = (order.owner || '').trim();
+    const explicitOwnerType = order.ownerType;
+
+    // If explicit ownerType is CUSTOMER, owner cannot be missing
+    if (explicitOwnerType === 'CUSTOMER' && !explicitOwner) {
+      const err = new Error('B2B Order Release Rejected: Owner (3PL) is required when ownerType is CUSTOMER.');
+      err.status = 422;
+      throw err;
+    }
+
+    if (explicitOwner && explicitOwner !== 'Internal Stock') {
+      const companyDoc = await Company.findById(companyId).session(session);
+      const isCompanyOwned = Boolean(companyDoc && explicitOwner.toLowerCase() === companyDoc.name.trim().toLowerCase());
+
+      if (isCompanyOwned || explicitOwnerType === 'COMPANY') {
+        taskOwner = explicitOwner;
+        ownerType = 'COMPANY';
+      } else {
+        // Enforce validation against Client master for CUSTOMER ownerType
+        const ownerError = await validateOwnerMaster(explicitOwner, 'CUSTOMER', companyId);
+        if (ownerError) {
+          const err = new Error(`B2B Order Release Rejected: ${ownerError}`);
+          err.status = 422;
+          throw err;
+        }
+        taskOwner = explicitOwner;
+        ownerType = 'CUSTOMER';
+      }
+    } else {
+      // Explicit or defaulted Internal Stock
+      taskOwner = 'Internal Stock';
+      ownerType = 'COMPANY';
+    }
+  }
+
   // 1. Derive PickTask lines from Order product_lines using Phase 3 pickingEngine
   const lines = [];
   let orderRequiresUpdate = false;
@@ -234,19 +288,14 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
     
     if (requestedQty <= 0) continue; // Skip lines that are already fully fulfilled
 
-    // For B2C orders, the customer is the destination, not the inventory owner. Default to Internal Stock.
-    const taskOwner = order.order_type === 'B2B' 
-      ? (order.company_name || order.customer || 'Internal Stock').trim() 
-      : 'Internal Stock';
-
     try {
       const allocationResult = await pickingEngine.evaluatePickAllocation({
         companyId,
-        warehouse: order.warehouse, // Note: if warehouse is not an ObjectId here, engine might fail, but engine handles it.
+        warehouse: order.warehouse,
         sku: skuClean,
         qtyNeeded: requestedQty,
-        owner: taskOwner, // Pass owner to ensure 3PL tenant isolation!
-        strategy: 'FEFO', // Default strategy, pickingEngine might override based on rules
+        owner: taskOwner,
+        strategy: 'FIFO', // Changed from FEFO to FIFO (RF-P08)
         session
       });
 
@@ -267,6 +316,7 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
             shortfallQty: 0, // Engine guarantees this qty is available and reserved!
             sourceLocation: alloc.location,
             inventoryOwner: alloc.owner || taskOwner,
+            ownerType: alloc.ownerType || ownerType,
             status: 'pending'
           });
         }
@@ -309,18 +359,13 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
   const taskId = `PICK-2026-${String(counter.seq).padStart(6, '0')}`;
-
-  // Task owner for B2B can be the client name; for B2C it usually pulls from Internal Stock
-  const taskOwner = order.order_type === 'B2B' 
-      ? (order.company_name || order.customer || 'Internal Stock').trim() 
-      : 'Internal Stock';
   const totalQty = lines.reduce((sum, l) => sum + l.orderedQty, 0);
 
   const newTask = await PickTask.create([{
     taskId,
-    order: order.orderId, // Legacy order field for UI compatibility
-    orderId: order.orderId,
-    orderNumber: order.orderId,
+    order: order.orderId || order._id,
+    orderId: order.orderId || order._id,
+    orderNumber: order.orderId || order._id,
     orderType: order.order_type || 'B2B',
     owner: taskOwner,
     customer: order.customer || order.company_name || 'Client',
@@ -363,6 +408,10 @@ router.patch('/:id/status', requireOpsRole, async (req, res, next) => {
         await session.commitTransaction();
       } catch (err) {
         await session.abortTransaction();
+        if (err.status) {
+          session.endSession();
+          return res.status(err.status).json({ message: err.message });
+        }
         throw err;
       } finally {
         session.endSession();
@@ -397,6 +446,30 @@ router.post('/:id/release', requireOpsRole, async (req, res, next) => {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({ message: `Cannot release order with status "${currentOrder.status}". Only pending or partially fulfilled orders can be released.` });
+    }
+
+    // G-01: Check for unauthorized owner reassignment if owner is supplied in release body
+    if (req.body && req.body.owner) {
+      const currentOwner = (currentOrder.owner || (currentOrder.ownerType === 'CUSTOMER' ? '' : 'Internal Stock')).trim();
+      if (currentOwner && req.body.owner.trim() !== currentOwner && currentOwner !== 'Internal Stock') {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({ 
+          message: `Unauthorized owner reassignment: Order belongs to '${currentOwner}', cannot reassign to '${req.body.owner}'.` 
+        });
+      }
+    }
+
+    // G-01: Check for B2B owner/customer mismatch in release body
+    if (req.body && req.body.customer) {
+      const registeredCustomer = (currentOrder.customer || '').trim();
+      if (registeredCustomer && req.body.customer.trim() !== registeredCustomer) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({ 
+          message: `B2B owner/customer mismatch: Request customer '${req.body.customer}' does not match order '${registeredCustomer}'.` 
+        });
+      }
     }
 
     // Atomically acquire the order using __v for strict OCC!
@@ -440,6 +513,10 @@ router.post('/:id/release', requireOpsRole, async (req, res, next) => {
     // Catch WriteConflict or Aborted Transaction and return 409 Gracefully
     if (err.message.includes('Write conflict') || err.message.includes('Transaction') || err.code === 112) {
       return res.status(409).json({ message: 'Conflict: Order state was modified concurrently.' });
+    }
+    
+    if (err.status) {
+      return res.status(err.status).json({ message: err.message });
     }
     
     next(err); 

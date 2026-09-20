@@ -116,6 +116,68 @@ export async function getSiblingLocationsOnLevel(companyId, loc) {
 }
 
 /**
+ * RF-P01 — Default Staging Fallback Resolver
+ * When no Storage Rule can find a valid putaway destination, this resolves the
+ * canonical staging location for the given warehouse. The staging location must
+ * exist and be active. Returns the location's code, or throws a controlled error
+ * so callers can fail safely rather than creating a PutawayTask with null destination.
+ *
+ * @param {ObjectId|String} companyId
+ * @param {ObjectId|String|String} warehouse  - ObjectId or warehouse code
+ * @returns {Promise<string>} Staging location bin code
+ * @throws {Error} If no valid staging location exists in this warehouse
+ */
+export async function resolveStagingFallback(companyId, warehouse) {
+  let warehouseId = null;
+  let warehouseCode = null;
+
+  if (warehouse) {
+    if (mongoose.Types.ObjectId.isValid(warehouse) && String(warehouse).length === 24) {
+      warehouseId = warehouse;
+      const whDoc = await Warehouse.findById(warehouse);
+      if (whDoc) warehouseCode = whDoc.code;
+    } else {
+      const whDoc = await Warehouse.findOne({ code: warehouse, company: companyId });
+      if (whDoc) {
+        warehouseId = whDoc._id;
+        warehouseCode = whDoc.code;
+      }
+    }
+  }
+
+  const stagingQuery = {
+    company: companyId,
+    $or: [
+      { locationType: 'STAGING' },
+      { type: 'STAGING' },
+      { locationType: 'staging' },
+      { code: { $regex: /staging/i } },
+      { name: { $regex: /staging/i } },
+      { code: 'STAGING-A' },
+      { code: 'STAGING' }
+    ],
+    active: { $ne: false },
+    status: { $nin: ['BLOCKED', 'MAINTENANCE', 'LOCKED'] }
+  };
+
+  if (warehouseId) {
+    stagingQuery.warehouse = warehouseId;
+  }
+
+  const stagingLoc = await Location.findOne(stagingQuery).sort({ code: 1 });
+
+  if (!stagingLoc) {
+    throw new Error(
+      `RF-P01: No valid staging location found in warehouse "${warehouseCode || warehouse}". ` +
+      `Putaway task cannot be created without a valid destination. ` +
+      `Please configure a STAGING-type location for this warehouse.`
+    );
+  }
+
+  return stagingLoc.code;
+}
+
+/**
  * DECOUPLED PUTAWAY ENGINE
  * Evaluates candidate destination storage locations strictly for putaway operations.
  * Enforces: Rule Priority (1..N), Lot Integrity (1 Location = 1 Lot + 1 SKU + 1 Owner),
@@ -293,6 +355,7 @@ export const putawayEngine = {
     };
     console.log('[DEBUG] evalContext:', evalContext);
 
+    let matchedRule = false;
     for (const rule of activeRules) {
       console.log('[DEBUG] Evaluating rule:', rule.name, 'conditions:', rule.conditions);
       if (evaluateConditions(rule.conditions, evalContext)) {
@@ -301,12 +364,43 @@ export const putawayEngine = {
         appliedRuleName = rule.name;
         appliedPriority = rule.priority;
         appliedAction = rule.action || 'send_to_zone';
+        matchedRule = true;
         trace.push({
           step: 'Rule Match',
           status: 'MATCHED',
           message: `Rule Priority ${rule.priority} ("${rule.name}") matched: Action = ${appliedAction}`
         });
         break; // First match wins (highest priority)
+      }
+    }
+
+    if (!matchedRule) {
+      // RF-P01: Fall back to canonical DEFAULT Storage Rule if present
+      const defaultRule = activeRules.find(r => r.code === 'DEFAULT' || (r.isDefault === true && (r.name || '').includes('DEFAULT')));
+      if (defaultRule) {
+        targetZone = defaultRule.targetZone;
+        targetLocation = defaultRule.targetLocation;
+        appliedRuleName = defaultRule.name;
+        appliedPriority = defaultRule.priority;
+        appliedAction = defaultRule.action || 'send_to_zone';
+        trace.push({
+          step: 'Fallback Rule Match',
+          status: 'MATCHED',
+          message: `No explicit rule matched. Fell back to canonical DEFAULT rule ("${defaultRule.name}").`
+        });
+        matchedRule = true;
+      } else {
+        // Fall back to Default Storage Policy and continue physical candidate evaluation
+        appliedRuleName = 'Default Storage Policy';
+        appliedPriority = 999;
+        appliedAction = 'none';
+        targetZone = null;
+        targetLocation = null;
+        trace.push({
+          step: 'Default Storage Policy',
+          status: 'INFO',
+          message: 'No storage rule matched. Proceeding with Default Storage Policy across candidate locations.'
+        });
       }
     }
 

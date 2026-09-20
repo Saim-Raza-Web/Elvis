@@ -40,6 +40,7 @@ const qcInspectionSchema = new mongoose.Schema({
   approvedQty: { type: Number },
   rejectedQty: { type: Number, default: 0 },
   rejectionDestination: { type: String, enum: ['RTV', 'Quarantine', 'Destruction', ''], default: '' },
+  dynamicFields: { type: Map, of: mongoose.Schema.Types.Mixed, default: {} },
   attachments: [{
     url: String,
     filename: String,
@@ -50,6 +51,9 @@ const qcInspectionSchema = new mongoose.Schema({
   failReason: { type: String, default: '' },
   rtvAuthNumber: { type: String, default: '' },
   rtvCarrier: { type: String, default: '' },
+  // G-03: Links inspection to its QCProfile so dynamic field requirements are traceable
+  qcProfileId: { type: mongoose.Schema.Types.ObjectId, ref: 'QCProfile' },
+  qcProfileName: { type: String, default: '' },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 

@@ -238,10 +238,13 @@ if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
     console.error('❌ [FATAL] JWT_SECRET environment variable is not configured in production.');
     throw new Error('[FATAL] JWT_SECRET environment variable is not configured in production');
   }
-  connectToDatabase().then(() => {
-    app.listen(PORT, () => {
+  connectToDatabase().then(async () => {
+    app.listen(PORT, async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       initStandaloneDailyScheduler();
+      
+      const { replenishmentScheduler } = await import('./services/replenishmentScheduler.js');
+      replenishmentScheduler.start();
     });
   }).catch(err => {
     console.error('Failed to connect to MongoDB:', err);

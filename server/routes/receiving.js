@@ -13,12 +13,13 @@ import Discrepancy from '../models/Discrepancy.js';
 import Incident from '../models/Incident.js';
 import QuarantineInventory from '../models/QuarantineInventory.js';
 import Product from '../models/Product.js';
+import { validateOwnerMaster } from '../utils/ownerValidation.js';
 import PutawayTask from '../models/PutawayTask.js';
 import Company from '../models/Company.js';
 import IdempotencyRecord from '../models/IdempotencyRecord.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
-import { putawayEngine } from '../services/putawayEngine.js';
+import { putawayEngine, resolveStagingFallback } from '../services/putawayEngine.js';
 
 const router = express.Router();
 router.use(protect);
@@ -137,6 +138,41 @@ function isValidStatusTransition(currentStatus, newStatus, userRole) {
 
   const allowedNext = TRANSITION_MAP[currentStatus] || [];
   return allowedNext.includes(newStatus);
+}
+
+/** H-03: ASN Product Search / Autofill */
+async function autofillAsnProducts(items, company) {
+  const errors = [];
+  if (!Array.isArray(items)) return errors;
+  for (const line of items) {
+    if (line.sku) {
+      const product = await Product.findOne({
+        company,
+        $or: [
+          { sku: line.sku },
+          { unitBarcode: line.sku },
+          { caseBarcode: line.sku }
+        ]
+      });
+      if (product) {
+        // H-03: EAN-to-SKU resolution and multiplier handling
+        if (line.sku === product.caseBarcode && product.caseMultiplier > 1) {
+          line.expected_qty = (line.expected_qty || 0) * product.caseMultiplier;
+          if (line.received_qty !== undefined && line.received_qty !== null) {
+            line.received_qty = line.received_qty * product.caseMultiplier;
+          }
+        }
+        
+        line.sku = product.sku;
+        line.name = line.name || product.name || product.description;
+        line.description = line.description || product.description;
+        line.uom = line.uom || product.base_uom;
+      } else {
+        errors.push(`Unknown SKU or Barcode: ${line.sku}`);
+      }
+    }
+  }
+  return errors;
 }
 
 // ── Routes ────────────────────────────────────────────────────
@@ -260,18 +296,26 @@ router.post('/', requireOpsRole, async (req, res, next) => {
       data.po = data.po || data.poNumber;
     }
 
+    // H-03: ASN Product Autofill & EAN-to-SKU mapping
+    const autofillErrors = await autofillAsnProducts(data.items, req.user.company);
+    if (autofillErrors.length > 0) {
+      return res.status(400).json({ message: autofillErrors.join(' ') });
+    }
+
     const validationErrors = validateAsnPayload(data);
     if (validationErrors.length > 0) {
       return res.status(400).json({ message: validationErrors.join(' ') });
     }
 
-    if (!data.asnId && !data.asnNumber) {
-      const generatedNumber = await nextAsnNumber(req.user.company);
-      data.asnId = generatedNumber;
-      data.asnNumber = generatedNumber;
-    } else {
-      data.asnNumber = data.asnNumber || data.asnId;
-      data.asnId = data.asnId || data.asnNumber;
+    // H-01: ASN Automation - ALWAYS force generated numbers to prevent duplicates
+    const generatedNumber = await nextAsnNumber(req.user.company);
+    data.asnId = generatedNumber;
+    data.asnNumber = generatedNumber;
+
+    // G-01: Central Client/Owner Master Enforcement
+    const ownerError = await validateOwnerMaster(data.owner, data.ownerType, req.user.company);
+    if (ownerError) {
+      return res.status(400).json({ message: ownerError });
     }
 
     data.expectedDate = data.expectedDate || data.expected_date;
@@ -680,7 +724,10 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           company: req.user.company
         }], { session });
 
-        // Propose destination location & generate Putaway Task immediately
+        // RF-P01: Propose destination location via putaway engine, with staging fallback.
+        // If the engine cannot find a valid location (proposedBin: null),
+        // resolveStagingFallback finds a configured STAGING-type location.
+        // If no staging location exists, the transaction aborts with a clear 422 error.
         const proposed = await putawayEngine.evaluatePutawayLocation({
           companyId: req.user.company,
           warehouse,
@@ -689,6 +736,21 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           qty: qtyNum,
           lotNumber: lotToSave
         });
+
+        let resolvedDestinationBin = proposed.proposedBin;
+        if (!resolvedDestinationBin) {
+          try {
+            resolvedDestinationBin = await resolveStagingFallback(req.user.company, warehouse);
+          } catch (stagingErr) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(422).json({
+              message: `RF-P01: ${stagingErr.message}`,
+              sku,
+              warehouse
+            });
+          }
+        }
 
         const putawayId = await nextPutawayNumber(req.user.company, session);
         await PutawayTask.create([{
@@ -704,16 +766,16 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,
-          fromLocation: receivingBin === proposed.proposedBin ? 'STAGING-A' : receivingBin,
-          toLocation: proposed.proposedBin === 'STAGING-A' ? 'A-01-01' : proposed.proposedBin,
-          destinationBin: proposed.proposedBin === 'STAGING-A' ? 'A-01-01' : proposed.proposedBin,
+          fromLocation: receivingBin,
+          toLocation: resolvedDestinationBin,
+          destinationBin: resolvedDestinationBin,
           priority: 'normal',
           status: 'pending',
           createdBy: operator,
           company: req.user.company
         }], { session });
 
-        await logActivity(req, 'INVENTORY_UPDATE', 'ASN', `Received SKU ${sku} (+${qtyNum} units, Owner: ${itemOwner}). Generated Putaway Task ${putawayId} to ${proposed.proposedBin}`, session);
+        await logActivity(req, 'INVENTORY_UPDATE', 'ASN', `Received SKU ${sku} (+${qtyNum} units, Owner: ${itemOwner}). Generated Putaway Task ${putawayId} to ${resolvedDestinationBin}`, session);
       }
 
       // 3. Record Receiving History
@@ -929,9 +991,22 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
       });
     }
 
+    // H-03: ASN Product Autofill
+    if (req.body.items) {
+      await autofillAsnProducts(req.body.items, req.user.company);
+    }
+
     const validationErrors = validateAsnPayload(req.body);
     if (validationErrors.length > 0) {
       return res.status(400).json({ message: validationErrors.join(' ') });
+    }
+
+    // G-01: Central Client/Owner Master Enforcement
+    const ownerToCheck = req.body.owner !== undefined ? req.body.owner : existing.owner;
+    const typeToCheck = req.body.ownerType !== undefined ? req.body.ownerType : existing.ownerType;
+    const ownerError = await validateOwnerMaster(ownerToCheck, typeToCheck, req.user.company);
+    if (ownerError) {
+      return res.status(400).json({ message: ownerError });
     }
 
     const allowed = { ...req.body };

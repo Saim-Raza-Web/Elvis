@@ -10,6 +10,7 @@ import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 import { pickingService } from "../../services/picking.service";
 import { inventoryService } from "../../services/inventory.service";
+import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 
 type PickTaskLine = {
@@ -93,7 +94,13 @@ export function Picking() {
 
   const [scanValue, setScanValue] = useState("");
   const [showManual, setShowManual] = useState(false);
-  const [manualForm, setManualForm] = useState({ order: "", customer: "", owner: "Apple Distribution 3PL", priority: "normal", sku: "", qty: 1, location: "STAGING-A" });
+  const [clients, setClients] = useState<ClientOwner[]>([]);
+
+  useEffect(() => {
+    clientsService.getAll().then(res => setClients(Array.isArray(res) ? res : [])).catch(() => setClients([]));
+  }, []);
+
+  const [manualForm, setManualForm] = useState({ order: "", customer: "", owner: "Internal Stock", priority: "normal", sku: "", qty: 1, location: "STAGING-A" });
 
   // Detail Modal & Execution Modal
   const [selectedTask, setSelectedTask] = useState<PickTask | null>(null);
@@ -139,10 +146,21 @@ export function Picking() {
   }, []);
 
   useEffect(() => {
-    const handler = () => { setManualForm({ order: "", customer: "", owner: "Apple Distribution 3PL", priority: "normal", sku: "", qty: 1, location: "STAGING-A" }); setShowManual(true); };
+    const handler = () => { 
+      setManualForm({ 
+        order: "", 
+        customer: "", 
+        owner: clients.length > 0 ? clients[0].name : "Internal Stock", 
+        priority: "normal", 
+        sku: "", 
+        qty: 1, 
+        location: "STAGING-A" 
+      }); 
+      setShowManual(true); 
+    };
     window.addEventListener("open-new-pick", handler);
     return () => window.removeEventListener("open-new-pick", handler);
-  }, []);
+  }, [clients]);
 
   // Compute status counts for clickable counters
   const counts = useMemo(() => {
@@ -802,14 +820,25 @@ export function Picking() {
                       setLineScannedBarcodes(prev => ({ ...prev, [curSku]: val }));
                       if (!val.trim()) { setBarcodeError(null); return; }
 
-                      const resolveRes = await inventoryService.resolveBarcode(val.trim()).catch(() => null);
-                      const targetSku = selectedTask.items[currentLineIndex].sku.toUpperCase();
+                      try {
+                        const resolveRes = await inventoryService.resolveBarcode(val.trim());
+                        const targetSku = selectedTask.items[currentLineIndex].sku.toUpperCase();
 
-                      if (!resolveRes || !resolveRes.found || resolveRes.sku.toUpperCase() !== targetSku) {
-                        setBarcodeError(`Wrong product scanned: ${val.trim()}. Expected SKU: ${targetSku}.`);
-                      } else {
-                        setBarcodeError(null);
-                        toast.success(`Verified Product SKU: ${targetSku}!`);
+                        if (resolveRes && resolveRes.found === false) {
+                          setBarcodeError(`Unknown barcode: '${val.trim()}' does not match any product in catalog.`);
+                        } else if (!resolveRes || resolveRes.sku.toUpperCase() !== targetSku) {
+                          setBarcodeError(`Wrong product scanned: ${val.trim()}. Expected SKU: ${targetSku}.`);
+                        } else {
+                          setBarcodeError(null);
+                          toast.success(`Verified Product SKU: ${targetSku}!`);
+                        }
+                      } catch (err: any) {
+                        if (err.response?.status === 404) {
+                          setBarcodeError(`Unknown barcode: '${val.trim()}' does not match any product in catalog.`);
+                        } else {
+                          const targetSku = selectedTask.items[currentLineIndex].sku.toUpperCase();
+                          setBarcodeError(`Wrong product scanned: ${val.trim()}. Expected SKU: ${targetSku}.`);
+                        }
                       }
                     }}
                     placeholder={`Scan product barcode or unit/case EAN...`}
@@ -904,11 +933,14 @@ export function Picking() {
       >
         <Row>
           <Field label="Order ID *" required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value.toUpperCase() })} placeholder="ORD-2026-001" /></Field>
-          <Field label="3PL Owner *"><Select value={manualForm.owner} onChange={(e) => setManualForm({ ...manualForm, owner: e.target.value })}>
-            <option value="Apple Distribution 3PL">Apple Distribution 3PL</option>
-            <option value="Acme Logistics 3PL">Acme Logistics 3PL</option>
-            <option value="Global Retail Corp">Global Retail Corp</option>
-          </Select></Field>
+          <Field label="3PL Owner *">
+            <Select value={manualForm.owner} onChange={(e) => setManualForm({ ...manualForm, owner: e.target.value })}>
+              {(Array.isArray(clients) ? clients : []).map(c => (
+                <option key={c._id} value={c.name}>{c.name}</option>
+              ))}
+              <option value="Internal Stock">Internal Stock</option>
+            </Select>
+          </Field>
         </Row>
         <Row>
           <Field label="Customer Name"><Input value={manualForm.customer} onChange={(e) => setManualForm({ ...manualForm, customer: e.target.value })} placeholder="Client Co" /></Field>

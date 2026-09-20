@@ -30,10 +30,14 @@ const orderSchema = new mongoose.Schema({
   channel: String,
   store_id: { type: mongoose.Schema.Types.ObjectId, ref: 'EcommerceChannel' },
   warehouse: String,
-  status: { type: String, enum: ['pending', 'processing', 'partially_fulfilled', 'picked', 'packed', 'shipped', 'delivered', 'cancelled'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'processing', 'partially_fulfilled', 'picked', 'READY FOR SHIPPING', 'packed', 'shipped', 'delivered', 'cancelled'], default: 'pending' },
   date: Date,
   notes: String,
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true },
+  
+  // ── Stock Ownership (G-01: Client Master vs Customer Master) ──
+  owner: { type: String, trim: true },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER'], default: 'COMPANY' },
   
   // ── Processing Locks ───────────────────────────────
   releaseLock: { type: Boolean, default: false },
