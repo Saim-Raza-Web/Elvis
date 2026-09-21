@@ -1,0 +1,34 @@
+name: RF-P06 Replenishment Scheduler
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger-replenishment:
+    name: Trigger Auto-Replenishment
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Trigger replenishment cron endpoint
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://elvis-jade.vercel.app/api/v1/replenishment/cron" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --connect-timeout 15 \
+            --max-time 60 \
+            --retry 2 \
+            --retry-delay 5)
+
+          HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Error: Replenishment cron trigger failed with status $HTTP_STATUS"
+            exit 1
+          fi
