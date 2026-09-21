@@ -165,7 +165,7 @@ mountModuleRoute('/api/v1/fiscal-periods', fiscalPeriodsRoutes);
 mountModuleRoute('/api/v1/payments', paymentsRoutes);
 mountModuleRoute('/api/v1/simulators', simulatorsRoutes);
 app.use('/api/v1/expiry-alerts', expiryAlertsRoutes);
-mountModuleRoute('/api/v1/replenishment', replenishmentRoutes);
+app.use('/api/v1/replenishment', replenishmentRoutes);
 mountModuleRoute('/api/v1/lot-recalls', lotRecallsRoutes);
 mountModuleRoute('/api/v1/recall', recallAliasRoutes);
 mountModuleRoute('/api/v1/abc-classification', abcClassificationRoutes);

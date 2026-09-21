@@ -1,10 +1,44 @@
 import express from 'express';
-import { requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireModuleAccess } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { replenishmentEngine } from '../services/replenishmentEngine.js';
 import WarehouseTask from '../models/WarehouseTask.js';
 
 const router = express.Router();
+
+// ALL /api/v1/replenishment/cron — Trigger auto-replenishment scheduler (Vercel Cron / external scheduler)
+router.all('/cron', async (req, res, next) => {
+  try {
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = req.headers.authorization;
+
+    if (process.env.NODE_ENV === 'production' && !cronSecret) {
+      return res.status(500).json({ message: 'CRON_SECRET environment variable is not configured in production' });
+    }
+
+    if (cronSecret) {
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ message: 'Unauthorized cron invocation: invalid or missing CRON_SECRET' });
+      }
+    } else if (authHeader && !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Unauthorized cron invocation' });
+    }
+
+    const { replenishmentScheduler } = await import('../services/replenishmentScheduler.js');
+    const tasks = await replenishmentScheduler.run();
+    res.json({
+      success: true,
+      message: `Auto-replenishment scan completed. Generated ${tasks.length} task(s).`,
+      tasks
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Protect all other routes
+router.use(protect);
+router.use(requireModuleAccess('inventory'));
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
@@ -99,21 +133,6 @@ router.post('/:id/cancel', requireOpsRole, async (req, res, next) => {
       req.user?.name || 'system'
     );
     res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/v1/replenishment/cron — Trigger auto-replenishment scheduler (Vercel Cron / admin)
-router.post('/cron', async (req, res, next) => {
-  try {
-    const { replenishmentScheduler } = await import('../services/replenishmentScheduler.js');
-    const tasks = await replenishmentScheduler.run();
-    res.json({
-      success: true,
-      message: `Auto-replenishment scan completed. Generated ${tasks.length} task(s).`,
-      tasks
-    });
   } catch (err) {
     next(err);
   }
