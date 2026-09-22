@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3, Printer, CheckSquare, Square, Play, CheckCircle2, XCircle, Clock, ShieldCheck, ArrowRight, Activity, AlertCircle } from "lucide-react";
+import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3, Printer, CheckSquare, Square, Play, CheckCircle2, XCircle, Clock, ShieldCheck, ArrowRight, Activity, AlertCircle, Upload, Download, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -71,6 +71,7 @@ export function Locations() {
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState<{ name: string; base64?: string; text?: string } | null>(null);
 
   // Selection & Barcode Label Printing (LOC-04)
   const [selectedLocIds, setSelectedLocIds] = useState<string[]>([]);
@@ -1065,20 +1066,87 @@ export function Locations() {
         </div>
       </Modal>
 
-      {/* CSV Location Importer Modal */}
-      <Modal open={showCsvImport} onClose={() => { setShowCsvImport(false); setCsvErrors([]); }} title="CSV Location Importer (Whole-File Validation)" width="xl">
+      {/* CSV / Excel Location Importer Modal */}
+      <Modal open={showCsvImport} onClose={() => { setShowCsvImport(false); setCsvErrors([]); setSelectedFile(null); }} title="Location Importer (CSV / Excel Whole-File Validation)" width="xl">
         <div className="space-y-4 p-4">
-          <p className="text-xs text-muted-foreground">
-            Paste location JSON or CSV formatted objects. If <strong>ANY</strong> row contains errors (duplicate codes, invalid temperature bounds, or bad location types), the <strong>ENTIRE</strong> file will be rejected with 0 partial commits.
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground max-w-lg">
+              Upload a <strong>.csv</strong> or <strong>.xlsx</strong> spreadsheet, or paste JSON/CSV data. If <strong>ANY</strong> row contains errors (duplicate codes, invalid temperature bounds, bad warehouse/zone), the <strong>ENTIRE</strong> file is rejected with 0 partial commits.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const sample = "code,warehouse,zone,locationType,status,maxUnits,maxWeight\nESTANTERIAS-A01-R01-N01-B01,BCN,ESTANTERIAS,RESERVE,AVAILABLE,1000,1200\nESTANTERIAS-A01-R01-N01-B02,BCN,ESTANTERIAS,PICK_FACE,AVAILABLE,200,300";
+                const blob = new Blob([sample], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "locations_template.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-secondary/50 hover:bg-secondary text-xs font-bold transition-colors"
+            >
+              <Download className="size-3.5" /> Template
+            </button>
+          </div>
 
-          <textarea
-            rows={8}
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-            placeholder={`[\n  { "code": "A-01-01", "locationType": "SHELF", "tempMin": 15, "tempMax": 25 },\n  { "code": "PAL-01-01", "locationType": "PALLET", "palletCapacity": 1 }\n]`}
-            className="w-full p-3 bg-secondary/30 border border-border rounded-xl font-mono text-xs outline-none focus:border-primary"
-          />
+          {/* File Upload Box */}
+          <div className="p-4 border-2 border-dashed border-border rounded-xl bg-secondary/20 hover:bg-secondary/30 transition-colors text-center space-y-2">
+            <input
+              type="file"
+              id="location-file-input"
+              accept=".csv, .xlsx, .xls"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+                const reader = new FileReader();
+                if (isExcel) {
+                  reader.onload = (evt) => {
+                    const arrayBuffer = evt.target?.result as ArrayBuffer;
+                    const base64 = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                    setSelectedFile({ name: file.name, base64 });
+                    setCsvText("");
+                  };
+                  reader.readAsArrayBuffer(file);
+                } else {
+                  reader.onload = (evt) => {
+                    const text = evt.target?.result as string;
+                    setSelectedFile({ name: file.name, text });
+                    setCsvText(text);
+                  };
+                  reader.readAsText(file);
+                }
+              }}
+              className="hidden"
+            />
+            <label htmlFor="location-file-input" className="cursor-pointer flex flex-col items-center gap-1">
+              <FileSpreadsheet className="size-8 text-primary opacity-80" />
+              <span className="text-xs font-bold text-foreground">
+                {selectedFile ? selectedFile.name : "Click to select CSV or Excel (.xlsx) file"}
+              </span>
+              <span className="text-[10px] text-muted-foreground">Supported formats: .csv, .xlsx, .xls</span>
+            </label>
+            {selectedFile && (
+              <div className="text-[11px] text-emerald-600 font-bold">
+                ✓ File loaded: {selectedFile.name}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">
+              Or Paste CSV / JSON Data Directly:
+            </label>
+            <textarea
+              rows={5}
+              value={csvText}
+              onChange={(e) => { setCsvText(e.target.value); setSelectedFile(null); }}
+              placeholder={`code,warehouse,zone,locationType,status,maxUnits,maxWeight\nESTANTERIAS-A01-R01-N01-B01,BCN,ESTANTERIAS,RESERVE,AVAILABLE,1000,1200`}
+              className="w-full p-3 bg-secondary/30 border border-border rounded-xl font-mono text-xs outline-none focus:border-primary"
+            />
+          </div>
 
           {csvErrors.length > 0 && (
             <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-xl space-y-1">
@@ -1092,20 +1160,31 @@ export function Locations() {
           )}
         </div>
         <div className="flex gap-3 p-4 pt-0">
-          <ModalCancel onClose={() => { setShowCsvImport(false); setCsvErrors([]); }} />
+          <ModalCancel onClose={() => { setShowCsvImport(false); setCsvErrors([]); setSelectedFile(null); }} />
           <ModalSubmit onClick={async () => {
             try {
-              let parsed: any[];
-              try {
-                parsed = JSON.parse(csvText);
-              } catch (_) {
-                toast.error("Invalid JSON format. Please provide valid JSON array of objects.");
+              let payload: any;
+              if (selectedFile?.base64) {
+                payload = { fileBase64: selectedFile.base64 };
+              } else if (csvText.trim().startsWith('[') || csvText.trim().startsWith('{')) {
+                try {
+                  payload = JSON.parse(csvText);
+                } catch (_) {
+                  toast.error("Invalid JSON format. Please provide valid JSON or raw CSV text.");
+                  return;
+                }
+              } else if (csvText.trim()) {
+                payload = { csvData: csvText };
+              } else {
+                toast.error("Please upload a file or paste CSV/JSON data.");
                 return;
               }
-              const res = await locationsService.importCSV(parsed);
+
+              const res = await locationsService.importCSV(payload);
               toast.success(res.message);
               setShowCsvImport(false);
               setCsvText("");
+              setSelectedFile(null);
               setCsvErrors([]);
               loadData();
             } catch (err: any) {

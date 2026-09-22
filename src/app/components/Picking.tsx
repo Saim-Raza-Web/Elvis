@@ -118,6 +118,7 @@ export function Picking() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmedLineSkus, setConfirmedLineSkus] = useState<Set<string>>(new Set());
 
   // Batch Multi-Select State
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
@@ -223,9 +224,14 @@ export function Picking() {
     setLineScannedBarcodes({});
 
     const initialQtys: Record<string, number> = {};
+    const initialConfirmed = new Set<string>();
     (task.items || []).forEach(item => {
       initialQtys[item.sku] = item.pickedQty || item.orderedQty;
+      if (item.status === 'completed' || (item.pickedQty && item.pickedQty > 0)) {
+        initialConfirmed.add(item.sku);
+      }
     });
+    setConfirmedLineSkus(initialConfirmed);
     setLinePickedQtys(initialQtys);
     setEnteredQty((task.items && task.items[0]) ? (task.items[0].orderedQty - (task.items[0].pickedQty || 0)) : 1);
     setExecuteModalOpen(true);
@@ -234,6 +240,11 @@ export function Picking() {
   // Execute Pick Task Completion
   const handleCompletePickExecution = async () => {
     if (!selectedTask) return;
+
+    if (confirmedLineSkus.size < (selectedTask.items || []).length) {
+      toast.error(`Please verify and confirm all ${(selectedTask.items || []).length} lines before completing the pick task.`);
+      return;
+    }
 
     // Save active line scanned bin if set
     const currentItem = selectedTask.items && selectedTask.items[currentLineIndex];
@@ -881,6 +892,34 @@ export function Picking() {
                     </div>
                   </div>
                 </div>
+
+                {/* Confirm Line */}
+                {(() => {
+                  const curSku = selectedTask.items[currentLineIndex].sku;
+                  const isConfirmed = confirmedLineSkus.has(curSku);
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmedLineSkus(prev => {
+                          const next = new Set(prev);
+                          next.add(curSku);
+                          return next;
+                        });
+                        toast.success(`Line ${currentLineIndex + 1} (${curSku}) confirmed!`);
+                      }}
+                      disabled={isConfirmed}
+                      className={`w-full py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors ${
+                        isConfirmed
+                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 cursor-default'
+                          : 'bg-primary text-primary-foreground hover:opacity-90'
+                      }`}
+                    >
+                      <Check className="size-4" />
+                      {isConfirmed ? `✓ Line ${currentLineIndex + 1} Confirmed` : `Confirm Line ${currentLineIndex + 1}`}
+                    </button>
+                  );
+                })()}
 
                 {/* Line Switcher Buttons */}
                 <div className="flex justify-between pt-2 border-t border-border">

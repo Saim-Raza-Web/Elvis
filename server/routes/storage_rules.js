@@ -136,6 +136,30 @@ router.post('/seed', requireOpsRole, async (req, res, next) => {
   }
 });
 
+// POST /api/v1/storage-rules/reorder — Bulk priority reorder
+router.post('/reorder', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const { ruleIds } = req.body;
+    if (!Array.isArray(ruleIds) || ruleIds.length === 0) {
+      return res.status(400).json({ message: 'ruleIds array required' });
+    }
+
+    const bulkOps = ruleIds.map((id, idx) => ({
+      updateOne: {
+        filter: { _id: id, company: req.user.company },
+        update: { $set: { priority: idx + 1 } }
+      }
+    }));
+
+    if (bulkOps.length > 0) {
+      await Model.bulkWrite(bulkOps);
+    }
+    const updatedRules = await Model.find({ company: req.user.company }).sort({ priority: 1 });
+    res.json({ success: true, rules: updatedRules });
+  } catch (err) { next(err); }
+});
+
 // GET all
 router.get('/', async (req, res, next) => {
   try {

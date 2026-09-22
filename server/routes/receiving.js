@@ -16,6 +16,7 @@ import Product from '../models/Product.js';
 import { validateOwnerMaster } from '../utils/ownerValidation.js';
 import PutawayTask from '../models/PutawayTask.js';
 import Company from '../models/Company.js';
+import Warehouse from '../models/Warehouse.js';
 import IdempotencyRecord from '../models/IdempotencyRecord.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
@@ -29,16 +30,18 @@ const requireOpsRole = requireRole('admin', 'manager');
 
 // ── Helpers ──────────────────────────────────────────────────
 
-/** Atomic Sequential ASN Number: ASN-000001, ASN-000002... */
+/** Atomic Sequential ASN Number: ASN-YYYY-XXXXXX (e.g. ASN-2026-000001) */
 async function nextAsnNumber(company, session) {
+  const currentYear = new Date().getFullYear();
+  const counterKey = `asn_${currentYear}_${company}`;
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
   if (session) opts.session = session;
   const counter = await Counter.findOneAndUpdate(
-    { _id: `asn_${company}`, company },
+    { _id: counterKey, company },
     { $inc: { seq: 1 } },
     opts
   );
-  return `ASN-${String(counter.seq).padStart(6, '0')}`;
+  return `ASN-${currentYear}-${String(counter.seq).padStart(6, '0')}`;
 }
 
 /** Atomic Sequential Putaway Number: PUT-000001, PUT-000002... */
@@ -175,6 +178,88 @@ async function autofillAsnProducts(items, company) {
   return errors;
 }
 
+// ── Helpers: H-02 Blind Receiving Redaction ──────────────────
+
+/**
+ * H-02: Blind Receiving Redaction Helper
+ *
+ * For warehouse operators (role === 'warehouse_staff' or non-admin/non-manager):
+ * When an ASN's warehouse has blindReceiving === true (or company blindReceiving fallback),
+ * strictly delete expected quantities:
+ *   - expected_units (and aliases)
+ *   - items[].expected_qty (and aliases)
+ *
+ * For managers/admins or non-blind warehouses:
+ *   Expected quantities remain completely visible.
+ *
+ * Safely handles both single documents and arrays (multi-warehouse list responses).
+ */
+async function sanitizeAsnBlindReceiving(asnData, user, companyId) {
+  if (!asnData) return asnData;
+
+  const isOperator = user?.role === 'warehouse_staff' || (user?.role !== 'admin' && user?.role !== 'manager');
+  const isArray = Array.isArray(asnData);
+  const rawList = isArray ? asnData : [asnData];
+
+  if (rawList.length === 0) return isArray ? [] : null;
+
+  // Collect unique warehouse codes / IDs present in the ASN list
+  const whCodesOrIds = [...new Set(rawList.map(a => a?.warehouse).filter(Boolean))];
+
+  // Batch query warehouse documents for tenant
+  const objectIds = whCodesOrIds.filter(id => mongoose.Types.ObjectId.isValid(id) && String(id).length === 24);
+  const warehouses = await Warehouse.find({
+    company: companyId,
+    $or: [
+      { code: { $in: whCodesOrIds } },
+      ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : [])
+    ]
+  }).lean();
+
+  const companyDoc = await Company.findById(companyId).select('blindReceiving').lean();
+  const companyDefaultBlind = Boolean(companyDoc?.blindReceiving);
+
+  const blindMap = new Map();
+  for (const wh of warehouses) {
+    const isBlind = wh.blindReceiving !== undefined ? Boolean(wh.blindReceiving) : companyDefaultBlind;
+    if (wh.code) blindMap.set(wh.code, isBlind);
+    if (wh._id) blindMap.set(wh._id.toString(), isBlind);
+  }
+
+  const sanitized = rawList.map(asnDoc => {
+    let item = asnDoc?.toObject ? asnDoc.toObject() : { ...asnDoc };
+
+    const whIdentifier = item.warehouse;
+    const isBlind = whIdentifier && blindMap.has(whIdentifier)
+      ? blindMap.get(whIdentifier)
+      : companyDefaultBlind;
+
+    item.blindReceiving = isBlind;
+
+    if (isOperator && isBlind) {
+      delete item.expected_units;
+      delete item.expectedUnits;
+      delete item.expected_quantity;
+      delete item.expectedQuantity;
+
+      if (Array.isArray(item.items)) {
+        item.items = item.items.map(line => {
+          const lineCopy = line?.toObject ? line.toObject() : { ...line };
+          delete lineCopy.expected_qty;
+          delete lineCopy.expectedQty;
+          delete lineCopy.expected_quantity;
+          delete lineCopy.expectedQuantity;
+          return lineCopy;
+        });
+      }
+    }
+
+    return item;
+  });
+
+  return isArray ? sanitized : sanitized[0];
+}
+
 // ── Routes ────────────────────────────────────────────────────
 
 // GET List (with search, filter, pagination, sorting)
@@ -212,6 +297,13 @@ router.get('/', async (req, res, next) => {
       query.supplier = new RegExp(String(req.query.supplier).trim(), 'i');
     }
 
+    // Warehouse filter
+    if (req.query.warehouse) {
+      query.warehouse = req.query.warehouse;
+    } else if (req.context?.warehouse?.code) {
+      query.warehouse = req.context.warehouse.code;
+    }
+
     // Date range filter
     if (req.query.startDate || req.query.endDate) {
       query.expectedDate = {};
@@ -220,10 +312,29 @@ router.get('/', async (req, res, next) => {
     }
 
     const result = await paginateQuery(ASN, query, req);
+
+    // H-02: Redact blind receiving data per ASN warehouse for operators
+    if (Array.isArray(result.data)) {
+      result.data = await sanitizeAsnBlindReceiving(result.data, req.user, req.user.company);
+    }
+
     res.json(result);
   } catch (err) { next(err); }
 });
 
+
+// GET Next ASN Number (Preview only — does not increment counter on preview)
+router.get('/next-asn', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const currentYear = new Date().getFullYear();
+    const counterKey = `asn_${currentYear}_${req.user.company}`;
+    const counter = await Counter.findOne({ _id: counterKey, company: req.user.company });
+    const nextSeq = (counter?.seq || 0) + 1;
+    const asnNumber = `ASN-${currentYear}-${String(nextSeq).padStart(6, '0')}`;
+    res.json({ asnNumber });
+  } catch (err) { next(err); }
+});
 
 // GET Next PO Number (Preview only — does not increment counter on preview)
 router.get('/next-po', async (req, res, next) => {
@@ -244,7 +355,10 @@ router.get('/:id', async (req, res, next) => {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
     const item = await ASN.findOne({ _id: req.params.id, company: req.user.company, isDeleted: { $ne: true } });
     if (!item) return res.status(404).json({ message: 'ASN not found' });
-    res.json(item);
+
+    // H-02: Unified blind receiving redaction
+    const responseItem = await sanitizeAsnBlindReceiving(item, req.user, req.user.company);
+    res.json(responseItem);
   } catch (err) { next(err); }
 });
 
@@ -550,9 +664,10 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       const expected = matchLine.expected_qty || 0;
       const remaining = expected - currentReceived;
 
-      // Check Blind Receiving setting from Company
+      // Check Blind Receiving setting from Warehouse (with Company fallback)
+      const whDoc = await Warehouse.findOne({ code: asn.warehouse || warehouse, company: req.user.company }).session(session);
       const companyDoc = await Company.findById(req.user.company).session(session);
-      const isBlindReceiving = Boolean(companyDoc?.blindReceiving);
+      const isBlindReceiving = whDoc?.blindReceiving !== undefined ? Boolean(whDoc.blindReceiving) : Boolean(companyDoc?.blindReceiving);
 
       if (!isBlindReceiving && qtyNum > remaining) {
         await session.abortTransaction();

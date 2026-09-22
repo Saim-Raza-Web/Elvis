@@ -8,6 +8,7 @@ import InventoryBalance from '../models/InventoryBalance.js';
 import Product from '../models/Product.js';
 import Warehouse from '../models/Warehouse.js';
 import Zone from '../models/Zone.js';
+import * as XLSX from 'xlsx';
 
 const router = express.Router();
 router.use(protect);
@@ -254,15 +255,46 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── POST /api/v1/locations/import-csv — Whole-File Validation CSV Importer ──
+// ── POST /api/v1/locations/import-csv — Whole-File Validation CSV / Excel Importer ──
 router.post('/import-csv', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const { locations } = req.body;
-    if (!Array.isArray(locations) || locations.length === 0) {
-      return res.status(400).json({ message: 'CSV payload must contain an array of location objects' });
+    let rawLocations = null;
+    if (Array.isArray(req.body.locations)) {
+      rawLocations = req.body.locations;
+    } else if (Array.isArray(req.body)) {
+      rawLocations = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      if (req.body.csvData) {
+        const workbook = XLSX.read(req.body.csvData, { type: 'string' });
+        const sheetName = workbook.SheetNames[0];
+        rawLocations = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      } else if (req.body.fileBase64) {
+        const buffer = Buffer.from(req.body.fileBase64, 'base64');
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        rawLocations = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      }
     }
+
+    if (!Array.isArray(rawLocations) || rawLocations.length === 0) {
+      return res.status(400).json({ message: 'Payload must contain a JSON array, raw CSV text, or Excel file of location objects' });
+    }
+
+    // Normalize keys
+    const locations = rawLocations.map(loc => ({
+      ...loc,
+      code: loc.code || loc.Code || loc.Location || loc.location || '',
+      warehouse: loc.warehouse || loc.Warehouse || (req.context?.warehouse?.code || ''),
+      zone: loc.zone || loc.Zone || '',
+      locationType: loc.locationType || loc.type || loc.Type || 'SHELF',
+      status: loc.status || loc.Status || 'AVAILABLE',
+      maxUnits: loc.maxUnits !== undefined ? loc.maxUnits : (loc.capacity || loc.Capacity || 500),
+      maxWeight: loc.maxWeight !== undefined ? loc.maxWeight : 1000,
+      maxVolume: loc.maxVolume !== undefined ? loc.maxVolume : 10,
+      zoneType: loc.zoneType || 'AMBIENT'
+    }));
 
     const errors = [];
     const validLocationCodes = new Set();

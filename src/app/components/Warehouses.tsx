@@ -20,10 +20,11 @@ type WH = {
   manager: string;
   temp: string;
   zones: number;
+  blindReceiving?: boolean;
 };
 
-const blank = (): Omit<WH, "_id" | "used" | "zones"> & { capacity: number } => ({
-  name: "", code: "", location: "", country: "US", capacity: 5000, status: "active", manager: "", temp: "20°C",
+const blank = (): Omit<WH, "_id" | "used" | "zones"> & { capacity: number; blindReceiving: boolean } => ({
+  name: "", code: "", location: "", country: "US", capacity: 5000, status: "active", manager: "", temp: "20°C", blindReceiving: false,
 });
 
 export function Warehouses() {
@@ -52,7 +53,20 @@ export function Warehouses() {
   }, []);
 
   function openAdd() { setForm(blank()); setShowAdd(true); }
-  function openEdit(w: WH) { setEditTarget(w); setForm({ name: w.name, code: w.code, location: w.location, country: w.country, capacity: w.capacity, status: w.status, manager: w.manager, temp: w.temp }); }
+  function openEdit(w: WH) { 
+    setEditTarget(w); 
+    setForm({ 
+      name: w.name, 
+      code: w.code, 
+      location: w.location, 
+      country: w.country, 
+      capacity: w.capacity, 
+      status: w.status, 
+      manager: w.manager, 
+      temp: w.temp,
+      blindReceiving: Boolean(w.blindReceiving)
+    }); 
+  }
 
   async function handleSave() {
     if (!form.name || !form.code) { toast.error(t.common?.error || "Name and code are required."); return; }
@@ -196,6 +210,21 @@ export function Warehouses() {
             <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
           </Select></Field>
         </Row>
+        <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/30 mt-2">
+          <div>
+            <div className="font-semibold text-xs text-foreground">Blind Receiving Mode</div>
+            <div className="text-[11px] text-muted-foreground">When enabled, operators in this warehouse count stock blindly without seeing expected quantities.</div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(form.blindReceiving)}
+              onChange={(e) => setForm(f => ({ ...f, blindReceiving: e.target.checked }))}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-secondary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </div>
       </Modal>
 
       {/* Edit modal */}
@@ -220,6 +249,21 @@ export function Warehouses() {
             <option value="active">{t.status.active}</option><option value="inactive">{t.status.inactive}</option>
           </Select></Field>
         </Row>
+        <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/30 mt-2">
+          <div>
+            <div className="font-semibold text-xs text-foreground">Blind Receiving Mode</div>
+            <div className="text-[11px] text-muted-foreground">When enabled, operators in this warehouse count stock blindly without seeing expected quantities.</div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(form.blindReceiving)}
+              onChange={(e) => setForm(f => ({ ...f, blindReceiving: e.target.checked }))}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-secondary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </div>
       </Modal>
 
       {/* Delete confirmation */}

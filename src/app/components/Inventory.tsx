@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing, Download, ChevronUp, ChevronDown, Printer } from "lucide-react";
+import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing, Download, ChevronUp, ChevronDown, Printer, Upload, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -55,6 +55,13 @@ export function Inventory() {
   const [clientOwners, setClientOwners] = useState<ClientOwner[]>([]);
   const [showCatalogScanner, setShowCatalogScanner] = useState(false);
   const [catalogScanTarget, setCatalogScanTarget] = useState<"unitBarcode" | "caseBarcode" | null>(null);
+
+  // RF-P19 Initial Stock Load State
+  const [showInitialStockModal, setShowInitialStockModal] = useState(false);
+  const [initialStockFile, setInitialStockFile] = useState<{ name: string; base64?: string; text?: string } | null>(null);
+  const [selectedStockWh, setSelectedStockWh] = useState<string>("");
+  const [isSubmittingStock, setIsSubmittingStock] = useState(false);
+  const [stockErrors, setStockErrors] = useState<string[]>([]);
 
   const { items: productList, allItems, pagination, page, setPage, isLoading, reload } = usePaginatedList<Product>(inventoryService as any, { limit: 25 });
 
@@ -190,6 +197,42 @@ export function Inventory() {
     }
   }
 
+  const handleExecuteInitialStockLoad = async () => {
+    if (!initialStockFile) {
+      toast.error("Selecciona un archivo CSV o Excel");
+      return;
+    }
+    try {
+      setIsSubmittingStock(true);
+      setStockErrors([]);
+      const targetWh = selectedStockWh || (warehouses[0]?.code || "BCN");
+      const payload: any = {
+        warehouse: targetWh
+      };
+      if (initialStockFile.base64) {
+        payload.fileBase64 = initialStockFile.base64;
+      } else if (initialStockFile.text) {
+        payload.csvData = initialStockFile.text;
+      }
+
+      const res = await inventoryService.initialStockLoad(payload);
+      toast.success(res.message || "Carga inicial de stock completada con éxito");
+      setShowInitialStockModal(false);
+      setInitialStockFile(null);
+      setStockErrors([]);
+      reload();
+    } catch (err: any) {
+      const errData = err.response?.data;
+      if (Array.isArray(errData?.errors)) {
+        setStockErrors(errData.errors);
+      } else {
+        toast.error(errData?.message || err.message || "Error al cargar stock inicial");
+      }
+    } finally {
+      setIsSubmittingStock(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Stats */}
@@ -233,6 +276,7 @@ export function Inventory() {
           ))}
         </div>
         <SecondaryButton icon={Filter} onClick={() => setFilterLow(!filterLow)}>{filterLow ? t.common.all : t.inventory.lowStock}</SecondaryButton>
+        <SecondaryButton icon={Upload} onClick={() => setShowInitialStockModal(true)}>Carga Inicial</SecondaryButton>
         <SecondaryButton icon={Download} onClick={handleExportCSV}>{t.common?.export || "Export"} CSV</SecondaryButton>
         <PrimaryButton icon={Plus} onClick={openAdd}>{t.inventory.addProduct}</PrimaryButton>
       </div>
@@ -472,6 +516,111 @@ export function Inventory() {
             <BarcodeGenerator value={barcodeTarget.sku} title={barcodeTarget.name} />
           </div>
         )}
+      </Modal>
+
+      {/* Initial Stock Load Modal (RF-P19) */}
+      <Modal
+        open={showInitialStockModal}
+        onClose={() => { setShowInitialStockModal(false); setInitialStockFile(null); setStockErrors([]); }}
+        title="Carga Inicial de Stock (RF-P19)"
+        subtitle="Importación masiva con validación atómica todo-o-nada"
+        width="lg"
+        footer={
+          <div className="flex justify-end gap-2">
+            <ModalCancel onClose={() => { setShowInitialStockModal(false); setInitialStockFile(null); setStockErrors([]); }} />
+            <ModalSubmit onClick={handleExecuteInitialStockLoad} disabled={isSubmittingStock || !initialStockFile}>
+              {isSubmittingStock ? "Validando e Importando..." : "Validar y Cargar Stock"}
+            </ModalSubmit>
+          </div>
+        }
+      >
+        <div className="space-y-4 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground max-w-md">
+              Sube una hoja de cálculo <strong>.xlsx</strong> o <strong>.csv</strong> con las existencias iniciales. Si <strong>alguna fila</strong> tiene error (SKU inexistente, ubicación inválida o capacidad excedida), el archivo completo se rechaza con 0 cambios aplicados.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const sample = "SKU,Location,Quantity,Lot,ExpiryDate,Owner\nBEV-001,ESTANTERIAS-A01-R01-N01-B01,50,LOT-INIT-01,2027-12-31,Internal Stock\nELEC-002,ESTANTERIAS-A01-R01-N01-B02,20,LOT-INIT-02,,Apple Distribution 3PL";
+                const blob = new Blob([sample], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "plantilla_carga_inicial.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-secondary/50 hover:bg-secondary text-xs font-bold transition-colors shrink-0"
+            >
+              <Download className="size-3.5" /> Plantilla CSV
+            </button>
+          </div>
+
+          <Field label="Almacén Destino *" required>
+            <Select
+              value={selectedStockWh || (warehouses[0]?.code || "BCN")}
+              onChange={(e) => setSelectedStockWh(e.target.value)}
+            >
+              {warehouses.map(w => (
+                <option key={w._id || w.code} value={w.code}>{w.name} ({w.code})</option>
+              ))}
+            </Select>
+          </Field>
+
+          {/* File Upload Area */}
+          <div className="p-4 border-2 border-dashed border-border rounded-xl bg-secondary/20 hover:bg-secondary/30 transition-colors text-center space-y-2">
+            <input
+              type="file"
+              id="initial-stock-input"
+              accept=".csv, .xlsx, .xls"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+                const reader = new FileReader();
+                if (isExcel) {
+                  reader.onload = (evt) => {
+                    const arrayBuffer = evt.target?.result as ArrayBuffer;
+                    const base64 = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                    setInitialStockFile({ name: file.name, base64 });
+                  };
+                  reader.readAsArrayBuffer(file);
+                } else {
+                  reader.onload = (evt) => {
+                    const text = evt.target?.result as string;
+                    setInitialStockFile({ name: file.name, text });
+                  };
+                  reader.readAsText(file);
+                }
+              }}
+              className="hidden"
+            />
+            <label htmlFor="initial-stock-input" className="cursor-pointer flex flex-col items-center gap-1">
+              <FileSpreadsheet className="size-8 text-primary opacity-80" />
+              <span className="text-xs font-bold text-foreground">
+                {initialStockFile ? initialStockFile.name : "Seleccionar archivo Excel (.xlsx) o CSV"}
+              </span>
+              <span className="text-[10px] text-muted-foreground">Columnas requeridas: SKU, Location, Quantity, Lot, ExpiryDate, Owner</span>
+            </label>
+            {initialStockFile && (
+              <div className="text-[11px] text-emerald-600 font-bold">
+                ✓ Archivo cargado: {initialStockFile.name}
+              </div>
+            )}
+          </div>
+
+          {stockErrors.length > 0 && (
+            <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-xl space-y-1">
+              <div className="font-bold text-xs text-destructive flex items-center gap-1.5">
+                <AlertTriangle className="size-4 shrink-0" /> Errores detectados ({stockErrors.length}) - Carga cancelada:
+              </div>
+              <ul className="list-disc list-inside text-[11px] text-destructive space-y-0.5 max-h-36 overflow-y-auto font-mono">
+                {stockErrors.map((err, idx) => <li key={idx}>{err}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

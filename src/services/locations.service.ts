@@ -20,8 +20,9 @@ export const locationsService = {
     const response = await api.delete('/locations/' + id);
     return response.data;
   },
-  importCSV: async (locations: any[]) => {
-    const response = await api.post('/locations/import-csv', { locations });
+  importCSV: async (payload: any[] | { locations?: any[]; csvData?: string; fileBase64?: string }) => {
+    const body = Array.isArray(payload) ? { locations: payload } : payload;
+    const response = await api.post('/locations/import-csv', body);
     return response.data;
   }
 };

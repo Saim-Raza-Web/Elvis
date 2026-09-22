@@ -155,6 +155,21 @@ router.post('/', requireOpsRole, async (req, res, next) => {
       }));
     }
 
+    // G-01: Centralized 3PL Owner Validation
+    const explicitOwner = (data.owner || '').trim();
+    if (data.ownerType === 'CUSTOMER' || (explicitOwner && explicitOwner !== 'Internal Stock')) {
+      const ownerTypeToCheck = data.ownerType || 'CUSTOMER';
+      const ownerError = await validateOwnerMaster(explicitOwner, ownerTypeToCheck, req.user.company);
+      if (ownerError) {
+        return res.status(422).json({ message: ownerError });
+      }
+      data.owner = explicitOwner;
+      data.ownerType = 'CUSTOMER';
+    } else {
+      data.owner = explicitOwner || 'Internal Stock';
+      data.ownerType = 'COMPANY';
+    }
+
     const item = await Order.create(data);
 
     // Notifications (non-blocking)

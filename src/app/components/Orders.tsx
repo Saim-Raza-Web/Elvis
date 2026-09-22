@@ -12,6 +12,7 @@ import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList
 import { ordersService } from "../../services/orders.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { ecommerceService } from "../../services/ecommerce.service";
+import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { exportToCSV } from "../../lib/csvExport";
 
 // ─────────────────────────────────────────────────────────────
@@ -55,6 +56,8 @@ type OrderForm = {
   company_name: string; vat_number: string; contact_person: string;
   contact_phone: string; pallet_count: string; shipment_weight: string;
   delivery_terms: string; agreed_delivery_date: string; po_reference: string;
+  // 3PL Owner
+  owner: string; ownerType: string;
 };
 
 const blankForm = (): OrderForm => ({
@@ -65,6 +68,7 @@ const blankForm = (): OrderForm => ({
   company_name: "", vat_number: "", contact_person: "", contact_phone: "",
   pallet_count: "", shipment_weight: "", delivery_terms: "",
   agreed_delivery_date: "", po_reference: "",
+  owner: "Internal Stock", ownerType: "COMPANY",
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -246,6 +250,8 @@ function buildPayload(form: OrderForm, isCreate = true) {
     order_type: form.order_type,
     channel: form.channel,
     warehouse: form.warehouse,
+    owner: form.owner || "Internal Stock",
+    ownerType: form.ownerType || "COMPANY",
     notes: form.notes,
     store_id: form.store_id || undefined,
     delivery_address: form.delivery_address,
@@ -281,11 +287,11 @@ function buildPayload(form: OrderForm, isCreate = true) {
 //   Order Form Modal Content
 // ─────────────────────────────────────────────────────────────
 function OrderFormContent({
-  form, setForm, warehouses, stores, isB2B
+  form, setForm, warehouses, stores, isB2B, clients = []
 }: {
   form: OrderForm;
   setForm: (f: OrderForm | ((prev: OrderForm) => OrderForm)) => void;
-  warehouses: any[]; stores: any[]; isB2B: boolean;
+  warehouses: any[]; stores: any[]; isB2B: boolean; clients?: ClientOwner[];
 }) {
   const { t } = useLang();
   function f<K extends keyof OrderForm>(k: K) {
@@ -316,6 +322,26 @@ function OrderFormContent({
         <Field label={t.common?.customerName || "Customer Name"} required>
           <Input value={form.customer} onChange={f("customer")} placeholder={t.common?.johnDoeAcmeLtd || "John Doe / Acme Ltd"} />
         </Field>
+        <Field label="3PL Stock Owner *" required hint="Owner/depositor of the inventory allocated to this order">
+          <Select
+            value={form.owner}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm(prev => ({
+                ...prev,
+                owner: val,
+                ownerType: val === "Internal Stock" ? "COMPANY" : "CUSTOMER"
+              }));
+            }}
+          >
+            <option value="Internal Stock">Internal Stock (Company)</option>
+            {(Array.isArray(clients) ? clients.filter(c => c.active !== false) : []).map(c => (
+              <option key={c._id || c.name} value={c.name}>{c.name}</option>
+            ))}
+          </Select>
+        </Field>
+      </Row>
+      <Row>
         {!isB2B && (
           <Field label={t.common?.email || "Email"} required>
             <Input type="email" value={form.email} onChange={f("email")} placeholder={t.common?.ordersCompanyCom || "orders@company.com"} />
@@ -470,6 +496,7 @@ export function Orders() {
   const [form, setForm] = useState<OrderForm>(blankForm());
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
+  const [clientsList, setClientsList] = useState<ClientOwner[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const isB2B = form.order_type === "B2B";
@@ -488,12 +515,14 @@ export function Orders() {
   useEffect(() => {
     async function loadMeta() {
       try {
-        const [whs, ecom] = await Promise.all([
+        const [whs, ecom, cls] = await Promise.all([
           warehousesService.getAll({ all: true }),
           ecommerceService.getAll({ all: true }),
+          clientsService.getAll({ active: true } as any).catch(() => []),
         ]);
         setWarehouses(whs);
         setStores(ecom);
+        setClientsList(cls || []);
       } catch {
         toast.error(t.common?.error || "Failed to load order metadata");
       }
@@ -502,7 +531,13 @@ export function Orders() {
   }, []);
 
   function openAdd() {
-    setForm({ ...blankForm(), warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA" });
+    const defaultOwner = clientsList.length > 0 ? clientsList[0].name : "Internal Stock";
+    setForm({ 
+      ...blankForm(), 
+      warehouse: warehouses.length > 0 ? warehouses[0].code : "MIA",
+      owner: defaultOwner,
+      ownerType: defaultOwner === "Internal Stock" ? "COMPANY" : "CUSTOMER"
+    });
     setShowAdd(true);
   }
 
@@ -764,7 +799,7 @@ export function Orders() {
         width="xl"
         footer={<><ModalCancel onClose={() => setShowAdd(false)} /><ModalSubmit onClick={handleSave}>Create Order</ModalSubmit></>}
       >
-        <OrderFormContent form={form} setForm={setForm} warehouses={warehouses} stores={stores} isB2B={isB2B} />
+        <OrderFormContent form={form} setForm={setForm} warehouses={warehouses} stores={stores} isB2B={isB2B} clients={clientsList} />
       </Modal>
 
       {/* ── Edit Modal ── */}
@@ -813,7 +848,7 @@ export function Orders() {
               </div>
             }
           >
-            <OrderFormContent form={form} setForm={setForm} warehouses={warehouses} stores={stores} isB2B={isB2B} />
+            <OrderFormContent form={form} setForm={setForm} warehouses={warehouses} stores={stores} isB2B={isB2B} clients={clientsList} />
           </Modal>
         );
       })()}

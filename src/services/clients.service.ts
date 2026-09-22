@@ -7,13 +7,14 @@ export type ClientOwner = {
   contact?: string;
   email?: string;
   phone?: string;
+  active?: boolean;
   warehouseAccess?: string[];
   createdAt?: string;
 };
 
 export const clientsService = {
-  getAll: async (): Promise<ClientOwner[]> => {
-    const response = await api.get('/clients');
+  getAll: async (params?: { active?: boolean }): Promise<ClientOwner[]> => {
+    const response = await api.get('/clients', { params });
     return response.data;
   },
   create: async (data: Partial<ClientOwner>): Promise<ClientOwner> => {

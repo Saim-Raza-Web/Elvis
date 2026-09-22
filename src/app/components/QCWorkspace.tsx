@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { 
   ShieldCheck, Search, Filter, RefreshCw, CheckCircle2, XCircle, AlertTriangle, 
-  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2
+  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2, Cpu
 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
@@ -89,6 +89,8 @@ export function QCWorkspace() {
     approvedQty: 1,
     rejectedQty: 0,
     rejectionDestination: "Quarantine",
+    functionalCheck: true,
+    serialNumbers: "",
     attachments: [] as any[]
   });
 
@@ -186,6 +188,8 @@ export function QCWorkspace() {
         tempRangeMin: form.tempRangeMin,
         tempRangeMax: form.tempRangeMax,
         overrideBlocked: form.overrideBlocked,
+        functionalCheck: form.functionalCheck,
+        serialNumbers: form.serialNumbers,
         attachments: form.attachments
       });
       toast.success(`${t.qc?.passSuccess || "QC PASSED!"} ${approved} units released. Task ${result.putawayTask?.taskId || 'PUT-001'} created.`);
@@ -564,6 +568,41 @@ export function QCWorkspace() {
                 </div>
               )}
 
+              {/* Electronics / Equipment QC Block (G-03) */}
+              {(productQcProfile?.includes("Electronic") || productQcProfile?.includes("Equipment") || inspectTarget?.category === "ELECTRONIC" || inspectTarget?.sku.includes("ELEC")) && (
+                <div className="bg-purple-500/10 p-3.5 rounded-xl border border-purple-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                      <Cpu className="size-4" /> Electronics & Equipment Quality Inspection (G-03)
+                    </span>
+                    <span className="text-[10px] font-mono bg-purple-500/20 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-md font-bold">
+                      Functional & Serial Required
+                    </span>
+                  </div>
+
+                  <Row>
+                    <Field label="Functional Test Verification *" required>
+                      <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer pt-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(form.functionalCheck)}
+                          onChange={(e) => setForm(p => ({ ...p, functionalCheck: e.target.checked }))}
+                          className="size-4 rounded border-border text-primary"
+                        />
+                        <span>Device powered on & passed all functional diagnostics</span>
+                      </label>
+                    </Field>
+                    <Field label="Unit Serial Numbers / Equipment ID *" required hint="Comma-separated or scanned serials">
+                      <Input
+                        value={form.serialNumbers || ""}
+                        onChange={(e) => setForm(p => ({ ...p, serialNumbers: e.target.value }))}
+                        placeholder="e.g. SN-8839201, SN-8839202"
+                      />
+                    </Field>
+                  </Row>
+                </div>
+              )}
+
               {/* Partial Pass & Rejection Split (QC-02) */}
               <div className="bg-secondary/40 p-3.5 rounded-xl border border-border space-y-3">
                 <h5 className="font-bold text-xs uppercase text-muted-foreground flex items-center gap-1.5">
@@ -601,6 +640,7 @@ export function QCWorkspace() {
                       <option value="Quarantine">Quarantine Area</option>
                       <option value="RTV">Return to Vendor (RTV)</option>
                       <option value="Destruction">Scrap / Destruction</option>
+                      <option value="RECONDITION">Reconditioning / Manipulados</option>
                     </Select>
                   </Field>
                 )}

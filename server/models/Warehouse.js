@@ -10,6 +10,7 @@ const warehouseSchema = new mongoose.Schema({
   status: { type: String },
   manager: { type: String },
   temp: { type: String },
+  blindReceiving: { type: Boolean, default: false },
   zones: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Zone' }],
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });

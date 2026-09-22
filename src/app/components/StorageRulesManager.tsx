@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Shield, Plus, Edit3, AlertTriangle, CheckCircle2, XCircle, RotateCcw } from "lucide-react";
+import { Shield, Plus, Edit3, AlertTriangle, CheckCircle2, XCircle, RotateCcw, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { storageRulesService } from "../../services/storage_rules.service";
 import { warehousesService } from "../../services/warehouses.service";
@@ -94,11 +94,15 @@ function ConditionBadge({ cond }: { cond: Condition }) {
 
 // ── Rule Card ─────────────────────────────────────────────────────────────────
 
-function RuleCard({ rule, onEdit, onDelete, onToggle }: {
+function RuleCard({ rule, onEdit, onDelete, onToggle, dragIndex, onDragStart, onDragOver, onDrop }: {
   rule: StorageRule;
   onEdit: (r: StorageRule) => void;
   onDelete: (r: StorageRule) => void;
   onToggle: (r: StorageRule) => void;
+  dragIndex?: number;
+  onDragStart?: (e: React.DragEvent, index: number) => void;
+  onDragOver?: (e: React.DragEvent, index: number) => void;
+  onDrop?: (e: React.DragEvent, index: number) => void;
 }) {
   const isCanonical = rule.isDefault || CANONICAL_CODES.includes(rule.code);
   const pc =
@@ -108,10 +112,22 @@ function RuleCard({ rule, onEdit, onDelete, onToggle }: {
     "text-muted-foreground bg-secondary border-border";
 
   return (
-    <div className={`rounded-xl border bg-card hover-lift transition-all ${rule.isActive ? "border-border" : "border-border/40 opacity-60"}`}>
+    <div 
+      onDragOver={e => onDragOver?.(e, dragIndex ?? 0)}
+      onDrop={e => onDrop?.(e, dragIndex ?? 0)}
+      className={`rounded-xl border bg-card hover-lift transition-all ${rule.isActive ? "border-border" : "border-border/40 opacity-60"}`}
+    >
       <div className="p-4">
         <div className="flex items-start justify-between gap-2 mb-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span
+              draggable
+              onDragStart={e => onDragStart?.(e, dragIndex ?? 0)}
+              className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+              title="Drag to reorder priority"
+            >
+              <GripVertical className="size-4" />
+            </span>
             <span className={`flex-none text-[11px] font-bold px-2 py-0.5 rounded border ${pc}`}>P{rule.priority}</span>
             {isCanonical && (
               <span className="flex-none text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">CANONICAL</span>
@@ -407,6 +423,45 @@ export function StorageRulesManager({ isAdmin = false, compact = false }: Storag
     } catch (err: any) { toast.error(err.response?.data?.message || err.message || "Delete failed"); }
   };
 
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, _index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIdx === null || draggedIdx === dropIndex) {
+      setDraggedIdx(null);
+      return;
+    }
+
+    const updated = [...filteredRules];
+    const [moved] = updated.splice(draggedIdx, 1);
+    updated.splice(dropIndex, 0, moved);
+
+    const reorderedWithPrio = updated.map((r, idx) => ({ ...r, priority: idx + 1 }));
+    setRules(prev => {
+      const remaining = prev.filter(p => !updated.some(u => u._id === p._id));
+      return [...reorderedWithPrio, ...remaining].sort((a, b) => a.priority - b.priority);
+    });
+    setDraggedIdx(null);
+
+    try {
+      await storageRulesService.reorder(reorderedWithPrio.map(r => r._id));
+      toast.success("Rule priorities reordered successfully");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to update rule order");
+      loadRules();
+    }
+  };
+
   const canonicalCount = rules.filter(r => r.isDefault || CANONICAL_CODES.includes(r.code)).length;
   const activeCount = rules.filter(r => r.isActive).length;
 
@@ -504,8 +559,16 @@ export function StorageRulesManager({ isAdmin = false, compact = false }: Storag
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {filteredRules.map((rule, i) => (
             <div key={rule._id} className="animate-pop-in" style={{ animationDelay: `${i * 30}ms` }}>
-              <RuleCard rule={rule} onEdit={setEditTarget}
-                onDelete={r => setDeleteTarget(r)} onToggle={handleToggle} />
+              <RuleCard
+                rule={rule}
+                dragIndex={i}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onEdit={setEditTarget}
+                onDelete={r => setDeleteTarget(r)}
+                onToggle={handleToggle}
+              />
             </div>
           ))}
         </div>

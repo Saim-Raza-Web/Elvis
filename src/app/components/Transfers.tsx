@@ -10,15 +10,16 @@ import type { ListService } from "../../hooks/usePaginatedList";
 import { transfersService } from "../../services/transfers.service";
 import { warehousesService } from "../../services/warehouses.service";
 import { inventoryService } from "../../services/inventory.service";
+import { clientsService, type ClientOwner } from "../../services/clients.service";
 
-type Transfer = { _id: string; id: string; sku: string; product: string; qty: number; from_wh: string; from_loc: string; to_wh: string; to_loc: string; status: string; type: string; requestedBy: string; date: string; transferId?: string };
+type Transfer = { _id: string; id: string; sku: string; product: string; qty: number; from_wh: string; from_loc: string; to_wh: string; to_loc: string; status: string; type: string; requestedBy: string; date: string; transferId?: string; owner?: string; ownerType?: string };
 
 const typeColor: Record<string, string> = {
   replenishment: "bg-primary/15 text-primary",
   transfer: "bg-info/15 text-info",
 };
 
-const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "", from_loc: "", to_wh: "", to_loc: "", type: "transfer", requestedBy: "Admin" });
+const blankTransfer = () => ({ sku: "", product: "", qty: 1, from_wh: "", from_loc: "", to_wh: "", to_loc: "", type: "transfer", requestedBy: "Admin", owner: "Internal Stock", ownerType: "COMPANY" });
 
 function mapTransfer(d: any): Transfer {
   return { ...(d as Transfer), id: (d.transferId as string) || (d._id as string) };
@@ -35,6 +36,7 @@ const transfersListService: ListService<Transfer> = {
 export function Transfers() {
   const { t } = useLang();
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [clients, setClients] = useState<ClientOwner[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
@@ -65,6 +67,10 @@ export function Transfers() {
         }));
       }
     }).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
+
+    clientsService.getAll({ active: true } as any)
+      .then(cls => setClients(Array.isArray(cls) ? cls : []))
+      .catch(() => setClients([]));
   }, []);
 
   const handleSkuLookup = async (val: string) => {
@@ -246,6 +252,24 @@ export function Transfers() {
           </Select></Field>
           <Field label={t.transfers.toLocation} required><Input value={form.to_loc} onChange={(e) => setForm({ ...form, to_loc: e.target.value })} placeholder={(t.common as any)?.b03A || "B-03-A"} /></Field>
         </Row>
+        <Field label="Stock Owner (3PL Depositor) *" required hint="Depositor who owns the physical stock being transferred">
+          <Select
+            value={form.owner}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm(prev => ({
+                ...prev,
+                owner: val,
+                ownerType: val === "Internal Stock" ? "COMPANY" : "CUSTOMER"
+              }));
+            }}
+          >
+            <option value="Internal Stock">Internal Stock (Company)</option>
+            {(Array.isArray(clients) ? clients.filter(c => c.active !== false) : []).map(c => (
+              <option key={c._id || c.name} value={c.name}>{c.name}</option>
+            ))}
+          </Select>
+        </Field>
         <Field label={t.transfers.transferType}><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
           <option value="transfer">{t.transfers.transfer}</option><option value="replenishment">{t.transfers.replenishment}</option>
         </Select></Field>

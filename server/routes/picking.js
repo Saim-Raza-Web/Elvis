@@ -13,6 +13,7 @@ import ActivityLog from '../models/ActivityLog.js';
 import Notification from '../models/Notification.js';
 import PackTask from '../models/PackTask.js';
 import Product from '../models/Product.js';
+import Location from '../models/Location.js';
 import LocationOverride from '../models/LocationOverride.js';
 import User from '../models/User.js';
 import { generatePickDeliveryNotePDFBuffer } from '../services/deliveryNoteService.js';
@@ -400,6 +401,32 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
             { session }
           );
           remainingToDeduct -= deductFromThis;
+        }
+
+        // Decrement Product.qty_reserved (zero double-decrement on qty_available!)
+        await Product.findOneAndUpdate(
+          { sku: item.sku, company: req.user.company },
+          { $inc: { qty_reserved: -actualPicked } },
+          { session }
+        );
+
+        // D-03: If location stock reaches 0, update Location.status to AVAILABLE (Libre)
+        const remainingBalancesInBin = await InventoryBalance.find({
+          company: req.user.company,
+          warehouse,
+          bin: binCode
+        }).session(session);
+
+        const totalBinQty = remainingBalancesInBin.reduce((sum, b) => {
+          return sum + (b.qtyAvailable || 0) + (b.qtyReserved || 0) + (b.qtyQuarantine || 0) + (b.qtyAwaitingPutaway || 0);
+        }, 0);
+
+        if (totalBinQty <= 0) {
+          await Location.findOneAndUpdate(
+            { company: req.user.company, code: binCode },
+            { $set: { status: 'AVAILABLE', qty: 0, currentUnits: 0 } },
+            { session }
+          );
         }
 
         // Record Inventory Transaction

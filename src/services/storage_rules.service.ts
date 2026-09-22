@@ -24,6 +24,10 @@ export const storageRulesService = {
     const response = await api.post('/storage-rules/seed', { warehouse: warehouseCode });
     return response.data;
   },
+  reorder: async (ruleIds: string[]) => {
+    const response = await api.post('/storage-rules/reorder', { ruleIds });
+    return response.data;
+  },
 
   simulatePutaway: async (payload: any) => {
     const response = await api.post('/storage-rules/simulate-putaway', payload);

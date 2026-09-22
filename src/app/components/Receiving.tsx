@@ -291,14 +291,22 @@ export function Receiving() {
   const handleOpenAddModal = async () => {
     const newForm = blankASN();
     newForm.warehouse = warehouses.length > 0 ? warehouses[0].code : "MIA";
-    newForm.owner = clients.length > 0 ? clients[0].name : "Default Owner";
-    newForm.ownerType = clients.length > 0 ? "CUSTOMER" : "COMPANY";
+    const activeClients = clients.filter(c => c.active !== false);
+    newForm.owner = activeClients.length > 0 ? activeClients[0].name : "Internal Stock";
+    newForm.ownerType = activeClients.length > 0 && activeClients[0].name !== "Internal Stock" ? "CUSTOMER" : "COMPANY";
     try {
       const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
-      const res = await fetch("/api/v1/receiving/next-po", { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.poNumber) newForm.poNumber = data.poNumber;
+      const [asnRes, poRes] = await Promise.all([
+        fetch("/api/v1/receiving/next-asn", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/v1/receiving/next-po", { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      if (asnRes.ok) {
+        const asnData = await asnRes.json();
+        if (asnData.asnNumber) newForm.asnNumber = asnData.asnNumber;
+      }
+      if (poRes.ok) {
+        const poData = await poRes.json();
+        if (poData.poNumber) newForm.poNumber = poData.poNumber;
       }
     } catch (_) {}
     setForm(newForm);
@@ -1233,7 +1241,7 @@ export function Receiving() {
                   }}
                 >
                   <option value="">-- Select Registered Owner --</option>
-                  {(Array.isArray(clients) ? clients : []).map(c => (
+                  {(Array.isArray(clients) ? clients.filter(c => c.active !== false) : []).map(c => (
                     <option key={c._id} value={c.name}>{c.name}</option>
                   ))}
                   <option value="Internal Stock">Internal Stock</option>
@@ -1241,6 +1249,13 @@ export function Receiving() {
               </Field>
             </Row>
             <Row>
+              <Field label="ASN Reference / Number *" required hint="Auto-generated default, editable for supplier ref">
+                <Input
+                  value={form.asnNumber}
+                  onChange={(e) => updateFormHeader("asnNumber", e.target.value)}
+                  placeholder="e.g. ASN-2026-000001"
+                />
+              </Field>
               <Field label={tc?.purchaseOrder || "Purchase Order # *"} required hint="Auto-generated if left blank">
                 <Input
                   value={form.poNumber}
@@ -1248,6 +1263,8 @@ export function Receiving() {
                   placeholder={tc?.eGPO998877 || "Auto-generated e.g. PO-2026-00001"}
                 />
               </Field>
+            </Row>
+            <Row>
               <Field label={tc?.originAddress || "Origin / Address"}>
                 <Input
                   value={form.origin}
@@ -1255,20 +1272,18 @@ export function Receiving() {
                   placeholder={tc?.eGHamburgGermany || "e.g. Hamburg, Germany"}
                 />
               </Field>
-            </Row>
-            <Row>
               <Field label={tc?.carrier || "Carrier"}>
                 <Select value={form.carrier} onChange={(e) => updateFormHeader("carrier", e.target.value)}>
                   {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
+            </Row>
+            <Row>
               <Field label={tc?.receivingDock || "Receiving Dock *"} required>
                 <Select value={form.receivingDock} onChange={(e) => updateFormHeader("receivingDock", e.target.value)}>
                   {DOCKS.map(d => <option key={d} value={d}>{d}</option>)}
                 </Select>
               </Field>
-            </Row>
-            <Row>
               <Field label={tc?.expectedArrivalDate || "Expected Arrival Date *"} required>
                 <Input
                   type="date"
@@ -1276,6 +1291,8 @@ export function Receiving() {
                   onChange={(e) => updateFormHeader("expectedDate", e.target.value)}
                 />
               </Field>
+            </Row>
+            <Row>
               <Field label={tc?.notesSpecialInstructions || "Notes / Special Instructions"}>
                 <Input
                   value={form.notes}

@@ -12,7 +12,8 @@ const transferSchema = new mongoose.Schema({
   status: String,
   type: String,
   requestedBy: String,
-  owner: String,
+  owner: { type: String, default: 'Internal Stock' },
+  ownerType: { type: String, enum: ['COMPANY', 'CUSTOMER'], default: 'COMPANY' },
   date: Date,
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 }, { timestamps: true });

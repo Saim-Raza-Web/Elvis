@@ -60,10 +60,21 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     const data = { ...req.body, company: req.user.company };
 
     // G-01: Validate owner against Client master when ownerType is CUSTOMER
-    if (data.ownerType === 'CUSTOMER' || (data.owner && !data.ownerType)) {
+    const cleanOwner = (data.owner || '').trim();
+    if (data.ownerType === 'CUSTOMER' || (cleanOwner && cleanOwner !== 'Internal Stock')) {
       const ownerTypeToCheck = data.ownerType || 'CUSTOMER';
-      const ownerError = await validateOwnerMaster(data.owner, ownerTypeToCheck, req.user.company);
+      const ownerError = await validateOwnerMaster(cleanOwner, ownerTypeToCheck, req.user.company);
       if (ownerError) return res.status(422).json({ message: ownerError });
+      data.owner = cleanOwner;
+      data.ownerType = 'CUSTOMER';
+    } else {
+      data.owner = cleanOwner || 'Internal Stock';
+      data.ownerType = 'COMPANY';
+    }
+
+    // Auto-generate transferId if not provided
+    if (!data.transferId) {
+      data.transferId = await nextTaskNumber('TRF', req.user.company, null);
     }
 
     const item = await Model.create(data);

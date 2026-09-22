@@ -78,9 +78,47 @@ async function logActivity(req, action, module, detail, session) {
 
 // ── QC Profiles (G-03 Dynamic QC Profiles) ──
 
+const DEFAULT_QC_PROFILES = [
+  {
+    name: 'Standard QC',
+    description: 'Standard consumer goods visual and condition inspection',
+    fields: [
+      { name: 'packagingCondition', label: 'Packaging Condition', type: 'select', options: ['Intact', 'Damaged', 'Opened'], required: true },
+      { name: 'productCondition', label: 'Product Condition', type: 'select', options: ['Good', 'Defective', 'Wrong Item'], required: true },
+      { name: 'visualInspection', label: 'Visual Inspection Passed', type: 'boolean', required: true }
+    ]
+  },
+  {
+    name: 'Cold Chain QC',
+    description: 'Perishable, refrigerated and frozen items temperature compliance',
+    fields: [
+      { name: 'temperatureReading', label: 'Arrival Temperature (°C)', type: 'number', required: true },
+      { name: 'humidityLevel', label: 'Relative Humidity (%)', type: 'number', required: true },
+      { name: 'dataLogger', label: 'Data Logger S/N', type: 'text', required: false }
+    ]
+  },
+  {
+    name: 'Electronics / Equipment QC',
+    description: 'High-tech and electronic devices functional & serial verification',
+    fields: [
+      { name: 'functionalTest', label: 'Functional Test Passed', type: 'boolean', required: true },
+      { name: 'serialNumber', label: 'Serial Number Verification', type: 'text', required: true }
+    ]
+  }
+];
+
 router.get('/profiles', async (req, res, next) => {
   try {
-    const profiles = await QCProfile.find({ company: req.user.company });
+    let profiles = await QCProfile.find({ company: req.user.company });
+    if (profiles.length === 0) {
+      try {
+        await QCProfile.insertMany(
+          DEFAULT_QC_PROFILES.map(p => ({ ...p, company: req.user.company })),
+          { ordered: false }
+        );
+        profiles = await QCProfile.find({ company: req.user.company });
+      } catch (_) {}
+    }
     res.json(profiles);
   } catch (err) { next(err); }
 });
@@ -401,6 +439,29 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
             message: `BLOCKED: Arrival temperature (${tempNum}°C) is outside configured Cold Chain range (${minBound}°C - ${maxBound}°C). Supervisor override required to approve.`
           });
         }
+      }
+    }
+
+    // Check Electronics / Equipment profile validation
+    const isElectronics = Boolean(prodDoc && (prodDoc.category === 'ELECTRONIC' || prodDoc.qc_profile === 'Electronics / Equipment')) ||
+      Boolean(inspectionDoc?.qcProfileName?.includes('Electronic'));
+
+    if (isElectronics) {
+      const funcCheck = req.body.functionalCheck !== undefined ? req.body.functionalCheck : req.body.functionalTest;
+      if (funcCheck === undefined || funcCheck === null || funcCheck === false || funcCheck === 'false') {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({
+          message: 'BLOCKED: Functional test verification is required for Electronics / Equipment QC.'
+        });
+      }
+      const serials = req.body.serialNumbers || req.body.serialNumber;
+      if (!serials || (typeof serials === 'string' && !serials.trim())) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({
+          message: 'BLOCKED: Serial number verification is required for Electronics / Equipment QC.'
+        });
       }
     }
 
