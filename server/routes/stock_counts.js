@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import StockCount from '../models/StockCount.js';
@@ -22,6 +22,7 @@ router.use(protect);
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
+const blockOffice = requireOfficeAccess;
 
 // GET all stock counts
 router.get('/', async (req, res, next) => {
@@ -429,7 +430,7 @@ router.put('/:id/line/:lineId', requireOpsRole, async (req, res, next) => {
 });
 
 // CLOSE count & apply adjustments
-router.put('/:id/close', requireOpsRole, async (req, res, next) => {
+router.put('/:id/close', requireOpsRole, blockOffice, async (req, res, next) => {
   const idempotencyKey = req.headers['idempotency-key'];
   if (idempotencyKey) {
     const existingReq = await IdempotencyRecord.findOne({ key: idempotencyKey, company: req.user.company });

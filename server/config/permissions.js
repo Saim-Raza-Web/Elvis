@@ -41,6 +41,36 @@ export const ROLE_PERMISSIONS = {
     settings: false,
     admin: false,
   },
+  client_3pl: {
+    dashboard: true,
+    warehouses: false,
+    inventory: true,
+    orders: true,
+    billing: false,
+    reports: false,
+    settings: false,
+    admin: false,
+  },
+  management: {
+    dashboard: true,
+    warehouses: true,
+    inventory: true,
+    orders: true,
+    billing: false,
+    reports: true,
+    settings: false,
+    admin: false,
+  },
+  office: {
+    dashboard: true,
+    warehouses: false,
+    inventory: false,
+    orders: true,
+    billing: false,
+    reports: true,
+    settings: false,
+    admin: false,
+  },
 };
 
 /** Display metadata for Settings UI (maps to real User.role values). */
@@ -65,6 +95,27 @@ export const ROLE_DEFINITIONS = [
     description: 'Can perform picking, packing, receiving operations',
     color: 'text-success bg-success/10',
     permissions: ROLE_PERMISSIONS.warehouse_staff,
+  },
+  {
+    id: 'client_3pl',
+    name: '3PL Client',
+    description: 'Client with access to own inventory and orders only',
+    color: 'text-purple-500 bg-purple-500/10',
+    permissions: ROLE_PERMISSIONS.client_3pl,
+  },
+  {
+    id: 'management',
+    name: 'Management',
+    description: 'Warehouse-scoped manager with limited warehouse access',
+    color: 'text-orange-500 bg-orange-500/10',
+    permissions: ROLE_PERMISSIONS.management,
+  },
+  {
+    id: 'office',
+    name: 'Office',
+    description: 'Business and reporting access, no warehouse operations',
+    color: 'text-cyan-500 bg-cyan-500/10',
+    permissions: ROLE_PERMISSIONS.office,
   },
 ];
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import ASN from '../models/ASN.js';
 import Counter from '../models/Counter.js';
@@ -27,6 +27,7 @@ router.use(protect);
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
+const blockOffice = requireOfficeAccess;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -395,7 +396,7 @@ router.get('/:id/discrepancies', async (req, res, next) => {
 });
 
 // CREATE ASN (uses document.save() for middleware execution)
-router.post('/', requireOpsRole, async (req, res, next) => {
+router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
 

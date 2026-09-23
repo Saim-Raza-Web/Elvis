@@ -1,5 +1,7 @@
 import express from 'express';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireClientAccess, requireWarehouseScopedManager, requireOfficeAccess } from '../middleware/auth.js';
+
+const blockOffice = requireOfficeAccess;
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/Product.js';
@@ -235,10 +237,10 @@ async function validateBarcodes(companyId, body, currentId = null) {
 }
 
 // POST Atomic Lot Recall (< 2s performance requirement)
-router.post('/lots/recall', requireOpsRole, handleExecuteLotRecall);
+router.post('/lots/recall', requireOpsRole, blockOffice, handleExecuteLotRecall);
 
 // POST Trigger ABC Classification Recalculation (Rolling 30-Day Confirmed Pick Volume)
-router.post('/abc/recalculate', requireOpsRole, async (req, res, next) => {
+router.post('/abc/recalculate', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
@@ -309,7 +311,7 @@ router.get('/replenishment/tasks', async (req, res, next) => {
 });
 
 // POST Evaluate pick faces / dry-run simulator
-router.post('/replenishment/evaluate', requireOpsRole, async (req, res, next) => {
+router.post('/replenishment/evaluate', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const warehouse = req.body.warehouse || req.headers['x-warehouse-code'] || 'MIA';
@@ -328,7 +330,7 @@ router.post('/replenishment/evaluate', requireOpsRole, async (req, res, next) =>
 });
 
 // POST Reserve replenishment
-router.post('/replenishment/reserve', requireOpsRole, async (req, res, next) => {
+router.post('/replenishment/reserve', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
@@ -348,7 +350,7 @@ router.post('/replenishment/reserve', requireOpsRole, async (req, res, next) => 
 });
 
 // POST Complete replenishment
-router.post('/replenishment/:id/complete', requireOpsRole, async (req, res, next) => {
+router.post('/replenishment/:id/complete', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const result = await replenishmentEngine.completeReplenishment(req.user.company, req.params.id, req.user?.name || 'system');
@@ -359,7 +361,7 @@ router.post('/replenishment/:id/complete', requireOpsRole, async (req, res, next
 });
 
 // POST Cancel replenishment
-router.post('/replenishment/:id/cancel', requireOpsRole, async (req, res, next) => {
+router.post('/replenishment/:id/cancel', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const result = await replenishmentEngine.cancelReplenishment(req.user.company, req.params.id, req.user?.name || 'system');
@@ -429,7 +431,7 @@ router.patch('/reclassify', requireOpsRole, async (req, res, next) => {
 //  - No MIA fallback: warehouse must be explicitly provided
 //  - Lot Integrity validated before write
 //  - G-01 owner validation enforced
-router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
+router.post('/initial-stock-load', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
@@ -676,7 +678,7 @@ router.post('/initial-stock-load', requireOpsRole, async (req, res, next) => {
 });
 
 // CREATE
-router.post('/', requireOpsRole, async (req, res, next) => {
+router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
@@ -704,7 +706,7 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 });
 
 // UPDATE
-router.put('/:id', requireOpsRole, async (req, res, next) => {
+router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
@@ -736,7 +738,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', requireOpsRole, async (req, res, next) => {
+router.delete('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });

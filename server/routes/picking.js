@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import PickTask from '../models/PickTask.js';
 import PickBatch from '../models/PickBatch.js';
@@ -16,12 +16,15 @@ import Product from '../models/Product.js';
 import Location from '../models/Location.js';
 import LocationOverride from '../models/LocationOverride.js';
 import User from '../models/User.js';
+import Client from '../models/Client.js';
+import Warehouse from '../models/Warehouse.js';
 import { generatePickDeliveryNotePDFBuffer } from '../services/deliveryNoteService.js';
 
 const router = express.Router();
 router.use(protect); // Secure all routes by default
 
 const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
+const blockOffice = requireOfficeAccess;
 
 /**
  * Parse numeric value from location code (e.g., "A-01-02-03" → aisle=1, rack=2, shelf=3)
@@ -139,6 +142,11 @@ async function optimizeGroupedLinesRoute(groupedLines, companyId, warehouse) {
 router.get('/lookup/:code', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    if (req.user.role === 'office') {
+      return res.status(403).json({ message: 'Office users do not have access to warehouse picking tasks' });
+    }
+
     const code = (req.params.code || '').trim();
     if (!code) return res.status(400).json({ message: 'Barcode / ID required' });
 
@@ -155,6 +163,26 @@ router.get('/lookup/:code', async (req, res, next) => {
 
     if (!task) {
       return res.status(404).json({ message: `No Pick Task found matching barcode '${code}'.` });
+    }
+
+    // Role-specific scoping on lookup
+    if (req.user.role === 'client_3pl') {
+      if (!req.user.clientId) {
+        return res.status(403).json({ message: 'Client 3PL user must have an associated client' });
+      }
+      const client = await Client.findOne({ _id: req.user.clientId, company: req.user.company });
+      if (!client || !client.active || task.owner !== client.name) {
+        return res.status(403).json({ message: 'Access denied: task belongs to another owner' });
+      }
+    } else if (req.user.role === 'management') {
+      if (!req.user.warehouses || req.user.warehouses.length === 0) {
+        return res.status(403).json({ message: 'Access denied: task belongs to an unassigned warehouse' });
+      }
+      const assignedWhDocs = await Warehouse.find({ _id: { $in: req.user.warehouses }, company: req.user.company }).lean();
+      const assignedCodes = assignedWhDocs.map(w => w.code);
+      if (!assignedCodes.includes(task.warehouse)) {
+        return res.status(403).json({ message: 'Access denied: task belongs to an unassigned warehouse' });
+      }
     }
 
     res.json(task);
@@ -483,8 +511,63 @@ router.get('/', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
+    // Office role gets no physical picking task execution/queue access
+    if (req.user.role === 'office') {
+      return res.status(403).json({ message: 'Office users do not have access to warehouse picking tasks' });
+    }
+
     const filter = { company: req.user.company };
-    if (req.query.owner && req.query.owner !== 'all') filter.owner = req.query.owner;
+
+    // Role-specific scoping
+    if (req.user.role === 'client_3pl') {
+      if (!req.user.clientId) {
+        return res.status(403).json({ message: 'Client 3PL user must have an associated client' });
+      }
+      const client = await Client.findOne({ _id: req.user.clientId, company: req.user.company });
+      if (!client || !client.active) {
+        return res.status(403).json({ message: 'Associated client not found or inactive' });
+      }
+      if (req.query.owner && req.query.owner !== 'all' && req.query.owner !== client.name) {
+        return res.status(403).json({ message: 'Client 3PL users can only access their own owner data' });
+      }
+      filter.owner = client.name;
+    } else if (req.user.role === 'management') {
+      if (!req.user.warehouses || req.user.warehouses.length === 0) {
+        filter.warehouse = { $in: [] };
+      } else {
+        const assignedWhDocs = await Warehouse.find({ _id: { $in: req.user.warehouses }, company: req.user.company }).lean();
+        const assignedCodes = assignedWhDocs.map(w => w.code);
+        if (req.query.warehouse && req.query.warehouse !== 'all') {
+          if (!assignedCodes.includes(req.query.warehouse)) {
+            return res.status(403).json({ message: 'Access denied: warehouse not in your assigned scope' });
+          }
+          filter.warehouse = req.query.warehouse;
+        } else {
+          filter.warehouse = { $in: assignedCodes };
+        }
+      }
+      if (req.query.owner && req.query.owner !== 'all') filter.owner = req.query.owner;
+    } else if (req.user.role === 'warehouse_staff') {
+      const staffIdentities = [req.user.email, req.user.name].filter(Boolean);
+      if (req.query.assignedOnly === 'true') {
+        filter.assignee = { $in: staffIdentities };
+      } else {
+        // Warehouse staff sees assigned tasks and unassigned pool
+        filter.$or = [
+          { assignee: { $in: staffIdentities } },
+          { assignee: '' },
+          { assignee: null },
+          { assignee: { $exists: false } }
+        ];
+      }
+      if (req.query.owner && req.query.owner !== 'all') filter.owner = req.query.owner;
+      if (req.query.warehouse && req.query.warehouse !== 'all') filter.warehouse = req.query.warehouse;
+    } else {
+      // admin / manager have company-wide access
+      if (req.query.owner && req.query.owner !== 'all') filter.owner = req.query.owner;
+      if (req.query.warehouse && req.query.warehouse !== 'all') filter.warehouse = req.query.warehouse;
+    }
+
     if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
     if (req.query.orderType) filter.orderType = req.query.orderType;
 
@@ -497,17 +580,37 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    if (req.user.role === 'office') {
+      return res.status(403).json({ message: 'Office users do not have access to warehouse picking tasks' });
+    }
+
     const item = await PickTask.findOne({
       company: req.user.company,
       $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { taskId: req.params.id }]
     });
     if (!item) return res.status(404).json({ message: 'Pick Task not found' });
+
+    // Role-specific scoping on individual task
+    if (req.user.role === 'client_3pl') {
+      const client = await Client.findOne({ _id: req.user.clientId, company: req.user.company });
+      if (!client || !client.active || item.owner !== client.name) {
+        return res.status(403).json({ message: 'Access denied: task belongs to another owner' });
+      }
+    } else if (req.user.role === 'management') {
+      const assignedWhDocs = await Warehouse.find({ _id: { $in: req.user.warehouses }, company: req.user.company }).lean();
+      const assignedCodes = assignedWhDocs.map(w => w.code);
+      if (!assignedCodes.includes(item.warehouse)) {
+        return res.status(403).json({ message: 'Access denied: task belongs to an unassigned warehouse' });
+      }
+    }
+
     res.json(item);
   } catch (err) { next(err); }
 });
 
 // ── EXECUTE & COMPLETE PICK TASK (With Owner Isolation & PDF Delivery Note) ──
-router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
+router.post('/:id/complete', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {

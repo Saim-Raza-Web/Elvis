@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   ScanLine, CheckCircle2, Clock, AlertCircle, Package, User, Plus, Search, Filter,
-  Layers, MapPin, QrCode, FileText, Download, AlertTriangle, Check, X, Camera, RefreshCw
+  Layers, MapPin, QrCode, FileText, Download, AlertTriangle, Check, X, Camera, RefreshCw,
+  Maximize, Minimize, Power
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, PrimaryButton, SecondaryButton } from "./AppShell";
@@ -12,6 +13,7 @@ import { pickingService } from "../../services/picking.service";
 import { inventoryService } from "../../services/inventory.service";
 import { clientsService, type ClientOwner } from "../../services/clients.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
+import { usePDAScreenControls } from "../../utils/pdaUtils";
 
 type PickTaskLine = {
   _id?: string;
@@ -86,6 +88,14 @@ const priorityColor: Record<string, string> = {
 
 export function Picking() {
   const { t, lang } = useLang();
+  const {
+    isFullscreen,
+    isWakeLocked,
+    capabilities,
+    toggleFullscreen,
+    toggleWakeLock
+  } = usePDAScreenControls();
+
   const [tasks, setTasks] = useState<PickTask[]>([]);
   const [view, setView] = useState<"tasks" | "batches">("tasks");
   const [search, setSearch] = useState("");
@@ -420,6 +430,46 @@ export function Picking() {
 
   return (
     <div className="space-y-6">
+      {/* ── PDA Screen Controls ── */}
+      {(capabilities.fullscreenSupported || capabilities.wakeLockSupported) && (
+        <div className="flex items-center justify-between bg-card border border-border rounded-lg p-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ScanLine className="w-4 h-4" />
+            <span>PDA Mode</span>
+          </div>
+          <div className="flex gap-2">
+            {capabilities.fullscreenSupported && (
+              <button
+                onClick={toggleFullscreen}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  isFullscreen
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary hover:bg-secondary/80'
+                }`}
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              >
+                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              </button>
+            )}
+            {capabilities.wakeLockSupported && (
+              <button
+                onClick={toggleWakeLock}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  isWakeLocked
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary hover:bg-secondary/80'
+                }`}
+                title={isWakeLocked ? 'Disable Screen Lock' : 'Keep Screen On'}
+              >
+                <Power className="w-4 h-4" />
+                {isWakeLocked ? 'Screen Locked' : 'Keep Screen On'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Interactive Clickable Status KPI Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[

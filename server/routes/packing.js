@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import Model from '../models/PackTask.js';
 import Order from '../models/Order.js';
@@ -11,6 +11,7 @@ const router = express.Router();
 router.use(protect); // Secure all routes by default
 
 const requireOpsRole = requireRole('admin', 'manager');
+const blockOffice = requireOfficeAccess;
 
 // GET all
 router.get('/', async (req, res, next) => {
@@ -36,7 +37,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE
-router.post('/', requireOpsRole, async (req, res, next) => {
+router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -48,7 +49,7 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 });
 
 // UPDATE
-router.put('/:id', requireOpsRole, async (req, res, next) => {
+router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
@@ -121,7 +122,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', requireOpsRole, async (req, res, next) => {
+router.delete('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });

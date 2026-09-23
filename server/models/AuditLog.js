@@ -23,7 +23,10 @@ const auditLogSchema = new mongoose.Schema({
       'lot_blocked', 
       'cross_dock',
       'return_decision',
-      'qc_recondition'
+      'qc_recondition',
+      'abc_calculated',
+      'abc_override_set',
+      'abc_override_cleared'
     ] 
   },
   

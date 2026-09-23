@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import PutawayTask from '../models/PutawayTask.js';
 import InventoryBalance from '../models/InventoryBalance.js';
@@ -28,6 +28,7 @@ router.use(protect);
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
+const blockOffice = requireOfficeAccess;
 
 /** Atomic Sequential Putaway Number: PUT-000001, PUT-000002... */
 async function nextPutawayNumber(company, session) {
@@ -286,7 +287,7 @@ router.post('/:id/verify-location', requireOpsRole, async (req, res, next) => {
 });
 
 // ── POST /api/v1/putaway/:id/complete — EXECUTE PUTAWAY & ATOMIC INVENTORY TRANSFER ──
-router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
+router.post('/:id/complete', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 

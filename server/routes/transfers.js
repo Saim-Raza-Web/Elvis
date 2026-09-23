@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import { buildListFilter } from '../utils/listFilters.js';
 import Model from '../models/Transfer.js';
@@ -17,6 +17,7 @@ const router = express.Router();
 router.use(protect);
 
 const requireOpsRole = requireRole('admin', 'manager');
+const blockOffice = requireOfficeAccess;
 
 async function nextTaskNumber(prefix, company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };

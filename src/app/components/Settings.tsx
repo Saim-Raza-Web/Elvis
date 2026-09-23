@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload, Truck } from "lucide-react";
+import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload, Truck, BarChart3 } from "lucide-react";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
 import { settingsService } from "../../services/settings.service";
@@ -12,6 +12,7 @@ import { Tag } from "lucide-react";
 import { Suppliers } from "./Suppliers";
 import { ProductCategories } from "./ProductCategories";
 import { StorageRulesManager } from "./StorageRulesManager";
+import { ABCClassificationManager } from "./ABCClassificationManager";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
 
@@ -32,6 +33,7 @@ export function Settings() {
     { id: "suppliers", label: "Suppliers Master", icon: Truck },
     { id: "categories", label: "Product Categories", icon: Tag },
     { id: "storage-rules", label: "Storage Rules", icon: Shield },
+    { id: "abc-classification", label: "ABC Classification", icon: BarChart3 },
     { id: "notifications", label: t.settings.notifications, icon: settingsTabIcons[1] },
     { id: "security", label: t.settings.security, icon: settingsTabIcons[2] },
     { id: "team", label: t.settings.team, icon: settingsTabIcons[3] },
@@ -479,6 +481,19 @@ export function Settings() {
               </div>
             </div>
             <StorageRulesManager isAdmin={currentUserIsAdmin} compact={false} />
+          </div>
+        )}
+
+        {activeTab === "abc-classification" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 mb-2">
+              <BarChart3 className="size-5 text-primary" />
+              <div>
+                <h2 className="text-base font-bold text-foreground">ABC Classification</h2>
+                <p className="text-xs text-muted-foreground">Manage product ABC classifications based on 30-day rolling sales volume. Set manual overrides and trigger recalculation.</p>
+              </div>
+            </div>
+            <ABCClassificationManager />
           </div>
         )}
 

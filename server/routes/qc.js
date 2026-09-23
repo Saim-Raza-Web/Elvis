@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import QuarantineInventory from '../models/QuarantineInventory.js';
 import QCInspection from '../models/QCInspection.js';
@@ -22,6 +22,7 @@ router.use(protect);
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
+const blockOffice = requireOfficeAccess;
 
 /** Atomic Sequential QC Number: QC-000001, QC-000002... */
 async function nextQcNumber(company, session) {
@@ -216,7 +217,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // ── POST /api/v1/qc — Start Inspection (pending_qc -> under_inspection) ──
-router.post('/', requireOpsRole, async (req, res, next) => {
+router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -309,7 +310,7 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 });
 
 // ── PUT /api/v1/qc/:id — Update Inspection Form ──
-router.put('/:id', requireOpsRole, async (req, res, next) => {
+router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
 
@@ -338,7 +339,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 });
 
 // ── POST /api/v1/qc/:id/pass — PASS QC & TRANSITION TO AWAITING_PUTAWAY (PUTAWAY TASK GENERATED ONLY ON QC PASS) ──
-router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
+router.post('/:id/pass', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -668,7 +669,7 @@ router.post('/:id/pass', requireOpsRole, async (req, res, next) => {
 });
 
 // ── POST /api/v1/qc/:id/fail — FAIL QC INSPECTION (NO PUTAWAY TASK GENERATED) ──
-router.post('/:id/fail', requireOpsRole, async (req, res, next) => {
+router.post('/:id/fail', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -746,7 +747,7 @@ router.post('/:id/fail', requireOpsRole, async (req, res, next) => {
 });
 
 // ── POST /api/v1/qc/:id/recondition — START RECONDITIONING WORKFLOW (RF-P17) ──
-router.post('/:id/recondition', requireOpsRole, async (req, res, next) => {
+router.post('/:id/recondition', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -839,7 +840,7 @@ router.post('/:id/recondition', requireOpsRole, async (req, res, next) => {
 });
 
 // ── POST /api/v1/qc/:id/recondition/complete — COMPLETE RECONDITIONING & FINAL INSPECTION (RF-P17) ──
-router.post('/:id/recondition/complete', requireOpsRole, async (req, res, next) => {
+router.post('/:id/recondition/complete', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -969,7 +970,7 @@ router.post('/:id/recondition/complete', requireOpsRole, async (req, res, next) 
 });
 
 // ── POST /api/v1/qc/:id/return — RETURN TO VENDOR (DUPLICATE RTV BLOCK & RTV DOCUMENT GENERATION) ──
-router.post('/:id/return', requireOpsRole, async (req, res, next) => {
+router.post('/:id/return', requireOpsRole, blockOffice, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 

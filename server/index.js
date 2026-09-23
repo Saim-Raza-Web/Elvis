@@ -168,7 +168,7 @@ app.use('/api/v1/expiry-alerts', expiryAlertsRoutes);
 app.use('/api/v1/replenishment', replenishmentRoutes);
 mountModuleRoute('/api/v1/lot-recalls', lotRecallsRoutes);
 mountModuleRoute('/api/v1/recall', recallAliasRoutes);
-mountModuleRoute('/api/v1/abc-classification', abcClassificationRoutes);
+app.use('/api/v1/abc-classification', abcClassificationRoutes);
 mountModuleRoute('/api/v1/sscc', ssccRoutes);
 mountModuleRoute('/api/v1/putaway-rules', putawayRulesRoutes);
 mountModuleRoute('/api/v1/picking-rules', pickingRulesRoutes);
@@ -242,9 +242,32 @@ if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
     app.listen(PORT, async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       initStandaloneDailyScheduler();
-      
+
       const { replenishmentScheduler } = await import('./services/replenishmentScheduler.js');
       replenishmentScheduler.start();
+
+      // Start weekly ABC classification scheduler
+      const { abcEngine } = await import('./services/abcEngine.js');
+      // Schedule weekly ABC calculation (every 7 days)
+      const weeklyAbcInterval = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+      setTimeout(async () => {
+        try {
+          console.log('[ABC Scheduler] Running weekly ABC classification...');
+          const results = await abcEngine.runWeeklyAbcWorker();
+          console.log('[ABC Scheduler] Weekly ABC classification completed:', results);
+        } catch (err) {
+          console.error('[ABC Scheduler] Weekly ABC classification failed:', err);
+        }
+      }, 60000); // Initial run after 1 minute to allow system startup
+      setInterval(async () => {
+        try {
+          console.log('[ABC Scheduler] Running weekly ABC classification...');
+          const results = await abcEngine.runWeeklyAbcWorker();
+          console.log('[ABC Scheduler] Weekly ABC classification completed:', results);
+        } catch (err) {
+          console.error('[ABC Scheduler] Weekly ABC classification failed:', err);
+        }
+      }, weeklyAbcInterval);
     });
   }).catch(err => {
     console.error('Failed to connect to MongoDB:', err);

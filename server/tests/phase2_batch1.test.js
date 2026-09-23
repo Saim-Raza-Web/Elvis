@@ -497,7 +497,7 @@ async function runTests() {
   // RF-P07 Tests: Replenishment Traceability
   // ─────────────────────────────────────────────────────────────
   console.log('\n--- RF-P07: Replenishment Traceability Tests ---');
-  
+
   // Setup replenishment locations
   const repReserveZone = await Zone.create({
     code: 'RESERVE',
@@ -558,7 +558,7 @@ async function runTests() {
     lotNumber: 'LOT-REP-001',
     company: companyId
   });
-  
+
   // Test RF-P07-1: Create replenishment task
   console.log('RF-P07-1: Create replenishment task...');
   const repReserveRes = await request(app)
@@ -573,52 +573,41 @@ async function runTests() {
       requestedQty: 25,
       user: 'test_admin'
     });
-  
-  if (repReserveRes.status === 201) {
-    console.log('✓ RF-P07-1 Passed: Replenishment task created successfully');
-    assert(repReserveRes.body.task.taskId.startsWith('REP-'));
-    assert.strictEqual(repReserveRes.body.task.qty, 25);
-  } else {
-    console.log('⚠ RF-P07-1 Skipped: Replenishment task creation failed');
-  }
+
+  assert.strictEqual(repReserveRes.status, 201, 'Replenishment task must be created with 201');
+  assert(repReserveRes.body.task.taskId.startsWith('REP-'), 'Task ID must start with REP-');
+  assert.strictEqual(repReserveRes.body.task.qty, 25, 'Task qty must be 25');
+  console.log('✓ RF-P07-1 Passed: Replenishment task created successfully');
 
   // Test RF-P07-2: Staff authorization
-  if (repReserveRes.status === 201) {
-    console.log('RF-P07-2: Staff authorization on completion...');
-    const repStaffRes = await request(app)
-      .post(`/api/v1/replenishment/${repReserveRes.body.task._id}/complete`)
-      .set('Authorization', `Bearer ${staffToken}`)
-      .send({
-        sourceBin: repReserveLoc.code,
-        destinationBin: repPickFaceLoc.code,
-        sku: repProduct.sku,
-        qty: 25
-      });
-    
-    if (repStaffRes.status === 200) {
-      console.log('✓ RF-P07-2 Passed: Staff authorized to complete replenishment');
-    } else {
-      console.log('⚠ RF-P07-2 Skipped: Staff completion failed');
-    }
-  }
+  console.log('RF-P07-2: Staff authorization on completion...');
+  const repStaffRes = await request(app)
+    .post(`/api/v1/replenishment/${repReserveRes.body.task._id}/complete`)
+    .set('Authorization', `Bearer ${staffToken}`)
+    .send({
+      sourceBin: repReserveLoc.code,
+      destinationBin: repPickFaceLoc.code,
+      sku: repProduct.sku,
+      qty: 25
+    });
+
+  assert.strictEqual(repStaffRes.status, 200, 'Staff authorized to complete replenishment must return 200');
+  console.log('✓ RF-P07-2 Passed: Staff authorized to complete replenishment');
 
   // ─────────────────────────────────────────────────────────────
   // RF-P10 Tests: Lot Recall + Shipped Orders
   // ─────────────────────────────────────────────────────────────
   console.log('\n--- RF-P10: Lot Recall + Shipped Orders Tests ---');
-  
+
   // Test RF-P10-1: Lot recall preview
   console.log('RF-P10-1: Lot recall preview...');
   const recallPreviewRes = await request(app)
     .get('/api/v1/lot-recalls/preview')
     .set('Authorization', `Bearer ${adminToken}`)
     .query({ lotNumber: 'LOT-TEST-001' });
-  
-  if (recallPreviewRes.status === 200) {
-    console.log('✓ RF-P10-1 Passed: Lot recall preview endpoint responds');
-  } else {
-    console.log('⚠ RF-P10-1 Skipped: Preview endpoint responded with ' + recallPreviewRes.status);
-  }
+
+  assert.strictEqual(recallPreviewRes.status, 200, 'Lot recall preview endpoint must respond with 200');
+  console.log('✓ RF-P10-1 Passed: Lot recall preview endpoint responds');
 
   // Test RF-P10-2: Shipped orders report
   console.log('RF-P10-2: Shipped orders report...');
@@ -626,18 +615,15 @@ async function runTests() {
     .get('/api/v1/lot-recalls/shipped-report')
     .set('Authorization', `Bearer ${adminToken}`)
     .query({ lotNumber: 'LOT-TEST-001' });
-  
-  if (shippedReportRes.status === 200) {
-    console.log('✓ RF-P10-2 Passed: Shipped orders report endpoint responds');
-  } else {
-    console.log('⚠ RF-P10-2 Skipped: Shipped report endpoint responded with ' + shippedReportRes.status);
-  }
+
+  assert.strictEqual(shippedReportRes.status, 200, 'Shipped orders report endpoint must respond with 200');
+  console.log('✓ RF-P10-2 Passed: Shipped orders report endpoint responds');
 
   // ─────────────────────────────────────────────────────────────
   // RF-P11 Tests: Returns Decision Engine
   // ─────────────────────────────────────────────────────────────
   console.log('\n--- RF-P11: Returns Decision Engine Tests ---');
-  
+
   // Test RF-P11-1: Return with decision enum validation
   console.log('RF-P11-1: Return decision enum validation...');
   const returnWithDecision = await request(app)
@@ -666,38 +652,30 @@ async function runTests() {
         decision_date: new Date()
       }]
     });
-  
-  if (returnWithDecision.status === 201) {
-    console.log('✓ RF-P11-1 Passed: Return with decision enum created');
-  } else {
-    console.log('⚠ RF-P11-1 Skipped: Return creation responded with ' + returnWithDecision.status);
-  }
+
+  assert.strictEqual(returnWithDecision.status, 201, 'Return with decision enum must be created with 201');
+  console.log('✓ RF-P11-1 Passed: Return with decision enum created');
 
   // Test RF-P11-2: Invalid decision rejection
   console.log('RF-P11-2: Invalid decision rejection...');
-  if (returnWithDecision.status === 201) {
-    const invalidDecisionRes = await request(app)
-      .put(`/api/v1/returns/${returnWithDecision.body._id}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        items_details: [{
-          sku: 'SKU-DEC-TEST',
-          decision: 'INVALID_DECISION'
-        }]
-      });
-    
-    if (invalidDecisionRes.status === 400) {
-      console.log('✓ RF-P11-2 Passed: Invalid decision rejected');
-    } else {
-      console.log('⚠ RF-P11-2 Skipped: Invalid decision responded with ' + invalidDecisionRes.status);
-    }
-  }
+  const invalidDecisionRes = await request(app)
+    .put(`/api/v1/returns/${returnWithDecision.body._id}`)
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({
+      items_details: [{
+        sku: 'SKU-DEC-TEST',
+        decision: 'INVALID_DECISION'
+      }]
+    });
+
+  assert.strictEqual(invalidDecisionRes.status, 400, 'Invalid decision must be rejected with 400');
+  console.log('✓ RF-P11-2 Passed: Invalid decision rejected');
 
   // ─────────────────────────────────────────────────────────────
   // RF-P17 Tests: Reconditioning Workflow
   // ─────────────────────────────────────────────────────────────
   console.log('\n--- RF-P17: Reconditioning Workflow Tests ---');
-  
+
   // Test RF-P17-1: Reconditioning route exists
   console.log('RF-P17-1: Reconditioning route availability...');
   const reconditionTestItem = await QuarantineInventory.create({
@@ -714,7 +692,7 @@ async function runTests() {
     failReason: 'Requires reconditioning',
     company: companyId
   });
-  
+
   const reconditionRes = await request(app)
     .post(`/api/v1/qc/${reconditionTestItem._id}/recondition`)
     .set('Authorization', `Bearer ${adminToken}`)
@@ -723,19 +701,16 @@ async function runTests() {
       reconditionReason: 'Damaged packaging',
       operator: 'test_operator'
     });
-  
-  if (reconditionRes.status === 200) {
-    console.log('✓ RF-P17-1 Passed: Reconditioning route responds');
-  } else {
-    console.log('⚠ RF-P17-1 Skipped: Reconditioning route responded with ' + reconditionRes.status);
-  }
+
+  assert.strictEqual(reconditionRes.status, 200, 'Reconditioning route must respond with 200');
+  console.log('✓ RF-P17-1 Passed: Reconditioning route responds');
 
   console.log('\n================================================================');
-  console.log('  PHASE 2 BATCH 1 SUITE: ALL 11 CORE TESTS PASSED!');
-  console.log('  RF-P07: 2 tests (1 passed, 1 skipped)');
-  console.log('  RF-P10: 2 tests (2 skipped - no test data)');
-  console.log('  RF-P11: 2 tests (1 passed, 1 skipped)');
-  console.log('  RF-P17: 1 test (1 skipped - route tested)');
+  console.log('  PHASE 2 BATCH 1 SUITE: ALL 18 TESTS PASSED (11 Core + 7 Extended)');
+  console.log('  RF-P07: 2/2 passed, 0 skipped');
+  console.log('  RF-P10: 2/2 passed, 0 skipped');
+  console.log('  RF-P11: 2/2 passed, 0 skipped');
+  console.log('  RF-P17: 1/1 passed, 0 skipped');
   console.log('================================================================\n');
 
   process.exit(0);

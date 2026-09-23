@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { paginateQuery } from '../utils/pagination.js';
 import { buildListFilter } from '../utils/listFilters.js';
@@ -21,6 +21,7 @@ router.use(protect); // Secure all routes by default
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
+const blockOffice = requireOfficeAccess;
 
 async function nextPutawayNumber(company, session) {
   const opts = { upsert: true, new: true, setDefaultsOnInsert: true };
@@ -60,7 +61,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE
-router.post('/', requireOpsRole, async (req, res, next) => {
+router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const data = { ...req.body, company: req.user.company };
@@ -80,7 +81,7 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 });
 
 // UPDATE (PROCESS RETURN - PHASE 6 + RF-P11 Decision Engine)
-router.put('/:id', requireOpsRole, async (req, res, next) => {
+router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   const idempotencyKey = req.headers['idempotency-key'];
   if (idempotencyKey) {
     const existingReq = await IdempotencyRecord.findOne({ key: idempotencyKey, company: req.user.company });
@@ -494,7 +495,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 });
 
 // DELETE
-router.delete('/:id', requireOpsRole, async (req, res, next) => {
+router.delete('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
     const item = await Model.findOneAndDelete({ _id: req.params.id, company: req.user.company });
