@@ -75,6 +75,9 @@ const orderSchema = new mongoose.Schema({
   delivery_note_number: String,               // Sequential: DN-000001, DN-000002…
   delivery_note_generated_at: Date,
 
+  // ── Shipment Reference ───────────────────────────
+  shipmentId: String,                          // Reference to Shipment.shipmentId
+
   // ── Procurement Traceability ──────────────────────
   procurementStatus: { 
     type: String, 

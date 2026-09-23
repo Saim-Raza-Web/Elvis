@@ -10,7 +10,10 @@ const financialItemSchema = new mongoose.Schema({
 const shipmentSchema = new mongoose.Schema({
   shipmentId: { type: String, required: true },
   packId: String,
-  order: String,
+  order: String, // Legacy single-order compatibility
+  orders: [{ type: String }], // Grouped shipment order references
+  isGrouped: { type: Boolean, default: false },
+  groupedShipmentId: { type: String }, // Group identifier for grouped shipments
   customer: String,
   carrier: String,
   tracking: String,

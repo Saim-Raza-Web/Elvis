@@ -40,5 +40,13 @@ export const pickingService = {
   updateBatch: async (id: string, data: any) => {
     const response = await api.put('/picking/batches/' + id, data);
     return response.data;
+  },
+  completeBatch: async (id: string) => {
+    const response = await api.put('/picking/batches/' + id + '/complete');
+    return response.data;
+  },
+  cancelBatch: async (id: string) => {
+    const response = await api.put('/picking/batches/' + id + '/cancel');
+    return response.data;
   }
 };

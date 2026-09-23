@@ -23,6 +23,118 @@ router.use(protect); // Secure all routes by default
 
 const requireOpsRole = requireRole('admin', 'manager', 'warehouse_staff');
 
+/**
+ * Parse numeric value from location code (e.g., "A-01-02-03" → aisle=1, rack=2, shelf=3)
+ * Returns { aisle, rack, shelf, bin } with numeric values where possible
+ */
+function parseLocationParts(locCode) {
+  if (!locCode) return { aisle: null, rack: null, shelf: null, bin: locCode };
+
+  // Try to parse structured location codes like "A-01-02-03" or "AISLE-01-RACK-02-SHELF-03"
+  const parts = locCode.split(/[-_]/).map(p => {
+    const num = parseInt(p, 10);
+    return isNaN(num) ? p.toUpperCase() : num;
+  });
+
+  // Heuristic: try to identify aisle, rack, shelf, bin from parts
+  let aisle = null, rack = null, shelf = null, bin = locCode;
+
+  if (parts.length >= 1) aisle = parts[0];
+  if (parts.length >= 2) rack = parts[1];
+  if (parts.length >= 3) shelf = parts[2];
+  if (parts.length >= 4) bin = parts[3];
+
+  return { aisle, rack, shelf, bin };
+}
+
+/**
+ * Compare two location codes for deterministic sorting
+ * Priority: aisle → rack → shelf → bin
+ * Numeric values sort before alphanumeric
+ */
+function compareLocations(a, b) {
+  const aParts = parseLocationParts(a);
+  const bParts = parseLocationParts(b);
+
+  // Compare aisle
+  const aisleCmp = compareMixed(aParts.aisle, bParts.aisle);
+  if (aisleCmp !== 0) return aisleCmp;
+
+  // Compare rack
+  const rackCmp = compareMixed(aParts.rack, bParts.rack);
+  if (rackCmp !== 0) return rackCmp;
+
+  // Compare shelf
+  const shelfCmp = compareMixed(aParts.shelf, bParts.shelf);
+  if (shelfCmp !== 0) return shelfCmp;
+
+  // Compare bin
+  return compareMixed(aParts.bin, bParts.bin);
+}
+
+/**
+ * Compare two values where each may be numeric or string
+ * Numeric values sort before string values
+ */
+function compareMixed(a, b) {
+  const aNum = typeof a === 'number';
+  const bNum = typeof b === 'number';
+
+  if (aNum && bNum) return a - b;
+  if (aNum && !bNum) return -1; // numbers before strings
+  if (!aNum && bNum) return 1;  // strings after numbers
+
+  // Both strings - locale compare
+  const aStr = String(a || '');
+  const bStr = String(b || '');
+  return aStr.localeCompare(bStr);
+}
+
+/**
+ * Sort grouped lines by warehouse physical route (aisle → rack → shelf → bin)
+ * Uses Location records for actual warehouse layout data where available
+ */
+async function optimizeGroupedLinesRoute(groupedLines, companyId, warehouse) {
+  // Fetch location records for all source locations
+  const locationCodes = [...new Set(groupedLines.map(gl => gl.sourceLocation))];
+  const locations = await Location.find({
+    company: companyId,
+    code: { $in: locationCodes }
+  }).lean();
+
+  const locationMap = new Map(locations.map(loc => [loc.code, loc]));
+
+  // Sort grouped lines using location data with fallback to code parsing
+  const sortedLines = [...groupedLines].sort((a, b) => {
+    const locA = locationMap.get(a.sourceLocation);
+    const locB = locationMap.get(b.sourceLocation);
+
+    // If we have Location records, use their structured fields
+    if (locA && locB) {
+      const aisleCmp = compareMixed(locA.aisle, locB.aisle);
+      if (aisleCmp !== 0) return aisleCmp;
+
+      // For rack/shelf, check locationType enum order first
+      const typeOrder = { 'PICK_FACE': 0, 'SHELF': 1, 'RACK': 2, 'PALLET': 3, 'FLOOR': 4, 'RESERVE': 5 };
+      const typeCmp = (typeOrder[locA.locationType] || 99) - (typeOrder[locB.locationType] || 99);
+      if (typeCmp !== 0) return typeCmp;
+
+      const rackCmp = compareMixed(locA.shelf, locB.shelf); // shelf field sometimes used for rack level
+      if (rackCmp !== 0) return rackCmp;
+
+      const shelfCmp = compareMixed(locA.bin, locB.bin);
+      if (shelfCmp !== 0) return shelfCmp;
+
+      return compareMixed(locA.code, locB.code);
+    }
+
+    // Fallback: parse from location codes
+    return compareLocations(a.sourceLocation, b.sourceLocation);
+  });
+
+  return sortedLines;
+}
+
 // ── GET Quick Scan Lookup (Order Barcode or Pick Task Barcode) ──
 router.get('/lookup/:code', async (req, res, next) => {
   try {
@@ -62,34 +174,78 @@ router.get('/batches', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── CREATE a Pick Batch (STRICT OWNER ISOLATION ENFORCED) ──
+// ── CREATE a Pick Batch (STRICT OWNER ISOLATION ENFORCED + DUPLICATE ASSIGNMENT PREVENTION + ROUTE OPTIMIZATION) ──
 router.post('/batches', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
     const { pickTaskIds, priority } = req.body;
 
     if (!Array.isArray(pickTaskIds) || pickTaskIds.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: 'Please select at least one pending Pick Task to create a batch.' });
     }
 
-    const tasks = await PickTask.find({ _id: { $in: pickTaskIds }, company: req.user.company });
+    const tasks = await PickTask.find({ _id: { $in: pickTaskIds }, company: req.user.company }).session(session);
     if (tasks.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'Selected pick tasks not found.' });
     }
 
     // STRICT OWNER ISOLATION: Ensure ALL tasks belong to the EXACT SAME Owner!
     const owners = Array.from(new Set(tasks.map(t => (t.owner || 'Default Owner').trim())));
     if (owners.length > 1) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         message: `Owner Isolation Error: Cannot mix pick tasks from different Owners (${owners.map(o => `'${o}'`).join(', ')}) in a single Pick Batch. Batches must be single-owner.`
       });
     }
 
+    // STRICT WAREHOUSE ISOLATION: Ensure ALL tasks belong to the EXACT SAME Warehouse!
+    const warehouses = Array.from(new Set(tasks.map(t => (t.warehouse || 'MIA').trim())));
+    if (warehouses.length > 1) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: `Warehouse Isolation Error: Cannot mix pick tasks from different Warehouses (${warehouses.map(w => `'${w}'`).join(', ')}) in a single Pick Batch. Batches must be single-warehouse.`
+      });
+    }
+
+    // DUPLICATE ASSIGNMENT PREVENTION: Check if any task is already in an active batch
+    const activeBatches = await PickBatch.find({
+      company: req.user.company,
+      status: { $in: ['pending', 'in_progress'] },
+      pickTaskIds: { $in: tasks.map(t => t.taskId) }
+    }).session(session);
+
+    if (activeBatches.length > 0) {
+      const conflictingTasks = [];
+      for (const batch of activeBatches) {
+        const conflictIds = batch.pickTaskIds.filter(id => tasks.some(t => t.taskId === id));
+        conflictingTasks.push(...conflictIds);
+      }
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: `Duplicate Assignment Error: PickTasks [${conflictingTasks.join(', ')}] are already assigned to active batch(es). Complete or cancel those batches first.`
+      });
+    }
+
     const batchOwner = owners[0];
+    const warehouse = tasks[0]?.warehouse || 'MIA';
+
     const counter = await Counter.findOneAndUpdate(
       { _id: `pick_batch_${req.user.company}`, company: req.user.company },
       { $inc: { seq: 1 } },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true, session }
     );
     const batchId = `BCH-2026-${String(counter.seq).padStart(6, '0')}`;
 
@@ -120,9 +276,12 @@ router.post('/batches', requireOpsRole, async (req, res, next) => {
       });
     });
 
-    const groupedLines = Array.from(lineMap.values());
+    let groupedLines = Array.from(lineMap.values());
 
-    const batch = await PickBatch.create({
+    // ROUTE OPTIMIZATION: Sort by aisle → rack → shelf → bin
+    groupedLines = await optimizeGroupedLinesRoute(groupedLines, req.user.company, warehouse);
+
+    const batch = await PickBatch.create([{
       batchId,
       owner: batchOwner,
       pickTaskIds: tasks.map(t => t.taskId),
@@ -134,16 +293,189 @@ router.post('/batches', requireOpsRole, async (req, res, next) => {
       picked_items: 0,
       groupedLines,
       company: req.user.company
-    });
+    }], { session });
 
     // Update tasks status to in_progress
     await PickTask.updateMany(
       { _id: { $in: pickTaskIds }, company: req.user.company },
-      { status: 'in_progress', startedAt: new Date() }
+      { status: 'in_progress', startedAt: new Date() },
+      { session }
     );
 
-    res.status(201).json(batch);
-  } catch (err) { next(err); }
+    // AUDIT: Batch created
+    await ActivityLog.create([{
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      user: req.user.name || req.user.email || 'system',
+      role: req.user.role || 'warehouse_staff',
+      action: 'BATCH_CREATED',
+      module: 'PICKING',
+      detail: `Pick batch ${batchId} created with ${tasks.length} tasks for owner ${batchOwner}`,
+      company: req.user.company
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json(batch[0]);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    if (err.name === 'MongoServerError' && (err.code === 112 || err.message?.includes('Write conflict') || err.message?.includes('WriteConflict'))) {
+      return res.status(409).json({ message: 'Concurrency conflict: concurrent modification detected, please retry.' });
+    }
+    next(err);
+  }
+});
+
+// ── COMPLETE a Pick Batch (ORCHESTRATES INDIVIDUAL PICK TASK COMPLETIONS) ──
+router.put('/batches/:id/complete', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const batch = await PickBatch.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { batchId: req.params.id }]
+    }).session(session);
+
+    if (!batch) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Pick batch not found' });
+    }
+
+    if (batch.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Pick batch ${batch.batchId} is already completed.` });
+    }
+
+    if (batch.status === 'cancelled') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Pick batch ${batch.batchId} is cancelled and cannot be completed.` });
+    }
+
+    // Fetch all associated PickTasks
+    const tasks = await PickTask.find({
+      company: req.user.company,
+      taskId: { $in: batch.pickTaskIds }
+    }).session(session);
+
+    if (tasks.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'No pick tasks found for this batch' });
+    }
+
+    // Check if all tasks are completed
+    const incompleteTasks = tasks.filter(t => t.status !== 'completed');
+    if (incompleteTasks.length > 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: `Cannot complete batch: ${incompleteTasks.length} task(s) are not completed. Complete all tasks first.`,
+        incompleteTaskIds: incompleteTasks.map(t => t.taskId)
+      });
+    }
+
+    // Update batch status to completed
+    batch.status = 'completed';
+    batch.picked_items = batch.total_items;
+    await batch.save({ session });
+
+    // AUDIT: Batch completed
+    await ActivityLog.create([{
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      user: req.user.name || req.user.email || 'system',
+      role: req.user.role || 'warehouse_staff',
+      action: 'BATCH_COMPLETED',
+      module: 'PICKING',
+      detail: `Pick batch ${batch.batchId} completed with ${tasks.length} tasks`,
+      company: req.user.company
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json(batch);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
+
+// ── CANCEL a Pick Batch ──
+router.put('/batches/:id/cancel', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const batch = await PickBatch.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { batchId: req.params.id }]
+    }).session(session);
+
+    if (!batch) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Pick batch not found' });
+    }
+
+    if (batch.status === 'completed') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Pick batch ${batch.batchId} is already completed and cannot be cancelled.` });
+    }
+
+    if (batch.status === 'cancelled') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Pick batch ${batch.batchId} is already cancelled.` });
+    }
+
+    // Update batch status to cancelled
+    batch.status = 'cancelled';
+    await batch.save({ session });
+
+    // Reset associated PickTasks to pending
+    await PickTask.updateMany(
+      { company: req.user.company, taskId: { $in: batch.pickTaskIds } },
+      { status: 'pending', startedAt: null },
+      { session }
+    );
+
+    // AUDIT: Batch cancelled
+    await ActivityLog.create([{
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      user: req.user.name || req.user.email || 'system',
+      role: req.user.role || 'warehouse_staff',
+      action: 'BATCH_CANCELLED',
+      module: 'PICKING',
+      detail: `Pick batch ${batch.batchId} cancelled`,
+      company: req.user.company
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json(batch);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
 });
 
 // ── GET all Pick Tasks (With Owner & Status Filters + Search) ──
@@ -214,7 +546,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
     // Process each line in task
     for (const item of task.items) {
       const update = Array.isArray(lineUpdates) ? lineUpdates.find(u => u.sku === item.sku) : null;
-      
+
       // Step 1 Validation: Check scanned location against expected source location
       let lineOverrideDoc = null;
       if (update && update.scannedLocation) {
@@ -276,7 +608,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       // OWNER ISOLATION: Deduct stock ONLY from matching (company, warehouse, sku, owner, bin)
       if (actualPicked > 0) {
         const deductOwner = item.inventoryOwner || taskOwner;
-        
+
         // FIFO Enforcement Block (RF-P08)
         const allEligibleBalances = await InventoryBalance.find({
           company: req.user.company,
@@ -291,13 +623,13 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
           allEligibleBalances.sort((a, b) => new Date(a.entryDate || a.createdAt || 0).getTime() - new Date(b.entryDate || b.createdAt || 0).getTime());
           const oldestAllowed = allEligibleBalances[0];
           const oldestTime = new Date(oldestAllowed.entryDate || oldestAllowed.createdAt || 0).getTime();
-          
+
           const selectedBalances = allEligibleBalances.filter(b => (b.bin || '').toUpperCase() === binCode);
           if (selectedBalances.length > 0) {
             // Sort selected descending to check the NEWEST stock in the selected bin
             selectedBalances.sort((a, b) => new Date(b.entryDate || b.createdAt || 0).getTime() - new Date(a.entryDate || a.createdAt || 0).getTime());
             const selectedTime = new Date(selectedBalances[0].entryDate || selectedBalances[0].createdAt || 0).getTime();
-            
+
             // Allow 60 second margin for same-receipt batches
             if (selectedTime > oldestTime + 60000) {
               if (req.body.fifoOverride) {
@@ -321,7 +653,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
                   session.endSession();
                   return res.status(400).json({ message: `FIFO Override rejected: Mandatory reason is missing or empty.` });
                 }
-                
+
                 const supervisor = authenticatedUser;
                 await InventoryTransaction.create([{
                   transactionId: 'FIFO-OVR-' + Date.now(),
@@ -386,17 +718,17 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
           if (remainingToDeduct <= 0) break;
           const availHere = bal.qtyReserved || 0;
           if (availHere <= 0) continue;
-          
+
           finalOwnerType = bal.ownerType || 'UNKNOWN';
 
           const deductFromThis = Math.min(availHere, remainingToDeduct);
 
           await InventoryBalance.findOneAndUpdate(
             { _id: bal._id },
-            { 
-              $inc: { 
+            {
+              $inc: {
                 qtyReserved: -deductFromThis
-              } 
+              }
             },
             { session }
           );
@@ -508,7 +840,7 @@ router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
       generatedBy: operator,
       company: req.user.company
     }], { session });
-    
+
     const docRecord = docRecords[0];
 
     task.deliveryNoteNumber = dnNumber;
@@ -654,10 +986,10 @@ router.delete('/:id', requireOpsRole, async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
     res.json({ message: 'Deleted successfully and reservation restored' });
-  } catch (err) { 
+  } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    next(err); 
+    next(err);
   }
 });
 

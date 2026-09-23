@@ -19,5 +19,13 @@ export const shippingService = {
   delete: async (id) => {
     const response = await api.delete('/shipping/' + id);
     return response.data;
+  },
+  groupOrders: async (data) => {
+    const response = await api.post('/shipping/group-orders', data);
+    return response.data;
+  },
+  signShipment: async (id, data) => {
+    const response = await api.post('/shipping/' + id + '/sign', data);
+    return response.data;
   }
 };

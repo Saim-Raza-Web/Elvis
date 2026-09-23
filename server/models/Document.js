@@ -4,19 +4,20 @@ const documentSchema = new mongoose.Schema({
   documentNumber: { type: String, required: true }, // DN-2026-000001
   type: {
     type: String,
-    enum: ['INBOUND_DELIVERY_NOTE', 'OUTBOUND_DELIVERY_NOTE', 'QC_REPORT', 'RTV_NOTE', 'PUTAWAY_MANIFEST'],
+    enum: ['INBOUND_DELIVERY_NOTE', 'OUTBOUND_DELIVERY_NOTE', 'QC_REPORT', 'RTV_NOTE', 'PUTAWAY_MANIFEST', 'SIGNED_DELIVERY_NOTE'],
     default: 'INBOUND_DELIVERY_NOTE'
   },
-  asnId: { type: String, required: true },
+  asnId: { type: String, default: '' },
   asnNumber: { type: String, default: '' },
-  supplier: { type: String, required: true },
+  shipmentId: { type: String, default: '' },
+  supplier: { type: String, default: 'N/A' },
   owner: { type: String, default: 'Default Owner' },
-  poNumber: { type: String, required: true },
+  poNumber: { type: String, default: 'N/A' },
   warehouse: { type: String, default: 'MIA' },
   receivingDock: { type: String, default: 'Dock 1' },
   receivedAt: { type: Date, default: Date.now },
-  totalExpected: { type: Number, required: true },
-  totalReceived: { type: Number, required: true },
+  totalExpected: { type: Number, default: 0 },
+  totalReceived: { type: Number, default: 0 },
   hasDiscrepancies: { type: Boolean, default: false },
   discrepancyCount: { type: Number, default: 0 },
   items: [{

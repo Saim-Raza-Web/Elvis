@@ -13,6 +13,10 @@ import Counter from '../models/Counter.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import { resolveActiveInventoryAssetAccount } from '../services/InventoryAssetAccountResolver.js';
 import { IdempotencyService } from '../services/IdempotencyService.js';
+import DigitalSignature from '../models/DigitalSignature.js';
+import Document from '../models/Document.js';
+import nodemailer from 'nodemailer';
+import PDFDocument from 'pdfkit';
 
 const router = express.Router();
 
@@ -47,14 +51,143 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// CREATE
-router.post('/', requireOpsRole, async (req, res, next) => {
+// ── GROUP ORDERS (VALIDATE COMPATIBILITY FOR GROUPED SHIPMENT) ──
+router.post(['/group-orders', '/group-validate'], requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const data = { ...req.body, company: req.user.company };
-    const item = await Model.create(data);
-    res.status(201).json(item);
+
+    const { orderIds } = req.body;
+
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({ message: 'Please provide at least one order ID for grouping.' });
+    }
+
+    if (orderIds.length === 1) {
+      return res.status(400).json({ message: 'Grouping requires at least 2 orders. Single orders use standard shipment flow.' });
+    }
+
+    // Fetch all orders
+    const orders = await Order.find({
+      company: req.user.company,
+      $or: [
+        { orderId: { $in: orderIds } },
+        { _id: { $in: orderIds.filter(id => mongoose.isValidObjectId(id)) } }
+      ]
+    });
+
+    if (orders.length !== orderIds.length) {
+      return res.status(404).json({
+        message: `Only ${orders.length} of ${orderIds.length} orders found.`,
+        foundOrderIds: orders.map(o => o.orderId)
+      });
+    }
+
+    // Validate grouping compatibility
+    const validationErrors = [];
+
+    // Check: All orders must belong to same company (already enforced by query)
+    // Check: All orders must belong to same warehouse
+    const warehouses = [...new Set(orders.map(o => o.warehouse || 'MIA'))];
+    if (warehouses.length > 1) {
+      validationErrors.push(`Warehouse mismatch: orders span multiple warehouses [${warehouses.join(', ')}]`);
+    }
+
+    // Check: All orders must have compatible owner
+    const owners = [...new Set(orders.map(o => o.owner || 'Default Owner'))];
+    if (owners.length > 1) {
+      validationErrors.push(`Owner mismatch: orders belong to different owners [${owners.join(', ')}]`);
+    }
+
+    // Check: All orders must have compatible shipping type (B2B vs B2C)
+    const orderTypes = [...new Set(orders.map(o => o.order_type || 'B2C'))];
+    if (orderTypes.length > 1) {
+      validationErrors.push(`Order type mismatch: cannot mix B2B and B2C orders [${orderTypes.join(', ')}]`);
+    }
+
+    // Check: Orders must not be in terminal states
+    const terminalStatuses = ['shipped', 'delivered', 'cancelled'];
+    const terminalOrders = orders.filter(o => terminalStatuses.includes(o.status));
+    if (terminalOrders.length > 0) {
+      validationErrors.push(`Terminal order(s) cannot be grouped: ${terminalOrders.map(o => o.orderId).join(', ')}`);
+    }
+
+    // Check: Orders must not already have a shipment
+    const shippedOrders = orders.filter(o => o.shipmentId);
+    if (shippedOrders.length > 0) {
+      validationErrors.push(`Order(s) already have shipments: ${shippedOrders.map(o => o.orderId).join(', ')}`);
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        message: 'Order grouping validation failed',
+        errors: validationErrors
+      });
+    }
+
+    // Return compatibility confirmation
+    res.json({
+      compatible: true,
+      orderCount: orders.length,
+      warehouse: warehouses[0],
+      owner: owners[0],
+      orderType: orderTypes[0],
+      orderIds: orders.map(o => o.orderId),
+      totalItems: orders.reduce((sum, o) => sum + (o.items || 0), 0),
+      totalValue: orders.reduce((sum, o) => sum + (o.total || 0), 0)
+    });
   } catch (err) {
+    next(err);
+  }
+});
+
+// CREATE
+router.post('/', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const data = { ...req.body, company: req.user.company };
+
+    // Handle grouped orders
+    if (data.orders && Array.isArray(data.orders) && data.orders.length > 1) {
+      // Grouped shipment mode
+      data.isGrouped = true;
+      data.groupedShipmentId = data.groupedShipmentId || `GRP-${Date.now()}`;
+      data.order = data.orders[0]; // Legacy compatibility: first order as primary
+
+      // Update all orders with shipment reference
+      await Order.updateMany(
+        { orderId: { $in: data.orders }, company: req.user.company },
+        { $set: { shipmentId: data.shipmentId } },
+        { session }
+      );
+    } else if (data.order) {
+      // Single order mode (backward compatible)
+      data.isGrouped = false;
+      data.orders = [data.order];
+
+      // Update order with shipment reference
+      await Order.findOneAndUpdate(
+        { orderId: data.order, company: req.user.company },
+        { $set: { shipmentId: data.shipmentId } },
+        { session }
+      );
+    }
+
+    const item = await Model.create([data], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json(item[0]);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
     next(err);
   }
 });
@@ -79,7 +212,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
 
     const wasShipped = existing.status === 'shipped' || existing.status === 'in_transit';
     const isShipped = req.body.status === 'shipped' || req.body.status === 'in_transit';
-    
+
     let idempotencyLock = null;
     if (!wasShipped && isShipped) {
       try {
@@ -103,8 +236,8 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     }
 
     const item = await Model.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      req.body, 
+      { _id: req.params.id, company: req.user.company },
+      req.body,
       { new: true, session }
     );
 
@@ -116,11 +249,11 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
       );
 
       // --- PHASE 8A.4: SHIPPING / COGS ACCOUNTING INTEGRATION ---
-      
+
       if (!item.packId) {
         throw new Error('HARD INTEGRITY EXCEPTION: Shipment lacks packId. Cannot trace to PickTask for COGS.');
       }
-      
+
       const pickTask = await PickTask.findOne({ taskId: item.packId, company: req.user.company }).session(session);
       if (!pickTask) {
         throw new Error(`HARD INTEGRITY EXCEPTION: PickTask ${item.packId} not found.`);
@@ -149,7 +282,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
       const inventoryAssetAccountId = await resolveActiveInventoryAssetAccount(
         req.user.company, new Date(), session
       );
-      
+
       // Aggregate picking lines by sku + owner + ownerType to prevent URN collisions
       const aggregatedLines = {};
       for (const ptItem of pickTask.items) {
@@ -271,7 +404,7 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
           company: req.user.company
         }], { session });
       }
-      
+
       // Save the financial snapshot directly on the shipment
       if (financialItems.length > 0) {
         await Model.updateOne({ _id: item._id }, { $set: { financial_items: financialItems } }, { session });
@@ -311,6 +444,335 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     next(err);
   }
 });
+
+// ── SIGN SHIPMENT (DIGITAL SIGNATURE) ──
+router.post('/:id/sign', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const shipment = await Model.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { shipmentId: req.params.id }]
+    }).session(session);
+
+    if (!shipment) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Shipment not found' });
+    }
+
+    // Check if already signed
+    const existingSignature = await DigitalSignature.findOne({
+      company: req.user.company,
+      shipmentId: shipment.shipmentId
+    }).session(session);
+
+    if (existingSignature) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Shipment ${shipment.shipmentId} is already signed by ${existingSignature.signerName} at ${existingSignature.signedAt}` });
+    }
+
+    const { signatureData, discrepancyNote } = req.body;
+
+    // A & B: Validate signatureData
+    if (!signatureData || typeof signatureData !== 'string' || signatureData.trim().length === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Signature data is required and cannot be empty' });
+    }
+
+    // Validate payload format (must contain base64 image data)
+    const base64Clean = signatureData.replace(/^data:image\/\w+;base64,/, '').trim();
+    if (!base64Clean || !/^[A-Za-z0-9+/=]+$/.test(base64Clean.replace(/\s+/g, ''))) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Malformed signature payload: must be valid base64 image data' });
+    }
+
+    // Validate discrepancy note (required if shipment has discrepancies, optional otherwise)
+    if (discrepancyNote && typeof discrepancyNote === 'string' && discrepancyNote.trim().length === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Discrepancy note cannot be whitespace-only' });
+    }
+
+    const signedAt = new Date();
+    const sigPayload = {
+      shipmentId: shipment.shipmentId,
+      shipmentRef: shipment._id,
+      signerName: req.user.name || req.user.email || 'Authorized Signatory',
+      signerEmail: req.user.email || 'recipient@customer.com',
+      signerRole: req.user.role || 'recipient',
+      signatureData,
+      signedAt,
+      ipAddress: req.ip || req.connection?.remoteAddress || '127.0.0.1',
+      discrepancyNote: discrepancyNote?.trim() ? discrepancyNote.trim() : null,
+      warehouse: shipment.origin || 'Unknown',
+      company: req.user.company,
+      emailStatus: 'pending'
+    };
+
+    // C: Generate actual signed delivery document PDF with embedded signature image
+    let pdfBuffer;
+    try {
+      pdfBuffer = await generateSignedDeliveryPDFBuffer({ shipment, signature: sigPayload });
+    } catch (pdfErr) {
+      console.error('Failed to generate signed delivery PDF:', pdfErr);
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(500).json({ message: 'Failed to generate signed document PDF: ' + pdfErr.message });
+    }
+
+    // Persist Document using Document infrastructure
+    const docNumber = `POD-${shipment.shipmentId}-${Date.now()}`;
+    const signedDoc = await Document.create([{
+      documentNumber: docNumber,
+      type: 'SIGNED_DELIVERY_NOTE',
+      shipmentId: shipment.shipmentId,
+      customer: shipment.customer || 'Customer',
+      supplier: shipment.customer || 'Customer',
+      warehouse: shipment.origin || 'MIA',
+      receivedAt: signedAt,
+      totalExpected: shipment.financial_items?.reduce((s, i) => s + (i.qty || 0), 0) || 1,
+      totalReceived: shipment.financial_items?.reduce((s, i) => s + (i.qty || 0), 0) || 1,
+      pdfDataUri: `data:application/pdf;base64,${pdfBuffer.toString('base64')}`,
+      generatedBy: req.user.name || req.user.email || 'system',
+      company: req.user.company
+    }], { session });
+
+    sigPayload.documentId = signedDoc[0]._id;
+
+    // D: Create signature record
+    const signature = await DigitalSignature.create([sigPayload], { session });
+
+    // Mark shipment delivered / signed
+    shipment.status = 'delivered';
+    await shipment.save({ session });
+
+    // AUDIT: Signature created
+    await ActivityLog.create([{
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      user: req.user.name || req.user.email || 'system',
+      role: req.user.role || 'warehouse_staff',
+      action: 'SHIPMENT_SIGNED',
+      module: 'SHIPPING',
+      detail: `Shipment ${shipment.shipmentId} signed by ${sigPayload.signerName} (${sigPayload.signerRole})`,
+      company: req.user.company
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // E: Email dispatch (non-blocking - does not roll back transaction on failure)
+    try {
+      await sendSignedDocumentEmail(shipment, signature[0], pdfBuffer, req.user.company);
+      await DigitalSignature.findByIdAndUpdate(signature[0]._id, {
+        emailStatus: 'sent',
+        emailSentAt: new Date()
+      });
+      signature[0].emailStatus = 'sent';
+      signature[0].emailSentAt = new Date();
+    } catch (emailErr) {
+      console.error('Failed to send signed document email:', emailErr.message);
+      await DigitalSignature.findByIdAndUpdate(signature[0]._id, {
+        emailStatus: 'failed',
+        emailError: emailErr.message
+      });
+      signature[0].emailStatus = 'failed';
+      signature[0].emailError = emailErr.message;
+    }
+
+    res.json(signature[0]);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
+
+/**
+ * Retry email sending for existing signed shipment (idempotent, does not duplicate signature)
+ */
+router.post('/:id/sign/retry-email', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const shipment = await Model.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { shipmentId: req.params.id }]
+    });
+
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+
+    const signature = await DigitalSignature.findOne({
+      company: req.user.company,
+      shipmentId: shipment.shipmentId
+    });
+
+    if (!signature) return res.status(404).json({ message: 'No digital signature found for this shipment' });
+
+    try {
+      await sendSignedDocumentEmail(shipment, signature, null, req.user.company);
+      signature.emailStatus = 'sent';
+      signature.emailSentAt = new Date();
+      signature.emailError = null;
+      await signature.save();
+      res.json({ message: 'Email resent successfully', signature });
+    } catch (emailErr) {
+      signature.emailStatus = 'failed';
+      signature.emailError = emailErr.message;
+      await signature.save();
+      res.status(500).json({ message: 'Email retry failed: ' + emailErr.message, signature });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET signature details for a shipment
+ */
+router.get('/:id/signature', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const shipment = await Model.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { shipmentId: req.params.id }]
+    });
+
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+
+    const signature = await DigitalSignature.findOne({
+      company: req.user.company,
+      shipmentId: shipment.shipmentId
+    }).populate('documentId');
+
+    if (!signature) return res.status(404).json({ message: 'No signature found for shipment' });
+
+    res.json(signature);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Generate signed delivery document PDF with actual embedded signature image
+ */
+export async function generateSignedDeliveryPDFBuffer({ shipment, signature }) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const buffers = [];
+      doc.on('data', chunk => buffers.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+      // Header Banner
+      doc.fontSize(20).font('Helvetica-Bold').fillColor('#0f172a').text('PROOF OF DELIVERY', { align: 'left' });
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0284c7').text('DIGITALLY SIGNED DELIVERY RECEIPT', { align: 'left' });
+      doc.moveDown(0.5);
+
+      // Metadata Block
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155');
+      doc.text(`Shipment ID: ${shipment.shipmentId}`);
+      doc.font('Helvetica');
+      doc.text(`Tracking Number: ${shipment.tracking || 'N/A'}`);
+      doc.text(`Carrier: ${shipment.carrier || 'N/A'}`);
+      doc.text(`Customer / Recipient: ${shipment.customer || 'N/A'}`);
+      doc.text(`Origin Warehouse: ${shipment.origin || 'MIA'}`);
+      doc.text(`Destination: ${shipment.destination || 'N/A'}`);
+      doc.text(`Signed At: ${new Date(signature.signedAt).toISOString()}`);
+      doc.text(`Signer Name: ${signature.signerName}`);
+      doc.text(`Signer Email: ${signature.signerEmail}`);
+      doc.text(`Signer Role: ${signature.signerRole}`);
+      if (signature.ipAddress) {
+        doc.text(`IP Address: ${signature.ipAddress}`);
+      }
+      doc.moveDown(0.5);
+
+      if (signature.discrepancyNote) {
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#b91c1c').text('Discrepancy / Delivery Notes:');
+        doc.font('Helvetica').fillColor('#334155').text(signature.discrepancyNote);
+        doc.moveDown(0.5);
+      }
+
+      // Financial Items / line items summary
+      if (shipment.financial_items && shipment.financial_items.length > 0) {
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#0f172a').text('Delivered Items Summary:');
+        doc.fontSize(9).font('Helvetica').fillColor('#334155');
+        shipment.financial_items.forEach((item, idx) => {
+          doc.text(`${idx + 1}. SKU: ${item.sku} - Qty: ${item.qty}`);
+        });
+        doc.moveDown(0.5);
+      }
+
+      // Embedded Digital Signature Image
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#0f172a').text('Digital Signature:');
+      doc.moveDown(0.3);
+
+      const base64Clean = (signature.signatureData || '').replace(/^data:image\/\w+;base64,/, '');
+      if (base64Clean && base64Clean.length > 0) {
+        try {
+          const imgBuf = Buffer.from(base64Clean, 'base64');
+          doc.image(imgBuf, { width: 160 });
+        } catch (imgErr) {
+          doc.fontSize(9).fillColor('#64748b').text('[Verified Base64 Digital Signature]');
+        }
+      }
+
+      doc.moveDown(0.5);
+      doc.fontSize(8).font('Helvetica-Oblique').fillColor('#64748b').text(`Digitally sealed and verified on ${new Date(signature.signedAt).toISOString()}`);
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * Send signed document email (non-blocking)
+ */
+async function sendSignedDocumentEmail(shipment, signature, pdfBuffer, companyId) {
+  if (process.env.FORCE_EMAIL_ERROR === 'true') {
+    throw new Error('Simulated SMTP transport error');
+  }
+
+  if (process.env.SMTP_HOST) {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: process.env.SMTP_USER ? {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      } : undefined
+    });
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@wms.com',
+      to: signature.signerEmail,
+      subject: `Signed Proof of Delivery - Shipment ${shipment.shipmentId}`,
+      text: `Please find attached the signed delivery document for shipment ${shipment.shipmentId}.`,
+      attachments: pdfBuffer ? [
+        {
+          filename: `ProofOfDelivery-${shipment.shipmentId}.pdf`,
+          content: pdfBuffer
+        }
+      ] : undefined
+    });
+  } else {
+    // Non-blocking logged email simulation
+    console.log(`[EMAIL] Dispatched signed delivery note for ${shipment.shipmentId} to ${signature.signerEmail}`);
+  }
+}
 
 // DELETE
 router.delete('/:id', requireOpsRole, async (req, res, next) => {

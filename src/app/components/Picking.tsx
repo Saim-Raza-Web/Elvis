@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { 
-  ScanLine, CheckCircle2, Clock, AlertCircle, Package, User, Plus, Search, Filter, 
+import {
+  ScanLine, CheckCircle2, Clock, AlertCircle, Package, User, Plus, Search, Filter,
   Layers, MapPin, QrCode, FileText, Download, AlertTriangle, Check, X, Camera, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
@@ -147,17 +147,17 @@ export function Picking() {
   }, []);
 
   useEffect(() => {
-    const handler = () => { 
-      setManualForm({ 
-        order: "", 
-        customer: "", 
-        owner: clients.length > 0 ? clients[0].name : "Internal Stock", 
-        priority: "normal", 
-        sku: "", 
-        qty: 1, 
-        location: "STAGING-A" 
-      }); 
-      setShowManual(true); 
+    const handler = () => {
+      setManualForm({
+        order: "",
+        customer: "",
+        owner: clients.length > 0 ? clients[0].name : "Internal Stock",
+        priority: "normal",
+        sku: "",
+        qty: 1,
+        location: "STAGING-A"
+      });
+      setShowManual(true);
     };
     window.addEventListener("open-new-pick", handler);
     return () => window.removeEventListener("open-new-pick", handler);
@@ -227,7 +227,7 @@ export function Picking() {
     const initialConfirmed = new Set<string>();
     (task.items || []).forEach(item => {
       initialQtys[item.sku] = item.pickedQty || item.orderedQty;
-      if (item.status === 'completed' || (item.pickedQty && item.pickedQty > 0)) {
+      if (item.status === 'picked' || (item.pickedQty && item.pickedQty > 0)) {
         initialConfirmed.add(item.sku);
       }
     });
@@ -349,6 +349,39 @@ export function Picking() {
       loadData();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to create Pick Batch");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Batch Completion
+  const handleCompleteBatch = async (batch: PickBatch) => {
+    try {
+      setIsSubmitting(true);
+      const updated = await pickingService.completeBatch(batch._id);
+      toast.success(`Pick Batch ${batch.batchId} completed!`);
+      reloadBatches();
+      loadData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to complete batch");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Batch Cancellation
+  const handleCancelBatch = async (batch: PickBatch) => {
+    if (!confirm(`Are you sure you want to cancel batch ${batch.batchId}? Tasks will be reset to pending.`)) {
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      const updated = await pickingService.cancelBatch(batch._id);
+      toast.success(`Pick Batch ${batch.batchId} cancelled`);
+      reloadBatches();
+      loadData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to cancel batch");
     } finally {
       setIsSubmitting(false);
     }
@@ -660,9 +693,26 @@ export function Picking() {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-border">
-                  <button className="px-3.5 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 flex items-center gap-1">
-                    <ScanLine className="size-3.5" /> Execute Batch Pick
-                  </button>
+                  {batch.status === 'pending' || batch.status === 'in_progress' ? (
+                    <>
+                      <button
+                        onClick={() => handleCompleteBatch(batch)}
+                        className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 flex items-center gap-1"
+                      >
+                        <CheckCircle2 className="size-3.5" /> Complete Batch
+                      </button>
+                      <button
+                        onClick={() => handleCancelBatch(batch)}
+                        className="px-3.5 py-1.5 bg-destructive text-destructive-foreground rounded-lg text-xs font-bold hover:bg-destructive/90 flex items-center gap-1"
+                      >
+                        <X className="size-3.5" /> Cancel Batch
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">
+                      {batch.status === 'completed' ? 'Batch completed' : 'Batch cancelled'}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
