@@ -487,7 +487,9 @@ export const replenishmentEngine = {
 
       const responsePayload = {
         success: true,
+        reservedQty: actualQty,
         task: {
+          _id: task._id,
           id: task._id,
           taskId: task.taskId,
           status: task.status,
@@ -553,7 +555,7 @@ export const replenishmentEngine = {
    * @param {ClientSession} [externalSession=null]
    * @returns {Promise<Object>} Completion result
    */
-  async completeReplenishment(companyId, taskId, user = 'system', externalSession = null) {
+  async completeReplenishment(companyId, taskId, user = 'system', scanVerification = {}, externalSession = null) {
     const companyObjectId = typeof companyId === 'string' ? new mongoose.Types.ObjectId(companyId) : companyId;
 
     const session = externalSession || await mongoose.startSession();
@@ -561,8 +563,9 @@ export const replenishmentEngine = {
     if (ownsSession) session.startTransaction();
 
     try {
+      const isObjectId = mongoose.Types.ObjectId.isValid(taskId) && String(taskId).length === 24;
       const task = await WarehouseTask.findOne({
-        _id: taskId,
+        ...(isObjectId ? { _id: taskId } : { taskId }),
         company: companyObjectId,
         task_type: 'replenishment'
       }).session(session);
@@ -585,6 +588,30 @@ export const replenishmentEngine = {
       const owner = task.owner;
       const lotNumber = task.lot_number || 'DEFAULT-LOT';
       const warehouse = task.warehouse;
+
+      // Operator Scan Verification (RF-P07)
+      if (scanVerification && typeof scanVerification === 'object') {
+        if (scanVerification.sourceBin && sourceBin) {
+          if (scanVerification.sourceBin.trim().toUpperCase() !== sourceBin.trim().toUpperCase()) {
+            throw new Error(`Invalid source location scan: expected '${sourceBin}', got '${scanVerification.sourceBin}'`);
+          }
+        }
+        if (scanVerification.destinationBin && destBin) {
+          if (scanVerification.destinationBin.trim().toUpperCase() !== destBin.trim().toUpperCase()) {
+            throw new Error(`Invalid destination location scan: expected '${destBin}', got '${scanVerification.destinationBin}'`);
+          }
+        }
+        if (scanVerification.sku && sku) {
+          if (scanVerification.sku.trim().toUpperCase() !== sku.trim().toUpperCase()) {
+            throw new Error(`Invalid SKU scan: expected '${sku}', got '${scanVerification.sku}'`);
+          }
+        }
+        if (scanVerification.qty !== undefined && scanVerification.qty !== null) {
+          if (Number(scanVerification.qty) !== Q) {
+            throw new Error(`Invalid quantity: expected ${Q}, got ${scanVerification.qty}`);
+          }
+        }
+      }
 
       // 1. Decrement source.qtyReserved
       const sourceBal = await InventoryBalance.findOneAndUpdate(
@@ -642,8 +669,10 @@ export const replenishmentEngine = {
         { new: true, session }
       );
 
-      // 4. Update task status
+      // 4. Update task status & operator traceability (RF-P07)
       task.status = 'completed';
+      task.completed_by = user;
+      task.completed_at = new Date();
       await task.save({ session });
 
       // 5. Record InventoryTransaction

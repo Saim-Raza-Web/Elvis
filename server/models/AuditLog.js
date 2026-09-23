@@ -21,7 +21,9 @@ const auditLogSchema = new mongoose.Schema({
       'task_timeout', 
       'task_reassigned', 
       'lot_blocked', 
-      'cross_dock'
+      'cross_dock',
+      'return_decision',
+      'qc_recondition'
     ] 
   },
   

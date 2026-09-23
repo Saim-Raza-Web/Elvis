@@ -12,6 +12,7 @@ import Notification from '../models/Notification.js';
 import ActivityLog from '../models/ActivityLog.js';
 import Product from '../models/Product.js';
 import ASN from '../models/ASN.js';
+import AuditLog from '../models/AuditLog.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { putawayEngine, resolveStagingFallback } from '../services/putawayEngine.js';
 import QCProfile from '../models/QCProfile.js';
@@ -736,6 +737,229 @@ router.post('/:id/fail', requireOpsRole, async (req, res, next) => {
       message: `QC Failed for SKU ${qItem.sku}. Stock remains quarantined. No putaway task generated.`,
       quarantineItem: qItem
     });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
+
+// ── POST /api/v1/qc/:id/recondition — START RECONDITIONING WORKFLOW (RF-P17) ──
+router.post('/:id/recondition', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (!req.user?.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const { reconditionInstructions, reconditionReason, operator } = req.body;
+    
+    if (!reconditionInstructions || !reconditionInstructions.trim()) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Reconditioning instructions are required' });
+    }
+
+    const qItem = await QuarantineInventory.findOne({ _id: req.params.id, company: req.user.company }).session(session);
+
+    if (!qItem) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Quarantine record not found' });
+    }
+
+    // State Machine Lock: can only recondition from qc_failed or pending_qc
+    if (!['qc_failed', 'pending_qc', 'under_inspection'].includes(qItem.status)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Invalid status transition from '${qItem.status}' to reconditioning. Only qc_failed or pending_qc items can be reconditioned.` });
+    }
+
+    const operatorName = operator || req.user?.name || req.user?.email || 'system';
+
+    // Update status to reconditioning
+    qItem.status = 'qc_failed'; // Keep as qc_failed but with recondition flag
+    qItem.failReason = reconditionReason || 'Reconditioning Required';
+    await qItem.save({ session });
+
+    // Update inspection with reconditioning data
+    if (qItem.inspectionId) {
+      await QCInspection.findOneAndUpdate(
+        { inspectionId: qItem.inspectionId, company: req.user.company },
+        { 
+          status: 'qc_failed',
+          failReason: reconditionReason || 'Reconditioning Required',
+          // Store reconditioning metadata in dynamic fields or notes
+          notes: `RECONDITIONING - Instructions: ${reconditionInstructions}. Operator: ${operatorName}. Started: ${new Date().toISOString()}`
+        },
+        { session }
+      );
+    }
+
+    // Record audit event for reconditioning (RF-P17)
+    await AuditLog.create([{
+      event_id: 'EVT-QC-REC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      timestamp: new Date(),
+      event_type: 'qc_recondition',
+      user_id: req.user?._id,
+      user_name: operatorName,
+      lot_number: qItem.lotNumber,
+      quantity: qItem.qty,
+      reference_id: qItem.quarantineId,
+      reason_text: `Reconditioning started for SKU ${qItem.sku}: ${reconditionInstructions}`,
+      company: req.user.company
+    }], { session });
+
+    await logActivity(req, 'RECONDITIONING_STARTED', 'QC', `Reconditioning started for SKU ${qItem.sku} (${qItem.qty} units)`, session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      message: `Reconditioning workflow started for SKU ${qItem.sku}. Instructions recorded.`,
+      quarantineItem: qItem,
+      reconditioning: {
+        instructions: reconditionInstructions,
+        reason: reconditionReason,
+        operator: operatorName,
+        startedAt: new Date()
+      }
+    });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
+
+// ── POST /api/v1/qc/:id/recondition/complete — COMPLETE RECONDITIONING & FINAL INSPECTION (RF-P17) ──
+router.post('/:id/recondition/complete', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (!req.user?.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const { reconditionResult, finalInspector, finalDecision } = req.body;
+    
+    if (!finalDecision || !['approve', 'reject'].includes(finalDecision)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Final decision (approve/reject) is required' });
+    }
+
+    const qItem = await QuarantineInventory.findOne({ _id: req.params.id, company: req.user.company }).session(session);
+
+    if (!qItem) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Quarantine record not found' });
+    }
+
+    const operatorName = finalInspector || req.user?.name || req.user?.email || 'system';
+    const warehouse = qItem.warehouse || 'MIA';
+
+    if (finalDecision === 'approve') {
+      // Final approve after reconditioning - follow QC pass logic
+      const approvedQty = qItem.qty;
+      
+      // Move from qtyQuarantine -> qtyAwaitingPutaway
+      await InventoryBalance.findOneAndUpdate(
+        { company: req.user.company, warehouse, sku: qItem.sku, owner: qItem.owner, ownerType: qItem.ownerType, lotNumber: qItem.lotNumber || 'DEFAULT-LOT', bin: qItem.bin || `${warehouse}-RCV-DOCK1` },
+        { $inc: { qtyQuarantine: -approvedQty, qtyAwaitingPutaway: approvedQty } },
+        { upsert: true, new: true, session }
+      );
+
+      await InventoryTransaction.create([{
+        transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+        type: 'QC_RELEASE',
+        sku: qItem.sku,
+        warehouse,
+        qty: approvedQty,
+        lotNumber: qItem.lotNumber,
+        batchNumber: qItem.batchNumber,
+        expiryDate: qItem.expiryDate,
+        asnNumber: qItem.asnNumber || qItem.asnId,
+        referenceId: qItem.inspectionId || qItem.quarantineId,
+        user: operatorName,
+        notes: `Reconditioning completed and approved: ${reconditionResult}`,
+        company: req.user.company
+      }], { session });
+
+      // Generate putaway task
+      const putawayId = await nextPutawayNumber(req.user.company, session);
+      const putawayTask = await PutawayTask.create([{
+        taskId: putawayId,
+        qcId: qItem.inspectionId || qItem.quarantineId,
+        asnId: qItem.asnId,
+        asnNumber: qItem.asnNumber,
+        supplier: '',
+        owner: qItem.owner,
+        ownerType: qItem.ownerType || 'UNKNOWN',
+        sku: qItem.sku,
+        productName: qItem.productName,
+        warehouse,
+        qty: approvedQty,
+        lotNumber: qItem.lotNumber,
+        batchNumber: qItem.batchNumber,
+        fromLocation: qItem.bin || `${warehouse}-RCV-DOCK1`,
+        toLocation: 'Z-RECEIVING',
+        destinationBin: 'Z-RECEIVING',
+        priority: 'normal',
+        status: 'pending',
+        createdBy: operatorName,
+        company: req.user.company
+      }], { session });
+
+      qItem.status = 'awaiting_putaway';
+      await qItem.save({ session });
+
+      await logActivity(req, 'RECONDITIONING_APPROVED', 'QC', `Reconditioning approved for SKU ${qItem.sku}. Putaway task ${putawayId} created.`, session);
+
+      res.json({
+        message: `Reconditioning approved for SKU ${qItem.sku}. Stock moved to Awaiting Putaway. Putaway Task ${putawayId} created.`,
+        quarantineItem: qItem,
+        putawayTask: putawayTask[0]
+      });
+
+    } else {
+      // Final reject after reconditioning - follow QC fail logic
+      qItem.status = 'qc_failed';
+      qItem.failReason = `Reconditioning failed: ${reconditionResult}`;
+      await qItem.save({ session });
+
+      await InventoryTransaction.create([{
+        transactionId: 'TXN-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+        type: 'QC_FAIL',
+        sku: qItem.sku,
+        warehouse: qItem.warehouse || 'MIA',
+        qty: qItem.qty,
+        asnNumber: qItem.asnNumber || qItem.asnId,
+        referenceId: qItem.inspectionId || qItem.quarantineId,
+        user: operatorName,
+        company: req.user.company
+      }], { session });
+
+      await logActivity(req, 'RECONDITIONING_REJECTED', 'QC', `Reconditioning rejected for SKU ${qItem.sku}. Stock remains quarantined.`, session);
+
+      res.json({
+        message: `Reconditioning rejected for SKU ${qItem.sku}. Stock remains quarantined.`,
+        quarantineItem: qItem
+      });
+    }
+
+    await session.commitTransaction();
+    session.endSession();
 
   } catch (err) {
     await session.abortTransaction();

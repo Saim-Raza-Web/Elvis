@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Undo2, Search, AlertTriangle, Clock, DollarSign, FileText } from "lucide-react";
+import { Undo2, Search, AlertTriangle, Clock, DollarSign, FileText, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -10,7 +10,7 @@ import type { ListService } from "../../hooks/usePaginatedList";
 import { returnsService } from "../../services/returns.service";
 import { warehousesService } from "../../services/warehouses.service";
 
-type ReturnItem = { _id: string; id: string; order: string; customer: string; reason: string; items: number; amount: number; status: string; date: string; warehouse: string; returnId?: string; items_details?: any[] };
+type ReturnItem = { _id: string; id: string; order: string; customer: string; reason: string; items: number; amount: number; status: string; date: string; warehouse: string; returnId?: string; items_details?: any[]; owner?: string; ownerType?: string };
 
 function mapReturn(d: Record<string, unknown>): ReturnItem {
   return {
@@ -36,7 +36,13 @@ export function Returns() {
   const [activeReturn, setActiveReturn] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [showDecision, setShowDecision] = useState(false);
   const [form, setForm] = useState({ order: "", customer: "", reason: "", items: 1, amount: 0, warehouse: "MIA" });
+  const [decisionForm, setDecisionForm] = useState({
+    decision: 'PENDING_DECISION' as 'PENDING_DECISION' | 'RESTOCK_CLIENT' | 'RESTOCK_COMPANY' | 'INCIDENT' | 'WRITEOFF',
+    decision_reason: '',
+    writeoff_reason: ''
+  });
   const [warehouses, setWarehouses] = useState<any[]>([]);
 
   const searchLower = search.toLowerCase();
@@ -203,7 +209,7 @@ export function Returns() {
                 <td className="px-4 py-3 text-right hidden sm:table-cell text-muted-foreground text-xs">{r.date}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end items-center gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); downloadReturnNote(r); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary" title={t.common?.downloadReturnNote || "Download Return Note"}>
+                    <button onClick={(e) => { e.stopPropagation(); downloadReturnNote(r); }} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-primary" title="Download Return Note">
                       <FileText className="size-4" />
                     </button>
                     {r.status === "pending" && (
@@ -211,6 +217,9 @@ export function Returns() {
                     )}
                     {r.status === "processing" && (
                       <button onClick={(e) => { e.stopPropagation(); setActiveReturn(activeReturn === r.id ? null : r.id); }} className="px-3 py-1 border border-primary text-primary rounded-lg text-xs font-semibold hover:bg-primary/5 transition-all">Inspect Items</button>
+                    )}
+                    {(r.status === "processing" || r.status === "pending") && (
+                      <button onClick={(e) => { e.stopPropagation(); setShowDecision(true); setActiveReturn(r.id); }} className="px-3 py-1 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-all">Decision</button>
                     )}
                   </div>
                 </td>
@@ -224,9 +233,9 @@ export function Returns() {
                         <Input placeholder={t.common?.scanReturnedSKU || "Scan Returned SKU..."} id={`ret-sku-${r.id}`} className="flex-1 min-w-[200px]" />
                         <Input type="number" placeholder={t.common?.qty || "Qty"} id={`ret-qty-${r.id}`} className="w-24" />
                         <Select id={`ret-status-${r.id}`} className="w-32">
-                          <option value="restock">{t.common?.restock || "Restock"}</option>
-                          <option value="damage">{t.common?.damaged || "Damaged"}</option>
-                          <option value="disposed">{t.common?.dispose || "Dispose"}</option>
+                          <option value="restock">Restock</option>
+                          <option value="damage">Damaged</option>
+                          <option value="disposed">Dispose</option>
                         </Select>
                         <PrimaryButton onClick={() => handleQCItem(r)}>{t.common?.add || "Add"}</PrimaryButton>
                       </div>
@@ -282,6 +291,142 @@ export function Returns() {
           {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
         </Select></Field>
       </Modal>
+
+      {/* Decision Modal (RF-P11) */}
+      {showDecision && activeReturn && (() => {
+        const ret = allItems.find(r => r.id === activeReturn);
+        if (!ret) return null;
+        
+        const hasFinalDecision = ret.items_details?.some((item: any) => 
+          item.decision && item.decision !== 'PENDING_DECISION'
+        );
+
+        return (
+          <Modal
+            open={showDecision}
+            onClose={() => { setShowDecision(false); setActiveReturn(null); }}
+            title="Return Decision Engine (RF-P11)"
+            subtitle={`Return: ${ret.id} • Order: ${ret.order}`}
+            footer={
+              <div className="flex justify-end gap-2 w-full">
+                <ModalCancel onClose={() => { setShowDecision(false); setActiveReturn(null); }} />
+                {!hasFinalDecision && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (decisionForm.decision === 'WRITEOFF' && !decisionForm.writeoff_reason.trim()) {
+                        toast.error("Write-off reason is required");
+                        return;
+                      }
+                      try {
+                        // Update items_details with decision
+                        const updatedItems = ret.items_details?.map((item: any) => ({
+                          ...item,
+                          decision: decisionForm.decision,
+                          decision_reason: decisionForm.decision_reason,
+                          decision_by: 'operator',
+                          decision_date: new Date().toISOString(),
+                          incidentId: decisionForm.decision === 'INCIDENT' ? `INC-RET-${Date.now().toString().slice(-6)}` : ''
+                        })) || [];
+                        
+                        await returnsService.update(ret._id, { 
+                          items_details: updatedItems,
+                          status: 'processed'
+                        });
+                        toast.success(`Return decision recorded: ${decisionForm.decision}`);
+                        setShowDecision(false);
+                        setActiveReturn(null);
+                        setDecisionForm({ decision: 'PENDING_DECISION', decision_reason: '', writeoff_reason: '' });
+                        reload();
+                      } catch (err: any) {
+                        toast.error(err.response?.data?.message || err.message || "Failed to record decision");
+                      }
+                    }}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs transition-all"
+                  >
+                    Record Decision
+                  </button>
+                )}
+              </div>
+            }
+          >
+            <div className="space-y-4 text-xs">
+              {hasFinalDecision ? (
+                <div className="bg-purple-500/10 p-4 rounded-xl border border-purple-500/30 text-purple-600 dark:text-purple-400">
+                  <div className="font-bold flex items-center gap-1.5 mb-2">
+                    <CheckCircle2 className="size-4" /> Final Decision Already Recorded
+                  </div>
+                  <p>This return has a final decision and cannot be modified.</p>
+                  {ret.items_details?.map((item: any, idx: number) => (
+                    <div key={idx} className="mt-2 p-2 bg-white/50 rounded border border-purple-500/20">
+                      <div className="font-bold">{item.sku}</div>
+                      <div className="text-muted-foreground">Decision: {item.decision}</div>
+                      <div className="text-muted-foreground">By: {item.decision_by} • {item.decision_date ? new Date(item.decision_date).toLocaleDateString() : ''}</div>
+                      {item.decision_reason && <div className="text-muted-foreground">Reason: {item.decision_reason}</div>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="bg-secondary/20 p-4 rounded-xl border border-border space-y-3">
+                    <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Select Final Decision</h4>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: 'RESTOCK_CLIENT', label: 'Restock to Client', desc: 'Return inventory assigned to customer ownership' },
+                        { value: 'RESTOCK_COMPANY', label: 'Restock to Company', desc: 'Return inventory becomes company-owned' },
+                        { value: 'INCIDENT', label: 'Create Incident', desc: 'Link to incident record for quarantine/follow-up' },
+                        { value: 'WRITEOFF', label: 'Write Off', desc: 'Remove from inventory with write-off reason' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setDecisionForm({ ...decisionForm, decision: opt.value as any })}
+                          className={`p-3 rounded-lg border text-left transition-all ${
+                            decisionForm.decision === opt.value
+                              ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                              : 'border-border bg-card hover:border-purple-500/50'
+                          }`}
+                        >
+                          <div className="font-bold">{opt.label}</div>
+                          <div className="text-[10px] text-muted-foreground">{opt.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Field label="Decision Reason">
+                    <Input
+                      value={decisionForm.decision_reason}
+                      onChange={(e) => setDecisionForm({ ...decisionForm, decision_reason: e.target.value })}
+                      placeholder="Explain the decision rationale..."
+                    />
+                  </Field>
+
+                  {decisionForm.decision === 'WRITEOFF' && (
+                    <Field label="Write-off Reason *" required>
+                      <Input
+                        value={decisionForm.writeoff_reason}
+                        onChange={(e) => setDecisionForm({ ...decisionForm, writeoff_reason: e.target.value })}
+                        placeholder="Mandatory: explain why this stock is being written off..."
+                      />
+                    </Field>
+                  )}
+
+                  {decisionForm.decision === 'INCIDENT' && (
+                    <div className="bg-amber-500/10 p-3 rounded-lg border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs">
+                      <div className="font-bold flex items-center gap-1.5">
+                        <AlertTriangle className="size-4" /> Incident Will Be Created
+                      </div>
+                      <p>An Incident record will be automatically linked to this return.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }

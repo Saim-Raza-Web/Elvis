@@ -54,6 +54,83 @@ export async function handleExecuteLotRecall(req, res, next) {
   }
 }
 
+// GET /api/v1/lot-recalls/preview — Discover affected inventory & shipped orders (RF-P10)
+export async function handleLotRecallPreview(req, res, next) {
+  try {
+    if (!req.user || !req.user.company) {
+      return res.status(403).json({ message: 'Company context required' });
+    }
+    const { lotNumber, sku, warehouse, owner } = req.query;
+    if (!lotNumber) {
+      return res.status(400).json({ message: 'lotNumber query parameter is required' });
+    }
+
+    const [stockSummary, shippedOrders] = await Promise.all([
+      lotRecallService.getLotInventorySummary({
+        companyId: req.user.company,
+        lotNumber,
+        sku,
+        warehouse: warehouse !== undefined ? warehouse : req.context?.warehouse?.code,
+        owner
+      }),
+      lotRecallService.getShippedOrdersReport({
+        companyId: req.user.company,
+        lotNumber,
+        sku,
+        warehouse: warehouse !== undefined ? warehouse : req.context?.warehouse?.code,
+        owner
+      })
+    ]);
+
+    res.json({
+      success: true,
+      lotNumber,
+      sku: sku || 'ALL',
+      remainingStock: stockSummary.remainingStock,
+      totalAvailable: stockSummary.totalAvailable,
+      totalQuarantine: stockSummary.totalQuarantine,
+      totalReserved: stockSummary.totalReserved,
+      shippedOrders,
+      shippedOrdersCount: shippedOrders.length
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/v1/lot-recalls/shipped-report — Trace all shipped orders for recalled lot (RF-P10)
+export async function handleShippedOrdersReport(req, res, next) {
+  try {
+    if (!req.user || !req.user.company) {
+      return res.status(403).json({ message: 'Company context required' });
+    }
+    const { lotNumber, sku, warehouse, owner } = req.query;
+    if (!lotNumber) {
+      return res.status(400).json({ message: 'lotNumber query parameter is required' });
+    }
+
+    const shippedOrders = await lotRecallService.getShippedOrdersReport({
+      companyId: req.user.company,
+      lotNumber,
+      sku,
+      warehouse: warehouse !== undefined ? warehouse : req.context?.warehouse?.code,
+      owner
+    });
+
+    res.json({
+      success: true,
+      lotNumber,
+      count: shippedOrders.length,
+      shippedOrders
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.get('/preview', handleLotRecallPreview);
+router.get('/shipped-report', handleShippedOrdersReport);
+
 // POST /api/v1/lot-recalls — Execute lot recall
 router.post('/', requireOpsRole, handleExecuteLotRecall);
 

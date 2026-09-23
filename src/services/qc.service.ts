@@ -28,5 +28,13 @@ export const qcService = {
   returnToVendor: async (id: string, data: { returnReason: string; rtvAuthNumber?: string; rtvCarrier?: string }) => {
     const response = await api.post('/qc/' + id + '/return', data);
     return response.data;
+  },
+  startReconditioning: async (id: string, data: { reconditionInstructions: string; reconditionReason?: string; operator?: string }) => {
+    const response = await api.post('/qc/' + id + '/recondition', data);
+    return response.data;
+  },
+  completeReconditioning: async (id: string, data: { reconditionResult: string; finalInspector?: string; finalDecision: 'approve' | 'reject' }) => {
+    const response = await api.post('/qc/' + id + '/recondition/complete', data);
+    return response.data;
   }
 };

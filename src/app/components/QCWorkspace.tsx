@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { 
   ShieldCheck, Search, Filter, RefreshCw, CheckCircle2, XCircle, AlertTriangle, 
-  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2, Cpu
+  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2, Cpu, Wrench
 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
@@ -65,6 +65,8 @@ export function QCWorkspace() {
   const [inspectTarget, setInspectTarget] = useState<QuarantineItem | null>(null);
   const [failTarget, setFailTarget] = useState<QuarantineItem | null>(null);
   const [rtvTarget, setRtvTarget] = useState<QuarantineItem | null>(null);
+  const [reconditionTarget, setReconditionTarget] = useState<QuarantineItem | null>(null);
+  const [finalInspectionTarget, setFinalInspectionTarget] = useState<QuarantineItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Inspection Form State
@@ -92,6 +94,20 @@ export function QCWorkspace() {
     functionalCheck: true,
     serialNumbers: "",
     attachments: [] as any[]
+  });
+
+  // Reconditioning Form State (RF-P17)
+  const [reconditionForm, setReconditionForm] = useState({
+    reconditionInstructions: "",
+    reconditionReason: "",
+    operator: ""
+  });
+
+  // Final Inspection Form State (RF-P17)
+  const [finalInspectionForm, setFinalInspectionForm] = useState({
+    reconditionResult: "",
+    finalInspector: "",
+    finalDecision: "approve" as "approve" | "reject"
   });
 
   const [failReason, setFailReason] = useState("Damaged Packaging & Visual Failure");
@@ -240,6 +256,61 @@ export function QCWorkspace() {
     }
   };
 
+  // Reconditioning Start Execution (RF-P17)
+  const handleStartReconditioning = async () => {
+    if (!reconditionTarget) return;
+
+    if (!reconditionForm.reconditionInstructions.trim()) {
+      toast.error("Reconditioning instructions are required");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await qcService.startReconditioning(reconditionTarget._id, {
+        reconditionInstructions: reconditionForm.reconditionInstructions,
+        reconditionReason: reconditionForm.reconditionReason,
+        operator: reconditionForm.operator || 'operator'
+      });
+      toast.success("Reconditioning workflow started");
+      setReconditionTarget(null);
+      setReconditionForm({ reconditionInstructions: "", reconditionReason: "", operator: "" });
+      setFinalInspectionTarget(reconditionTarget);
+      reload();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to start reconditioning");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Final Inspection Execution (RF-P17)
+  const handleFinalInspection = async () => {
+    if (!finalInspectionTarget) return;
+
+    if (!finalInspectionForm.finalDecision || !['approve', 'reject'].includes(finalInspectionForm.finalDecision)) {
+      toast.error("Final decision (approve/reject) is required");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await qcService.completeReconditioning(finalInspectionTarget._id, {
+        reconditionResult: finalInspectionForm.reconditionResult,
+        finalInspector: finalInspectionForm.finalInspector,
+        finalDecision: finalInspectionForm.finalDecision
+      });
+      toast.success(`Reconditioning ${finalInspectionForm.finalDecision === 'approve' ? 'approved' : 'rejected'}`);
+      setFinalInspectionTarget(null);
+      setFinalInspectionForm({ reconditionResult: "", finalInspector: "", finalDecision: "approve" });
+      reload();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to complete final inspection");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ── KPI Stat Cards ── */}
@@ -374,6 +445,15 @@ export function QCWorkspace() {
                       )}
                       {(item.status === "qc_passed" || item.status === "qc_failed" || item.status === "returned_to_vendor") && (
                         <span className="text-[11px] text-muted-foreground font-mono">{t.status[item.status] || item.status}</span>
+                      )}
+                      {item.status === "qc_failed" && (
+                        <button
+                          type="button"
+                          onClick={() => setReconditionTarget(item)}
+                          className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-all inline-flex items-center gap-1 ml-2"
+                        >
+                          <RefreshCw className="size-3.5" /> Recondition
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -569,7 +649,7 @@ export function QCWorkspace() {
               )}
 
               {/* Electronics / Equipment QC Block (G-03) */}
-              {(productQcProfile?.includes("Electronic") || productQcProfile?.includes("Equipment") || inspectTarget?.category === "ELECTRONIC" || inspectTarget?.sku.includes("ELEC")) && (
+              {(productQcProfile?.includes("Electronic") || productQcProfile?.includes("Equipment") || inspectTarget?.sku.includes("ELEC")) && (
                 <div className="bg-purple-500/10 p-3.5 rounded-xl border border-purple-500/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
@@ -787,6 +867,165 @@ export function QCWorkspace() {
             <Field label={t.qc.returnReason}>
               <Input value={failReason} onChange={(e) => setFailReason(e.target.value)} />
             </Field>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Reconditioning Modal (RF-P17) ── */}
+      {reconditionTarget && (
+        <Modal
+          open={true}
+          onClose={() => setReconditionTarget(null)}
+          title="Reconditioning Workflow (RF-P17)"
+          subtitle={`SKU: ${reconditionTarget.sku} (${reconditionTarget.qty} units) • Status: ${reconditionTarget.status}`}
+          width="xl"
+          footer={
+            <div className="flex justify-end gap-2 w-full">
+              <ModalCancel onClose={() => setReconditionTarget(null)} />
+              <button
+                type="button"
+                onClick={handleStartReconditioning}
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Wrench className="size-4" /> Start Reconditioning
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/30 text-amber-600 dark:text-amber-400 space-y-3">
+              <h4 className="font-bold text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Wrench className="size-4" /> Reconditioning Instructions
+              </h4>
+              
+              <Field label="Reconditioning Instructions *" required>
+                <Input
+                  value={reconditionForm.reconditionInstructions}
+                  onChange={(e) => setReconditionForm({ ...reconditionForm, reconditionInstructions: e.target.value })}
+                  placeholder="Describe required reconditioning steps..."
+                />
+              </Field>
+
+              <Field label="Reconditioning Reason">
+                <Input
+                  value={reconditionForm.reconditionReason}
+                  onChange={(e) => setReconditionForm({ ...reconditionForm, reconditionReason: e.target.value })}
+                  placeholder="Why is reconditioning needed?"
+                />
+              </Field>
+
+              <Field label="Responsible Operator">
+                <Input
+                  value={reconditionForm.operator}
+                  onChange={(e) => setReconditionForm({ ...reconditionForm, operator: e.target.value })}
+                  placeholder="Operator name or ID..."
+                />
+              </Field>
+            </div>
+
+            <div className="bg-secondary/20 p-3 rounded-lg border border-border text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-muted-foreground">
+                <AlertTriangle className="size-4" /> Reconditioning Workflow
+              </div>
+              <p className="text-muted-foreground">
+                After reconditioning is complete, use the Final Inspection modal to approve (release to putaway) or reject (remain in quarantine).
+              </p>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Final Inspection Modal (RF-P17) ── */}
+      {finalInspectionTarget && (
+        <Modal
+          open={true}
+          onClose={() => setFinalInspectionTarget(null)}
+          title="Final Inspection After Reconditioning (RF-P17)"
+          subtitle={`SKU: ${finalInspectionTarget.sku} (${finalInspectionTarget.qty} units) • Reconditioning Complete`}
+          width="xl"
+          footer={
+            <div className="flex justify-end gap-2 w-full">
+              <ModalCancel onClose={() => setFinalInspectionTarget(null)} />
+              <button
+                type="button"
+                onClick={handleFinalInspection}
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="size-4" /> Submit Final Decision
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <div className="bg-secondary/20 p-4 rounded-xl border border-border space-y-3">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <ShieldCheck className="size-4" /> Final Inspection Decision
+              </h4>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFinalInspectionForm({ ...finalInspectionForm, finalDecision: 'approve' })}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    finalInspectionForm.finalDecision === 'approve'
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'border-border bg-card hover:border-emerald-500/50'
+                  }`}
+                >
+                  <div className="font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="size-4" /> Approve
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    Release to putaway. Stock becomes allocatable after physical putaway.
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFinalInspectionForm({ ...finalInspectionForm, finalDecision: 'reject' })}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    finalInspectionForm.finalDecision === 'reject'
+                      ? 'border-destructive bg-destructive/10 text-destructive'
+                      : 'border-border bg-card hover:border-destructive/50'
+                  }`}
+                >
+                  <div className="font-bold flex items-center gap-1.5">
+                    <XCircle className="size-4" /> Reject
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    Stock remains quarantined. Follow QC fail/RTV workflow.
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <Field label="Reconditioning Result">
+              <Input
+                value={finalInspectionForm.reconditionResult}
+                onChange={(e) => setFinalInspectionForm({ ...finalInspectionForm, reconditionResult: e.target.value })}
+                placeholder="Describe the reconditioning outcome..."
+              />
+            </Field>
+
+            <Field label="Final Inspector">
+              <Input
+                value={finalInspectionForm.finalInspector}
+                onChange={(e) => setFinalInspectionForm({ ...finalInspectionForm, finalInspector: e.target.value })}
+                placeholder="Inspector name or ID..."
+              />
+            </Field>
+
+            <div className="bg-secondary/20 p-3 rounded-lg border border-border text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-muted-foreground">
+                <AlertTriangle className="size-4" /> Final Decision Consequences
+              </div>
+              <p className="text-muted-foreground">
+                {finalInspectionForm.finalDecision === 'approve' 
+                  ? 'Approved stock will move to Awaiting Putaway. A putaway task will be generated.'
+                  : 'Rejected stock will remain in quarantine. RTV or disposition workflow required.'}
+              </p>
+            </div>
           </div>
         </Modal>
       )}

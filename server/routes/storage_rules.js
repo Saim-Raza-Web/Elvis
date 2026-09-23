@@ -145,6 +145,17 @@ router.post('/reorder', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: 'ruleIds array required' });
     }
 
+    // Two-phase bulk update to prevent duplicate key collisions on the unique { company, warehouse, ruleType, priority } index during priority swaps
+    const tempOps = ruleIds.map((id, idx) => ({
+      updateOne: {
+        filter: { _id: id, company: req.user.company },
+        update: { $set: { priority: -(idx + 1000) } }
+      }
+    }));
+    if (tempOps.length > 0) {
+      await Model.bulkWrite(tempOps);
+    }
+
     const bulkOps = ruleIds.map((id, idx) => ({
       updateOne: {
         filter: { _id: id, company: req.user.company },

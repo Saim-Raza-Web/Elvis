@@ -14,8 +14,19 @@ const returnSchema = new mongoose.Schema({
   warehouse: String,
   items_details: [{
     sku: String,
+    product: String,
     qty: Number,
-    qc_status: { type: String, enum: ['pending', 'restock', 'damage', 'disposed'], default: 'pending' },
+    lotNumber: { type: String, default: 'DEFAULT-LOT' },
+    qc_status: { type: String, default: 'pending' },
+    decision: {
+      type: String,
+      enum: ['PENDING_DECISION', 'RESTOCK_CLIENT', 'RESTOCK_COMPANY', 'INCIDENT', 'WRITEOFF'],
+      default: 'PENDING_DECISION'
+    },
+    decision_reason: { type: String, default: '' },
+    decision_by: { type: String, default: '' },
+    decision_date: { type: Date },
+    incidentId: { type: String, default: '' },
     notes: String
   }],
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }

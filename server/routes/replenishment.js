@@ -42,6 +42,7 @@ router.use(requireModuleAccess('inventory'));
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');
+const requireStaffOrOps = requireRole('admin', 'manager', 'warehouse_staff');
 
 // GET /api/v1/replenishment/tasks — List replenishment tasks
 router.get('/tasks', async (req, res, next) => {
@@ -104,19 +105,24 @@ router.post('/reserve', requireOpsRole, async (req, res, next) => {
   }
 });
 
-// POST /api/v1/replenishment/:id/complete — Complete physical replenishment
-router.post('/:id/complete', requireOpsRole, async (req, res, next) => {
+// POST /api/v1/replenishment/:id/complete — Complete physical replenishment (RF-P07: operators authorized)
+router.post('/:id/complete', requireStaffOrOps, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company context required' });
     }
+    const operator = req.user?.name || req.user?.email || 'operator';
     const result = await replenishmentEngine.completeReplenishment(
       req.user.company,
       req.params.id,
-      req.user?.name || 'system'
+      operator,
+      req.body || {}
     );
     res.json(result);
   } catch (err) {
+    if (err.message && (err.message.includes('Invalid') || err.message.includes('not found') || err.message.includes('already completed') || err.message.includes('cancelled') || err.message.includes('INVARIANT_VIOLATION'))) {
+      return res.status(400).json({ message: err.message });
+    }
     next(err);
   }
 });

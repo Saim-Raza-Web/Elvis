@@ -38,6 +38,9 @@ const warehouseTaskSchema = new mongoose.Schema({
   
   reference_id: { type: String }, // e.g., ASN ID, Order ID, Recall ID
 
+  completed_by: { type: String, default: '' },
+  completed_at: { type: Date },
+
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 
