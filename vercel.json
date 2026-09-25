@@ -9,12 +9,7 @@
       "schedule": "0 2 * * 0"
     }
   ],
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs20.x"
-    }
-  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api).)*", "destination": "/index.html" }
   ]
 }
