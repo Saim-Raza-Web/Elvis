@@ -10,6 +10,12 @@ const clientSchema = new mongoose.Schema({
   notes: { type: String, default: '' },
   active: { type: Boolean, default: true },
   warehouseAccess: { type: [String], default: ['MIA'] },
+  // RF-P15: Client Modalities (RECURRENT vs TEMPORAL) & 20-Day Rule
+  billingModality: { type: String, enum: ['RECURRENT', 'TEMPORAL'], default: 'TEMPORAL' },
+  firstActiveStockDate: { type: Date },
+  activeStockDays: { type: Number, default: 0 },
+  modalityConvertedAt: { type: Date },
+  modalityConversionReason: { type: String },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });
 

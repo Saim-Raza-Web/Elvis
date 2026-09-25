@@ -34,6 +34,7 @@ import { Incidents } from "./components/Incidents";
 import { StockCount } from "./components/StockCount";
 import { QCWorkspace } from "./components/QCWorkspace";
 import { PutawayQueue } from "./components/PutawayQueue";
+import { ClientPortal } from "./components/ClientPortal";
 import { authService } from "../services/auth.service";
 import { canAccessPage } from "../utils/roles";
 
@@ -190,6 +191,7 @@ function AppInner({
       case "admin": return <Admin />;
       case "incidents": return <Incidents />;
       case "stock-counts": return <StockCount />;
+      case "client-portal": return <ClientPortal />;
       default: return <Dashboard onNavigate={(p) => setCurrentPage(p as Page)} />;
     }
   }

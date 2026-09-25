@@ -27,5 +27,21 @@ export const shippingService = {
   signShipment: async (id, data) => {
     const response = await api.post('/shipping/' + id + '/sign', data);
     return response.data;
+  },
+  getMethods: async () => {
+    const response = await api.get('/shipping/methods');
+    return response.data;
+  },
+  generateLabel: async (id: string, data: any = {}) => {
+    const response = await api.post('/shipping/' + id + '/generate-label', data);
+    return response.data;
+  },
+  getTracking: async (id: string) => {
+    const response = await api.get('/shipping/' + id + '/tracking');
+    return response.data;
+  },
+  getRateQuote: async (data: any) => {
+    const response = await api.post('/shipping/rate-quote', data);
+    return response.data;
   }
 };

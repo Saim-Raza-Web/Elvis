@@ -4,7 +4,7 @@ const documentSchema = new mongoose.Schema({
   documentNumber: { type: String, required: true }, // DN-2026-000001
   type: {
     type: String,
-    enum: ['INBOUND_DELIVERY_NOTE', 'OUTBOUND_DELIVERY_NOTE', 'QC_REPORT', 'RTV_NOTE', 'PUTAWAY_MANIFEST', 'SIGNED_DELIVERY_NOTE'],
+    enum: ['INBOUND_DELIVERY_NOTE', 'OUTBOUND_DELIVERY_NOTE', 'QC_REPORT', 'RTV_NOTE', 'PUTAWAY_MANIFEST', 'SIGNED_DELIVERY_NOTE', 'SHIPPING_LABEL'],
     default: 'INBOUND_DELIVERY_NOTE'
   },
   asnId: { type: String, default: '' },

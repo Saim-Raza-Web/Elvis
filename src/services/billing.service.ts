@@ -76,5 +76,65 @@ export const billingService = {
     link.remove();
     window.URL.revokeObjectURL(url);
     return true;
+  },
+
+  // ── 3PL Billing, Rate Cards & 20-Day Rule ──
+  getRateCards: async (params: Record<string, any> = {}) => {
+    const response = await api.get('/3pl/billing/rate-cards', { params });
+    return response.data;
+  },
+  getRateCardById: async (id: string) => {
+    const response = await api.get(`/3pl/billing/rate-cards/${id}`);
+    return response.data;
+  },
+  saveRateCard: async (data: Record<string, any>) => {
+    const response = await api.post('/3pl/billing/rate-cards', data);
+    return response.data;
+  },
+  updateRateCard: async (id: string, data: Record<string, any>) => {
+    const response = await api.put(`/3pl/billing/rate-cards/${id}`, data);
+    return response.data;
+  },
+  deleteRateCard: async (id: string) => {
+    const response = await api.delete(`/3pl/billing/rate-cards/${id}`);
+    return response.data;
+  },
+  calculate3pl: async (payload: { client: string; year: number; month: number; warehouse?: string }) => {
+    const response = await api.post('/3pl/billing/calculate', payload);
+    return response.data;
+  },
+  get3plSummary: async (params: Record<string, any> = {}) => {
+    const response = await api.get('/3pl/billing/summary', { params });
+    return response.data;
+  },
+  evaluate20DayRule: async () => {
+    const response = await api.post('/3pl/billing/evaluate-20-day-rule');
+    return response.data;
+  },
+  download3plPdf: async (payload: { client: string; year: number; month: number; warehouse?: string }, filename?: string) => {
+    const response = await api.post('/3pl/billing/export/pdf', payload, { responseType: 'blob' });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename || `liquidacio-3pl-${payload.client}-${payload.year}-${payload.month}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    return true;
+  },
+  download3plCsv: async (payload: { client: string; year: number; month: number; warehouse?: string }, filename?: string) => {
+    const response = await api.post('/3pl/billing/export/csv', payload, { responseType: 'blob' });
+    const blob = new Blob([response.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename || `liquidacio-3pl-${payload.client}-${payload.year}-${payload.month}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    return true;
   }
 };

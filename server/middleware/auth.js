@@ -101,7 +101,7 @@ export const requireClientAccess = async (req, res, next) => {
 
     // Verify owner isolation for data access
     // The owner field in inventory/orders should match the client's name
-    if (req.body.owner && req.body.owner !== client.name) {
+    if (req.body?.owner && req.body.owner !== client.name) {
       return res.status(403).json({ message: 'Client 3PL users can only access their own owner data' });
     }
 

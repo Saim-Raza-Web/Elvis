@@ -18,10 +18,13 @@ import Order from '../models/Order.js';
 import JournalEntry from '../models/JournalEntry.js';
 import CompanyAccountingConfig from '../models/CompanyAccountingConfig.js';
 import { IdempotencyService } from '../services/IdempotencyService.js';
+import billing3plRoutes from './billing_3pl.js';
 
 const router = express.Router();
 
 router.use(protect);
+router.use('/3pl', billing3plRoutes);
+
 router.use(requireRole('admin', 'manager'));
 
 /** Helper: Generate atomic, sequential invoice number (INV-YYYY-XXXXX) */

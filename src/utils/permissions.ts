@@ -161,4 +161,5 @@ export const PAGE_MODULE_MAP: Record<string, PermissionModule> = {
   settings: 'settings',
   admin: 'admin',
   subscription: 'settings',
+  'client-portal': 'orders',
 };

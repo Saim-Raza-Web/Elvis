@@ -112,6 +112,10 @@ import putawayRulesRoutes from './routes/putaway_rules.js';
 import pickingRulesRoutes from './routes/picking_rules.js';
 import tasksRoutes from './routes/tasks.js';
 import overridesRoutes from './routes/overrides.js';
+import billing3plRoutes from './routes/billing_3pl.js';
+import clientPortalRoutes from './routes/client_portal.js';
+import kpiRoutes from './routes/kpi.js';
+import ediRoutes from './routes/edi.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -174,6 +178,10 @@ mountModuleRoute('/api/v1/putaway-rules', putawayRulesRoutes);
 mountModuleRoute('/api/v1/picking-rules', pickingRulesRoutes);
 mountModuleRoute('/api/v1/tasks', tasksRoutes);
 mountModuleRoute('/api/v1/overrides', overridesRoutes);
+mountModuleRoute('/api/v1/kpi', kpiRoutes);
+app.use('/api/v1/3pl/billing', billing3plRoutes);
+app.use('/api/v1/client-portal', clientPortalRoutes);
+app.use('/api/v1/edi', ediRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

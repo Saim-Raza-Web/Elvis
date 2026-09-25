@@ -586,7 +586,7 @@ router.post('/:id/pass', requireOpsRole, blockOffice, async (req, res, next) => 
       lotNumber: qItem.lotNumber
     });
 
-    const fromBinCode = qItem.bin || `${warehouse}-RCV-DOCK1`;
+    const fromBinCode = qItem.bin || qItem.receivingDock || `${warehouse}-RCV-DOCK1`; // C-01 FIX: Use actual receiving dock from QC item
 
     // RF-P01: Fall back to staging location if engine finds no valid putaway destination
     let toBinCode = proposed.proposedBin;

@@ -19,7 +19,7 @@ export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "qc" | "putaway" | "transfers" | "picking" | "packing"
   | "orders" | "purchase-orders" | "ecommerce" | "shipping" | "carriers" | "returns" | "incidents"
   | "crm" | "billing" | "accounting" | "compliance" | "reports" | "subscription" | "settings"
-  | "activity" | "admin" | "stock-counts";
+  | "activity" | "admin" | "stock-counts" | "client-portal";
 
 interface NavItem {
   id: Page;
@@ -57,6 +57,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "carriers", label: nav.carriers, icon: Building2 },
         { id: "returns", label: nav.returns, icon: Undo2 },
         { id: "incidents", label: (nav as any).incidents || "Incidents", icon: ShieldCheck },
+        { id: "client-portal", label: "Portal 3PL", icon: Building2 },
       ],
     },
     {

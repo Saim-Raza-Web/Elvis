@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { ReceiptText, Search, Plus, DollarSign, Clock, AlertCircle, CheckCircle2, Send, Download, Eye, Trash2, FileText, Check, ShieldCheck, Mail, Building, RefreshCw, Calendar } from "lucide-react";
+import { ReceiptText, Search, Plus, DollarSign, Clock, AlertCircle, CheckCircle2, Send, Download, Eye, Trash2, FileText, Check, ShieldCheck, Mail, Building, RefreshCw, Calendar, Calculator } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
@@ -10,6 +10,7 @@ import { billingService, InvoiceLine } from "../../services/billing.service";
 import { crmService, Customer } from "../../services/crm.service";
 import { inventoryService } from "../../services/inventory.service";
 import type { ListService } from "../../hooks/usePaginatedList";
+import { ThreePlBillingTab } from "./ThreePlBillingTab";
 
 type Invoice = {
   _id: string;
@@ -103,6 +104,7 @@ export function Billing() {
   const { t } = useLang();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [activeTab, setActiveTab] = useState<'invoices' | '3pl'>('invoices');
   
   // Modals & States
   const [showAdd, setShowAdd] = useState(false);
@@ -366,7 +368,37 @@ export function Billing() {
 
   return (
     <div className="space-y-6">
-      {/* Metrics Row */}
+      {/* Top Tab Bar: Invoices vs 3PL Billing */}
+      <div className="flex border-b border-border gap-2 pb-1">
+        <button
+          onClick={() => setActiveTab('invoices')}
+          className={`px-4 py-2 font-semibold text-sm rounded-t-lg transition-colors border-b-2 -mb-1 flex items-center gap-2 ${
+            activeTab === 'invoices'
+              ? 'border-primary text-primary bg-primary/5'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <ReceiptText className="size-4" />
+          Facturas Generales / Invoices
+        </button>
+        <button
+          onClick={() => setActiveTab('3pl')}
+          className={`px-4 py-2 font-semibold text-sm rounded-t-lg transition-colors border-b-2 -mb-1 flex items-center gap-2 ${
+            activeTab === '3pl'
+              ? 'border-primary text-primary bg-primary/5'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Calculator className="size-4" />
+          Tarifas 3PL y Liquidación Mensual (RF-P14 / RF-P15)
+        </button>
+      </div>
+
+      {activeTab === '3pl' ? (
+        <ThreePlBillingTab />
+      ) : (
+        <>
+          {/* Metrics Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: t.billing.totalInvoices, value: allItems.length, icon: ReceiptText, color: "text-primary" },
@@ -878,6 +910,8 @@ export function Billing() {
             </div>
           </div>
         </Modal>
+      )}
+        </>
       )}
     </div>
   );

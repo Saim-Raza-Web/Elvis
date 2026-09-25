@@ -882,7 +882,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           qty: qtyNum,
           lotNumber: lotToSave,
           batchNumber: batchToSave,
-          fromLocation: receivingBin,
+          fromLocation: receivingDockName, // C-01 FIX: Use actual receiving dock from ASN, not generic staging
           toLocation: resolvedDestinationBin,
           destinationBin: resolvedDestinationBin,
           priority: 'normal',
@@ -905,7 +905,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
         beforeQty,
         afterQty,
         warehouse,
-        receivingDock: asn.receivingDock || 'Dock 1',
+        receivingDock: receivingDockName, // C-01 FIX: Use actual receiving dock consistently
         operator,
         timestamp: new Date(),
         lotNumber: lotToSave,

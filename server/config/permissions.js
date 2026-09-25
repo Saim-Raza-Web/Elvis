@@ -173,4 +173,6 @@ export const ROUTE_MODULE_MAP = {
   'picking-rules': 'inventory',
   tasks: 'inventory',
   overrides: 'inventory',
+  kpi: 'dashboard',
+  edi: 'orders',
 };

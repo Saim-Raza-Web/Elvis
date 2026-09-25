@@ -17,6 +17,8 @@ import DigitalSignature from '../models/DigitalSignature.js';
 import Document from '../models/Document.js';
 import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
+import { carrierRegistry } from '../services/carriers/CarrierAdapterRegistry.js';
+import Carrier from '../models/Carrier.js';
 
 const router = express.Router();
 
@@ -24,6 +26,65 @@ router.use(protect); // Secure all routes by default
 
 const requireOpsRole = requireRole('admin', 'manager');
 const blockOffice = requireOfficeAccess;
+
+// ── GET /api/v1/shipping/methods — RF-P12 Carrier Methods Discovery ──
+router.get('/methods', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const registryCarriers = carrierRegistry.listAll();
+    const dbCarriers = await Carrier.find({ company: req.user.company, active: { $ne: false } }).lean();
+
+    const methods = registryCarriers.map(rc => {
+      const dbMatch = dbCarriers.find(c => c.name?.toUpperCase() === rc.code || c.code?.toUpperCase() === rc.code);
+      return {
+        id: rc.code.toLowerCase(),
+        code: rc.code,
+        name: dbMatch?.name || rc.name,
+        services: rc.supportedServices,
+        isProductionConfigured: rc.isProductionConfigured,
+        supportsInternational: rc.supportsInternational,
+        supportsTracking: rc.supportsTracking,
+        description: rc.description
+      };
+    });
+
+    res.json({
+      success: true,
+      count: methods.length,
+      methods
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/v1/shipping/rate-quote — Quote Estimated Shipping Rates ──
+router.post('/rate-quote', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const { carrier, senderPostalCode, recipientPostalCode, destinationCountry, weightKg, serviceLevel } = req.body;
+
+    const adapter = carrierRegistry.get(carrier || 'CTT');
+    const quote = await adapter.calculateRate({
+      origin: { postcode: senderPostalCode || '08020', country: 'ES' },
+      destination: { postcode: recipientPostalCode || '28001', country: destinationCountry || 'ES' },
+      destinationCountry: destinationCountry || 'ES',
+      weightKg: Number(weightKg) || 1.0,
+      serviceType: serviceLevel || 'STANDARD'
+    });
+
+    res.json({
+      carrier: adapter.carrierCode,
+      carrierName: adapter.name,
+      rate: quote.rate,
+      currency: quote.currency || 'EUR',
+      estimatedDeliveryDays: quote.estimatedDeliveryDays || 1,
+      isSandbox: quote.isSandbox || false
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET all
 router.get('/', async (req, res, next) => {
@@ -774,6 +835,199 @@ async function sendSignedDocumentEmail(shipment, signature, pdfBuffer, companyId
     console.log(`[EMAIL] Dispatched signed delivery note for ${shipment.shipmentId} to ${signature.signerEmail}`);
   }
 }
+
+// ── POST /api/v1/shipping/rate-quote — Compare Carrier Shipping Rates ──
+router.post('/rate-quote', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const { destinationCountry = 'ES', weightKg = 1.0, serviceLevel = 'STANDARD' } = req.body;
+
+    const adapters = [carrierRegistry.get('CTT'), carrierRegistry.get('CORREOS'), carrierRegistry.get('GLS'), carrierRegistry.get('DHL'), carrierRegistry.get('SEUR')];
+    const quotes = await Promise.all(
+      adapters.map(async (adapter) => {
+        try {
+          return await adapter.calculateRate({ weightKg: Number(weightKg) || 1, destinationCountry });
+        } catch (_) {
+          return null;
+        }
+      })
+    );
+
+    res.json({
+      success: true,
+      quotes: quotes.filter(Boolean)
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/v1/shipping/:id/generate-label — Auto Generate Carrier Label & Tracking ──
+router.post('/:id/generate-label', requireOpsRole, blockOffice, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+
+    const shipment = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+
+    let orderDoc = null;
+    if (shipment.order) {
+      orderDoc = await Order.findOne({ orderId: shipment.order, company: req.user.company });
+    }
+
+    const recipient = {
+      name: shipment.customer || orderDoc?.customer || 'Client Recipient',
+      street: orderDoc?.delivery_address?.street || orderDoc?.deliveryAddress?.street || 'Calle Principal 10',
+      city: orderDoc?.delivery_address?.city || orderDoc?.deliveryAddress?.city || 'Madrid',
+      postcode: orderDoc?.delivery_address?.postcode || orderDoc?.deliveryAddress?.postcode || '28001',
+      province: orderDoc?.delivery_address?.province || orderDoc?.deliveryAddress?.region || 'Madrid',
+      country: orderDoc?.delivery_address?.country || orderDoc?.deliveryAddress?.country || 'ES',
+      phone: orderDoc?.delivery_address?.phone || orderDoc?.deliveryAddress?.phone || '+34 600 000 000'
+    };
+
+    const sender = {
+      name: 'House Logistic 3PL / Central Hub',
+      address: 'Polígono Can Salvatella, Nave 4',
+      city: 'Barberà del Vallès',
+      postcode: '08210',
+      province: 'Barcelona',
+      country: 'ES'
+    };
+
+    const requestedCarrier = req.body.carrier || shipment.carrier || null;
+    const serviceLevel = req.body.serviceLevel || 'STANDARD';
+    const weightKg = Number(req.body.weightKg || shipment.weight || 1.5);
+    const parcelsCount = Number(req.body.parcelsCount || shipment.parcelsCount || 1);
+
+    const selection = await carrierRegistry.selectCarrierForShipment({
+      destinationCountry: recipient.country,
+      weightKg,
+      serviceLevel,
+      preferredCarrier: requestedCarrier
+    });
+
+    const carrierResult = await selection.adapter.createShipment({
+      shipmentId: shipment.shipmentId || String(shipment._id),
+      orderId: orderDoc?.orderId || shipment.order,
+      sender,
+      recipient,
+      weightKg,
+      serviceType: req.body.serviceType || undefined,
+      parcelsCount,
+      notes: req.body.notes || ''
+    });
+
+    shipment.tracking = carrierResult.trackingNumber;
+    shipment.carrier = carrierResult.carrierCode;
+    shipment.carrierShipmentId = carrierResult.carrierShipmentId;
+    shipment.shippingCost = carrierResult.cost;
+    shipment.labelUrl = `/api/v1/shipping/${shipment._id}/label`;
+    await shipment.save();
+
+    if (orderDoc) {
+      orderDoc.tracking = carrierResult.trackingNumber;
+      orderDoc.carrier = carrierResult.carrierCode;
+      await orderDoc.save();
+    }
+
+    const docNum = 'DOC-LABEL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    await Document.create({
+      documentNumber: docNum,
+      documentId: docNum,
+      type: 'SHIPPING_LABEL',
+      title: `Shipping Label ${carrierResult.trackingNumber} (${carrierResult.carrierName})`,
+      content: carrierResult.labelBase64,
+      mimeType: 'application/pdf',
+      company: req.user.company,
+      relatedEntity: { type: 'Shipment', id: shipment._id },
+      createdBy: req.user.name || req.user.email || 'system'
+    });
+
+    await ActivityLog.create({
+      logId: 'LOG-SHIP-LABEL-' + Date.now(),
+      action: 'GENERATE_LABEL',
+      module: 'Shipping',
+      user: req.user.email || 'system',
+      company: req.user.company,
+      detail: `Generated ${carrierResult.carrierName} label: ${carrierResult.trackingNumber} (Cost: ${carrierResult.cost} EUR)`
+    });
+
+    res.json({
+      success: true,
+      trackingNumber: carrierResult.trackingNumber,
+      carrier: carrierResult.carrierCode,
+      carrierName: carrierResult.carrierName,
+      serviceType: carrierResult.serviceType,
+      cost: carrierResult.cost,
+      currency: carrierResult.currency,
+      selectionReason: selection.reason,
+      isSandbox: carrierResult.isSandbox,
+      labelUrl: shipment.labelUrl,
+      labelBase64: carrierResult.labelBase64
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/v1/shipping/:id/label — Download Shipping Label PDF ──
+router.get('/:id/label', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const shipment = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+
+    const doc = await Document.findOne({
+      company: req.user.company,
+      'relatedEntity.id': shipment._id,
+      type: 'SHIPPING_LABEL'
+    }).sort({ createdAt: -1 });
+
+    if (doc && doc.content) {
+      const buffer = Buffer.from(doc.content, 'base64');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="label-${shipment.tracking || shipment.shipmentId}.pdf"`);
+      return res.send(buffer);
+    }
+
+    const adapter = carrierRegistry.get(shipment.carrier || 'CTT');
+    const orderDoc = shipment.order ? await Order.findOne({ orderId: shipment.order, company: req.user.company }) : null;
+    const recipient = {
+      name: shipment.customer || orderDoc?.customer || 'Recipient',
+      street: orderDoc?.delivery_address?.street || 'Address',
+      city: orderDoc?.delivery_address?.city || 'Madrid',
+      postcode: orderDoc?.delivery_address?.postcode || '28001',
+      country: orderDoc?.delivery_address?.country || 'ES'
+    };
+    const labelResult = await adapter.createShipment({
+      shipmentId: shipment.shipmentId,
+      orderId: shipment.order,
+      trackingNumber: shipment.tracking,
+      recipient
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="label-${shipment.tracking || shipment.shipmentId}.pdf"`);
+    res.send(labelResult.labelBuffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/v1/shipping/:id/tracking — Track Carrier Checkpoints ──
+router.get('/:id/tracking', async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const shipment = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    if (!shipment.tracking) return res.status(400).json({ message: 'Shipment has no tracking number assigned yet.' });
+
+    const adapter = carrierRegistry.get(shipment.carrier || 'CTT');
+    const trackingInfo = await adapter.getTrackingStatus(shipment.tracking);
+    res.json(trackingInfo);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // DELETE
 router.delete('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
