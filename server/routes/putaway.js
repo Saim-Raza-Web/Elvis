@@ -85,13 +85,13 @@ router.get('/propose-location', async (req, res, next) => {
     if (req.context && req.context.warehouses && req.context.warehouses.length > 1) {
       return res.status(400).json({ message: 'Multiple warehouses provided. This endpoint requires exactly one warehouse.' });
     }
-    const warehouse = req.context?.warehouse?.code;
+    const targetWarehouse = req.context?.warehouse?.id || req.context?.warehouse?._id || req.query.warehouse;
     const { sku, owner, qty = 1 } = req.query;
     if (!sku) return res.status(400).json({ message: 'sku query parameter is required' });
 
     const proposal = await putawayEngine.evaluatePutawayLocation({
       companyId: req.user.company,
-      warehouse: req.context.warehouse._id,
+      warehouse: targetWarehouse,
       sku: String(sku),
       owner: owner ? String(owner) : undefined,
       qty: Number(qty) || 1
@@ -203,7 +203,20 @@ router.post('/:id/assign', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: `Invalid state transition from '${task.status}' to '${targetStatus}'.` });
     }
 
-    task.assignedTo = operatorEmail || '';
+    if (operatorEmail && String(operatorEmail).trim()) {
+      const User = mongoose.model('User');
+      const userExists = await User.findOne({
+        email: String(operatorEmail).trim().toLowerCase(),
+        company: req.user.company
+      }).session(session);
+      if (!userExists && req.user.role !== 'admin') {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: `Operator '${operatorEmail}' is not a registered user for this company.` });
+      }
+    }
+
+    task.assignedTo = operatorEmail ? String(operatorEmail).trim() : '';
     task.assignedAt = operatorEmail ? new Date() : undefined;
     task.status = targetStatus;
     task.__v = (task.__v || 0) + 1;

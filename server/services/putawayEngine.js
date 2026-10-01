@@ -222,6 +222,10 @@ export const putawayEngine = {
           whCode = whDoc.code;
         }
       }
+      // If a warehouse was explicitly requested but not found, enforce an unmatchable scope
+      if (!resolvedWarehouseId) {
+        resolvedWarehouseId = new mongoose.Types.ObjectId();
+      }
     }
 
     // Resolve Customer exclusivity flag
@@ -408,17 +412,31 @@ export const putawayEngine = {
     const locQuery = { company: companyId, active: { $ne: false } };
     if (resolvedWarehouseId) locQuery.warehouse = resolvedWarehouseId;
     
-    // Explicit fixed location overrides zone targeting
+    // Explicit fixed location overrides zone targeting (must belong to requested warehouse)
     if (targetLocation) {
-      locQuery._id = targetLocation;
+      let isSameWarehouse = true;
+      if (resolvedWarehouseId) {
+        const fixedLocDoc = await Location.findOne({ _id: targetLocation, warehouse: resolvedWarehouseId, company: companyId });
+        if (!fixedLocDoc) isSameWarehouse = false;
+      }
+      if (isSameWarehouse) {
+        locQuery._id = targetLocation;
+      } else {
+        // Discard cross-warehouse targetLocation
+        locQuery._id = new mongoose.Types.ObjectId();
+      }
     } else if (targetZone) {
       locQuery.zone = targetZone;
     }
 
-    if (appliedAction === 'send_to_pick_face') {
-      locQuery.locationType = { $in: ['PICK_FACE', 'pick_face'] };
-    } else if (appliedAction === 'send_to_zone_reserve_only') {
-      locQuery.locationType = { $nin: ['PICK_FACE', 'pick_face'] }; // usually RESERVE or PALLET_RACK
+    if (!targetLocation) {
+      if (appliedAction === 'send_to_pick_face') {
+        locQuery.locationType = { $in: ['PICK_FACE', 'pick_face'] };
+      } else if (appliedAction === 'send_to_zone_reserve_only') {
+        locQuery.locationType = { $nin: ['PICK_FACE', 'pick_face', 'STAGING', 'staging', 'dispatch', 'returns', 'quarantine', 'blocked'] };
+      } else {
+        locQuery.locationType = { $nin: ['STAGING', 'staging', 'dispatch', 'returns', 'quarantine', 'blocked'] };
+      }
     }
 
     if (Array.isArray(excludedLocations) && excludedLocations.length > 0) {
@@ -436,7 +454,11 @@ export const putawayEngine = {
         status: 'WARNING',
         message: `No active locations found matching target criteria. Falling back to all warehouse locations.`
       });
-      const fallbackLocQuery = { company: companyId, active: { $ne: false } };
+      const fallbackLocQuery = {
+        company: companyId,
+        active: { $ne: false },
+        locationType: { $nin: ['STAGING', 'staging', 'dispatch', 'returns', 'quarantine', 'blocked'] }
+      };
       if (resolvedWarehouseId) fallbackLocQuery.warehouse = resolvedWarehouseId;
       if (Array.isArray(excludedLocations) && excludedLocations.length > 0) {
         const cleanEx = excludedLocations.map(c => String(c).trim().toUpperCase()).filter(Boolean);

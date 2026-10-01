@@ -405,6 +405,7 @@ export function Settings() {
                     <option value="America/New_York">{tc?.americaNewYork || "America/New_York"}</option>
                     <option value="America/Los_Angeles">{tc?.americaLosAngeles || "America/Los_Angeles"}</option>
                     <option value="Europe/London">{tc?.europeLondon || "Europe/London"}</option>
+                    <option value="Europe/Madrid">Europe/Madrid</option>
                     <option value="Europe/Paris">{tc?.europeParis || "Europe/Paris"}</option>
                     <option value="Asia/Tokyo">{tc?.asiaTokyo || "Asia/Tokyo"}</option>
                   </select>

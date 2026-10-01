@@ -42,6 +42,7 @@ lerna-debug.log*
 
 # ── Test, Verify & Forensic files (dev-only, not for production) ─────────────
 test_*.js
+!server/test_helper.js
 test_*.ps1
 test_*.txt
 test_*.cjs

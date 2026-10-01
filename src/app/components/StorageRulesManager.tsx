@@ -21,6 +21,7 @@ type StorageRule = {
   action: string;
   strategy?: string;
   targetZone?: any;
+  targetLocation?: string;
 };
 
 type Warehouse = { _id: string; code: string; name: string };
@@ -185,22 +186,43 @@ function RuleCard({ rule, onEdit, onDelete, onToggle, dragIndex, onDragStart, on
 
 const emptyCondition = (): Condition => ({ field: "product_category", operator: "is", value: "" });
 
-function RuleFormModal({ initial, onSave, onClose }: {
+function RuleFormModal({ initial, selectedWarehouse, onSave, onClose }: {
   initial?: StorageRule | null;
+  selectedWarehouse: string;
   onSave: (data: any) => Promise<void>;
   onClose: () => void;
 }) {
+  const [code, setCode] = useState(initial?.code || "");
   const [name, setName] = useState(initial?.name || "");
   const [description, setDescription] = useState(initial?.description || "");
   const [priority, setPriority] = useState(initial?.priority ?? 50);
   const [ruleType, setRuleType] = useState<"PUTAWAY"|"PICKING">(initial?.ruleType || "PUTAWAY");
   const [action, setAction] = useState(initial?.action || "send_to_zone");
+  const [targetLocation, setTargetLocation] = useState((initial as any)?.targetLocation || "");
+  const [warehouseLocations, setWarehouseLocations] = useState<any[]>([]);
   const [strategy, setStrategy] = useState(initial?.strategy || "Nearest");
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [conditions, setConditions] = useState<Condition[]>(
     initial?.conditions?.length ? initial.conditions : [emptyCondition()]
   );
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!selectedWarehouse) return;
+    const fetchLocs = async () => {
+      try {
+        const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
+        const res = await fetch(`/api/v1/locations?warehouse=${selectedWarehouse}&all=true`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        setWarehouseLocations(Array.isArray(data) ? data : (data?.data || []));
+      } catch {
+        setWarehouseLocations([]);
+      }
+    };
+    fetchLocs();
+  }, [selectedWarehouse]);
 
   const addCondition = () => setConditions(c => [...c, emptyCondition()]);
   const removeCondition = (i: number) => setConditions(c => c.filter((_, idx) => idx !== i));
@@ -209,13 +231,32 @@ function RuleFormModal({ initial, onSave, onClose }: {
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error("Rule name is required"); return; }
+    let finalCode = code.trim();
+    if (!finalCode) {
+      finalCode = `RULE-${name.trim().toUpperCase().replace(/[^A-Z0-9]/g, "-").slice(0, 15)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    }
+    if (action === "fixed_location" && !targetLocation) {
+      toast.error("Target Location is required when action is Fixed Location");
+      return;
+    }
     setSaving(true);
     try {
       const cleanConds = conditions.filter(c => c.field && c.operator).map(c => ({
         field: c.field, operator: c.operator,
         value: c.operator === "yes" || c.operator === "no" ? true : c.value,
       }));
-      await onSave({ name, description, priority: Number(priority), ruleType, action, strategy, isActive, conditions: cleanConds });
+      await onSave({
+        code: finalCode,
+        name,
+        description,
+        priority: Number(priority),
+        ruleType,
+        action,
+        strategy,
+        isActive,
+        conditions: cleanConds,
+        targetLocation: action === "fixed_location" ? targetLocation : undefined
+      });
     } finally { setSaving(false); }
   };
 
@@ -244,10 +285,17 @@ function RuleFormModal({ initial, onSave, onClose }: {
               </div>
             </div>
 
-            <div>
-              <label className="text-[11px] font-bold uppercase text-muted-foreground">Description</label>
-              <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description"
-                className="w-full mt-1 px-3 py-2 text-sm bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary" />
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-1">
+                <label className="text-[11px] font-bold uppercase text-muted-foreground">Rule Code (Auto if empty)</label>
+                <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="e.g. RULE-COLD-01"
+                  className="w-full mt-1 px-3 py-2 text-sm font-mono bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-[11px] font-bold uppercase text-muted-foreground">Description</label>
+                <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description"
+                  className="w-full mt-1 px-3 py-2 text-sm bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary" />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -266,6 +314,23 @@ function RuleFormModal({ initial, onSave, onClose }: {
                   {ACTIONS.map(a => <option key={a} value={a}>{ACTION_LABELS[a]}</option>)}
                 </select>
               </div>
+              {action === "fixed_location" && (
+                <div className="col-span-2">
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground">Target Location * ({selectedWarehouse})</label>
+                  <select
+                    value={targetLocation}
+                    onChange={e => setTargetLocation(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 text-sm bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary"
+                  >
+                    <option value="">-- Select Target Location in {selectedWarehouse} --</option>
+                    {warehouseLocations.map((loc: any) => (
+                      <option key={loc._id || loc.code} value={loc.code}>
+                        {loc.code} ({loc.locationType || loc.type || "BIN"})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-[11px] font-bold uppercase text-muted-foreground">Strategy</label>
                 <select value={strategy} onChange={e => setStrategy(e.target.value)}
@@ -574,8 +639,8 @@ export function StorageRulesManager({ isAdmin = false, compact = false }: Storag
         </div>
       )}
 
-      {showCreate && <RuleFormModal onSave={handleCreate} onClose={() => setShowCreate(false)} />}
-      {editTarget && <RuleFormModal initial={editTarget} onSave={handleUpdate} onClose={() => setEditTarget(null)} />}
+      {showCreate && <RuleFormModal selectedWarehouse={selectedWarehouse} onSave={handleCreate} onClose={() => setShowCreate(false)} />}
+      {editTarget && <RuleFormModal selectedWarehouse={selectedWarehouse} initial={editTarget} onSave={handleUpdate} onClose={() => setEditTarget(null)} />}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

@@ -216,6 +216,41 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     if (req.context && req.context.warehouse && !req.context.warehouse.invalid) {
       data.warehouse = req.context.warehouse.id;
     }
+
+    // Resolve warehouse if provided as string code
+    if (data.warehouse && !mongoose.Types.ObjectId.isValid(data.warehouse)) {
+      const Warehouse = mongoose.model('Warehouse');
+      const whDoc = await Warehouse.findOne({ code: data.warehouse, company: req.user.company });
+      if (whDoc) {
+        data.warehouse = whDoc._id;
+      }
+    }
+
+    // Auto-generate code if missing or empty
+    if (!data.code || !String(data.code).trim()) {
+      const slug = data.name ? String(data.name).trim().toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 10) : '';
+      data.code = `RULE-${slug ? `${slug}-` : ''}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    }
+
+    // Validate targetLocation if action is fixed_location or targetLocation is provided
+    if (data.targetLocation) {
+      const Location = mongoose.model('Location');
+      const locDoc = await Location.findOne({
+        company: req.user.company,
+        $or: [
+          ...(mongoose.Types.ObjectId.isValid(data.targetLocation) ? [{ _id: data.targetLocation }] : []),
+          { code: data.targetLocation }
+        ]
+      });
+      if (!locDoc) {
+        return res.status(400).json({ message: 'Target location not found for this tenant.' });
+      }
+      if (data.warehouse && String(locDoc.warehouse) !== String(data.warehouse)) {
+        return res.status(400).json({ message: `Target location belongs to warehouse ${locDoc.warehouse}, not ${data.warehouse}` });
+      }
+      data.targetLocation = locDoc._id;
+    }
+
     const item = await Model.create(data);
     res.status(201).json(item);
   } catch (err) {
@@ -227,10 +262,44 @@ router.post('/', requireOpsRole, async (req, res, next) => {
 router.put('/:id', requireOpsRole, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid rule ID' });
+    }
+    const updateData = { ...req.body };
+
+    // Resolve warehouse if provided as string code
+    if (updateData.warehouse && !mongoose.Types.ObjectId.isValid(updateData.warehouse)) {
+      const Warehouse = mongoose.model('Warehouse');
+      const whDoc = await Warehouse.findOne({ code: updateData.warehouse, company: req.user.company });
+      if (whDoc) {
+        updateData.warehouse = whDoc._id;
+      }
+    }
+
+    if (updateData.targetLocation) {
+      const Location = mongoose.model('Location');
+      const locDoc = await Location.findOne({
+        company: req.user.company,
+        $or: [
+          ...(mongoose.Types.ObjectId.isValid(updateData.targetLocation) ? [{ _id: updateData.targetLocation }] : []),
+          { code: updateData.targetLocation }
+        ]
+      });
+      if (!locDoc) {
+        return res.status(400).json({ message: 'Target location not found for this tenant.' });
+      }
+      const existing = await Model.findOne({ _id: req.params.id, company: req.user.company });
+      const ruleWarehouse = updateData.warehouse || existing?.warehouse;
+      if (ruleWarehouse && String(locDoc.warehouse) !== String(ruleWarehouse)) {
+        return res.status(400).json({ message: `Target location belongs to warehouse ${locDoc.warehouse}, not ${ruleWarehouse}` });
+      }
+      updateData.targetLocation = locDoc._id;
+    }
+
     const item = await Model.findOneAndUpdate(
-      { _id: req.params.id, company: req.user.company }, 
-      req.body, 
-      { new: true }
+      { _id: req.params.id, company: req.user.company },
+      updateData,
+      { returnDocument: 'after' }
     );
     if (!item) return res.status(404).json({ message: 'Not found' });
     res.json(item);

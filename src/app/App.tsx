@@ -46,7 +46,19 @@ export default function App() {
   const [loginMode, setLoginMode] = useState<"login" | "signup">("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [isDark, setIsDark] = useState(true);
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLangState] = useState<Lang>(() => {
+    const saved = localStorage.getItem("agy_lang") || localStorage.getItem("preferred_lang");
+    if (saved === "en" || saved === "es" || saved === "fr" || saved === "it") return saved;
+    return "es";
+  });
+
+  const setLang = (newLang: Lang) => {
+    try {
+      localStorage.setItem("agy_lang", newLang);
+      localStorage.setItem("preferred_lang", newLang);
+    } catch (_) {}
+    setLangState(newLang);
+  };
 
   // Restore session from localStorage via authService & check URL query params
   useEffect(() => {
@@ -81,7 +93,7 @@ export default function App() {
   if (screen === "home") {
     return (
       <LangProvider lang={lang}>
-        <Toaster position="bottom-right" richColors />
+        <Toaster position="bottom-right" richColors duration={2500} visibleToasts={3} closeButton />
         <HomePage
           lang={lang}
           setLang={setLang}
@@ -95,7 +107,7 @@ export default function App() {
   if (screen === "login") {
     return (
       <LangProvider lang={lang}>
-        <Toaster position="bottom-right" richColors />
+        <Toaster position="bottom-right" richColors duration={2500} visibleToasts={3} closeButton />
         <LoginPage
           lang={lang}
           setLang={setLang}
@@ -109,7 +121,7 @@ export default function App() {
 
   return (
     <LangProvider lang={lang}>
-      <Toaster position="bottom-right" richColors />
+      <Toaster position="bottom-right" richColors duration={2500} visibleToasts={3} closeButton />
       <AppInner
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}

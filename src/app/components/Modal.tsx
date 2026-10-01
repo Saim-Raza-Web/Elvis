@@ -73,7 +73,7 @@ export function Field({ label, required, children, hint, className }: FieldProps
   return (
     <div className={`space-y-1.5 ${className ?? ""}`}>
       <label className="text-sm font-semibold text-foreground">
-        {label}{required && <span className="text-destructive ml-0.5">*</span>}
+        {typeof label === 'string' ? label.replace(/\s*\*+$/, "") : label}{required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}

@@ -17,6 +17,7 @@ import { validateOwnerMaster } from '../utils/ownerValidation.js';
 import PutawayTask from '../models/PutawayTask.js';
 import Company from '../models/Company.js';
 import Warehouse from '../models/Warehouse.js';
+import Location from '../models/Location.js';
 import IdempotencyRecord from '../models/IdempotencyRecord.js';
 import { generateInboundDeliveryNote } from '../services/deliveryNoteService.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
@@ -350,6 +351,19 @@ router.get('/next-po', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET Discrepancies list
+router.get('/discrepancies', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const filter = { company: req.user.company };
+    if (req.query.warehouse) filter.warehouse = req.query.warehouse;
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.asnId) filter.asnId = req.query.asnId;
+    const items = await Discrepancy.find(filter).sort({ createdAt: -1 });
+    res.json(items);
+  } catch (err) { next(err); }
+});
+
 // GET Details by ID
 router.get('/:id', async (req, res, next) => {
   try {
@@ -376,6 +390,19 @@ router.get('/:id/history', async (req, res, next) => {
     }).sort({ timestamp: -1 });
 
     res.json(history);
+  } catch (err) { next(err); }
+});
+
+// GET all Discrepancies across company / warehouse
+router.get('/discrepancies', async (req, res, next) => {
+  try {
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+    const match = { company: req.user.company };
+    if (req.query.warehouse) match.warehouse = String(req.query.warehouse).trim();
+    if (req.query.status) match.status = String(req.query.status).trim();
+    if (req.query.asnId) match.asnId = String(req.query.asnId).trim();
+    const discrepancies = await Discrepancy.find(match).sort({ createdAt: -1 }).limit(100);
+    res.json(discrepancies);
   } catch (err) { next(err); }
 });
 
@@ -409,6 +436,41 @@ router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
     } else {
       data.poNumber = data.poNumber || data.po;
       data.po = data.po || data.poNumber;
+    }
+
+    // Warehouse validation
+    if (data.warehouse) {
+      const whQuery = {
+        company: req.user.company,
+        $or: [
+          { code: String(data.warehouse).trim() },
+          ...(mongoose.Types.ObjectId.isValid(data.warehouse) ? [{ _id: data.warehouse }] : [])
+        ]
+      };
+      const whDoc = await Warehouse.findOne(whQuery);
+      if (!whDoc) {
+        return res.status(400).json({ message: `Warehouse '${data.warehouse}' does not exist.` });
+      }
+      data.warehouse = whDoc.code;
+
+      if (data.receivingDock) {
+        const dockCode = String(data.receivingDock).trim();
+        const dockLoc = await Location.findOne({
+          company: req.user.company,
+          warehouse: whDoc._id,
+          code: dockCode
+        });
+        if (!dockLoc) {
+          const anyStaging = await Location.findOne({
+            company: req.user.company,
+            warehouse: whDoc._id,
+            $or: [{ locationType: 'STAGING' }, { type: 'STAGING' }]
+          });
+          if (!anyStaging) {
+            return res.status(400).json({ message: `Receiving dock/staging location '${dockCode}' does not exist in warehouse '${whDoc.code}'.` });
+          }
+        }
+      }
     }
 
     // H-03: ASN Product Autofill & EAN-to-SKU mapping
@@ -576,17 +638,62 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
     const operator = req.user.email || req.user.name || 'system';
     const warehouse = asn.warehouse || 'MIA';
 
+    // Resolve Warehouse document
+    const whDoc = await Warehouse.findOne({
+      company: req.user.company,
+      $or: [
+        { code: asn.warehouse || warehouse },
+        ...(mongoose.Types.ObjectId.isValid(asn.warehouse) ? [{ _id: asn.warehouse }] : [])
+      ]
+    }).session(session);
+
+    if (!whDoc) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(422).json({ message: `Warehouse '${asn.warehouse || warehouse}' does not exist.` });
+    }
+
+    // Resolve canonical staging/dock Location belonging to this warehouse
+    let stagingLoc = null;
+    if (asn.receivingDock) {
+      stagingLoc = await Location.findOne({
+        company: req.user.company,
+        warehouse: whDoc._id,
+        code: asn.receivingDock
+      }).session(session);
+    }
+
+    if (!stagingLoc) {
+      stagingLoc = await Location.findOne({
+        company: req.user.company,
+        warehouse: whDoc._id,
+        $or: [
+          { locationType: 'STAGING' },
+          { type: 'STAGING' },
+          { code: { $regex: /STAGE|STAGING|DOCK/i } }
+        ]
+      }).session(session);
+    }
+
+    if (!stagingLoc) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(422).json({
+        message: `No valid staging/dock Location found in warehouse '${whDoc.code}'. InventoryBalance cannot be created at phantom bins.`
+      });
+    }
+
+    const canonicalStagingCode = stagingLoc.code;
+    const receivingBin = canonicalStagingCode;
+    const receivingDockName = canonicalStagingCode;
+
     let totalReceivedInSession = 0;
     let hasDiscrepancyInSession = false;
 
     // Loop through submitted lines
     for (const rItem of receiveItems) {
       const { sku, qtyToReceive, damagedQty = 0, lotNumber, batchNumber, expiryDate, bin = null, zone = null } = rItem;
-      // Determine source receiving dock / staging bin vs proposed destination storage location
-      const receivingDockName = asn.receivingDock || 'Dock 1';
-      const receivingBin = `STAGING-A`;
-      const receivingZone = zone || 'Z-RECEIVING';
-
+      const receivingZone = (stagingLoc.zone ? stagingLoc.zone.toString() : zone) || 'Z-RECEIVING';
 
       const qtyNum = Number(qtyToReceive);
       if (isNaN(qtyNum) || qtyNum <= 0) {
@@ -915,12 +1022,15 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
         company: req.user.company
       }], { session });
 
-      // 4. Handle Damaged Qty Discrepancy
+      // 4. Handle Damaged Qty Discrepancy & Incident
       const dmgNum = Number(damagedQty);
       if (dmgNum > 0) {
         hasDiscrepancyInSession = true;
+        const discId = 'DISC-DMG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+        const incId = 'INC-DMG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+
         await Discrepancy.create([{
-          discrepancyId: 'DISC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+          discrepancyId: discId,
           asnId: asn.asnId || asn.asnNumber,
           asnNumber: asn.asnId || asn.asnNumber,
           sku,
@@ -931,6 +1041,29 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           difference: dmgNum,
           notes: `${dmgNum} damaged units reported for SKU ${sku}`,
           user: operator,
+          warehouse,
+          status: 'open',
+          company: req.user.company
+        }], { session });
+
+        await Incident.create([{
+          incidentId: incId,
+          type: 'Damage',
+          sku,
+          location: canonicalStagingCode,
+          warehouse,
+          asnReference: asn.poNumber || asn.po || asn.asnId,
+          asnId: asn.asnId || asn.asnNumber,
+          supplier: asn.supplier,
+          owner: itemOwner,
+          operator,
+          user: operator,
+          reported_by: operator,
+          reason: 'Damaged Goods Received',
+          module: 'Receiving',
+          timestamp: new Date(),
+          status: 'open',
+          description: `${dmgNum} damaged units reported for SKU ${sku} on ASN ${asn.asnId}`,
           company: req.user.company
         }], { session });
 
@@ -938,7 +1071,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
           company: req.user.company,
           kind: 'alert',
           title: 'Damaged Goods Reported',
-          body: `${dmgNum} damaged units reported for SKU ${sku} on ASN ${asn.asnId}.`,
+          body: `${dmgNum} damaged units reported for SKU ${sku} on ASN ${asn.asnId}. Incident ${incId} created.`,
         }]).catch(() => {});
       }
     }
@@ -948,9 +1081,19 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
       const exp = Number(item.expected_qty) || 0;
       const rec = Number(item.received_qty) || 0;
 
-      if (rec > exp) {
+      // Find damaged units for this item across all discrepancies in this ASN
+      const damagedDocs = await Discrepancy.find({
+        asnId: asn.asnId || asn.asnNumber,
+        sku: item.sku,
+        type: 'damaged',
+        company: req.user.company
+      }).session(session);
+      const damagedTotal = damagedDocs.reduce((acc, d) => acc + (d.damagedQty || 0), 0);
+      const physicallyAccounted = rec + damagedTotal;
+
+      if (physicallyAccounted > exp) {
         hasDiscrepancyInSession = true;
-        const diff = rec - exp;
+        const diff = physicallyAccounted - exp;
         const existingDisc = await Discrepancy.findOne({ asnId: asn.asnId || asn.asnNumber, sku: item.sku, type: 'over_receiving', company: req.user.company }).session(session);
         if (!existingDisc) {
           const discId = 'DISC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
@@ -963,9 +1106,12 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
             type: 'over_receiving',
             expectedQty: exp,
             receivedQty: rec,
+            damagedQty: damagedTotal,
             difference: diff,
             notes: `Over receiving of +${diff} units for SKU ${item.sku}`,
             user: operator,
+            warehouse,
+            status: 'open',
             company: req.user.company
           }], { session });
 
@@ -973,7 +1119,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
             incidentId: incId,
             type: 'Discrepancy',
             sku: item.sku,
-            location: asn.receivingDock || 'Dock 1',
+            location: canonicalStagingCode,
             reported_by: operator,
             status: 'open',
             description: `Over receiving of +${diff} units for SKU ${item.sku} on ASN ${asn.asnId}`,
@@ -982,9 +1128,9 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
 
           await logActivity(req, 'DISCREPANCY_DETECTED', 'ASN', `Over-receiving detected for SKU ${item.sku} (+${diff} units). Discrepancy ${discId} & Incident ${incId} created.`, session);
         }
-      } else if (rec < exp && (req.body.isFinalize || rec > 0)) {
-        // Track shortage if finalize requested or partial receiving recorded
-        const diff = exp - rec;
+      } else if (physicallyAccounted < exp && (req.body.isFinalize || rec > 0 || damagedTotal > 0)) {
+        // Track shortage based on physical quantity: Damaged units must NOT be double-counted as shortages!
+        const diff = exp - physicallyAccounted;
         const existingDisc = await Discrepancy.findOne({ asnId: asn.asnId || asn.asnNumber, sku: item.sku, type: 'under_receiving', company: req.user.company }).session(session);
         if (!existingDisc) {
           hasDiscrepancyInSession = true;
@@ -998,9 +1144,12 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
             type: 'under_receiving',
             expectedQty: exp,
             receivedQty: rec,
+            damagedQty: damagedTotal,
             difference: diff,
             notes: `Shortage of ${diff} units for SKU ${item.sku}`,
             user: operator,
+            warehouse,
+            status: 'open',
             company: req.user.company
           }], { session });
 
@@ -1008,7 +1157,7 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
             incidentId: incId,
             type: 'Discrepancy',
             sku: item.sku,
-            location: asn.receivingDock || 'Dock 1',
+            location: canonicalStagingCode,
             reported_by: operator,
             status: 'open',
             description: `Shortage of ${diff} units for SKU ${item.sku} on ASN ${asn.asnId}`,
@@ -1073,6 +1222,149 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
     };
 
     res.json(responsePayload);
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
+
+// ── POST /api/v1/receiving/:id/finalize-discrepancies — EXPLICIT PARTIAL RECEIPT FINALIZATION ──
+router.post('/:id/finalize-discrepancies', requireOpsRole, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (!req.user?.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const { confirmed = true, notes } = req.body;
+    if (!confirmed) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Explicit confirmation is required to finalize with discrepancies.' });
+    }
+
+    const isObjId = mongoose.Types.ObjectId.isValid(req.params.id);
+    const asn = await ASN.findOne({
+      $or: [
+        ...(isObjId ? [{ _id: req.params.id }] : []),
+        { asnId: req.params.id },
+        { asnNumber: req.params.id }
+      ],
+      company: req.user.company,
+      isDeleted: { $ne: true }
+    }).session(session);
+
+    if (!asn) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'ASN not found' });
+    }
+
+    if (asn.status === 'completed' || asn.status === 'completed_with_discrepancies' || asn.status === 'cancelled') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Cannot finalize an ASN with terminal status '${asn.status}'.` });
+    }
+
+    const operator = req.user.email || req.user.name || 'system';
+    const warehouse = asn.warehouse || 'MIA';
+
+    // Check all lines and record under_receiving discrepancies for unreceived items
+    for (const item of asn.items) {
+      const exp = Number(item.expected_qty) || 0;
+      const rec = Number(item.received_qty) || 0;
+      const damagedDocs = await Discrepancy.find({
+        asnId: asn.asnId || asn.asnNumber,
+        sku: item.sku,
+        type: 'damaged',
+        company: req.user.company
+      }).session(session);
+      const damagedTotal = damagedDocs.reduce((acc, d) => acc + (d.damagedQty || 0), 0);
+
+      const physicallyAccounted = rec + damagedTotal;
+      if (physicallyAccounted < exp) {
+        const diff = exp - physicallyAccounted;
+        const existingDisc = await Discrepancy.findOne({
+          asnId: asn.asnId || asn.asnNumber,
+          sku: item.sku,
+          type: 'under_receiving',
+          company: req.user.company
+        }).session(session);
+
+        if (!existingDisc) {
+          const discId = 'DISC-FINAL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          const incId = 'INC-FINAL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+
+          await Discrepancy.create([{
+            discrepancyId: discId,
+            asnId: asn.asnId || asn.asnNumber,
+            asnNumber: asn.asnId || asn.asnNumber,
+            sku: item.sku,
+            type: 'under_receiving',
+            expectedQty: exp,
+            receivedQty: rec,
+            damagedQty: damagedTotal,
+            difference: diff,
+            notes: notes || `Finalized with shortage of ${diff} units for SKU ${item.sku}`,
+            user: operator,
+            warehouse,
+            status: 'open',
+            company: req.user.company
+          }], { session });
+
+          await Incident.create([{
+            incidentId: incId,
+            type: 'Discrepancy',
+            sku: item.sku,
+            location: asn.receivingDock || 'Dock 1',
+            warehouse,
+            asnReference: asn.poNumber || asn.po || asn.asnId,
+            asnId: asn.asnId || asn.asnNumber,
+            supplier: asn.supplier,
+            owner: asn.owner || 'Default Owner',
+            operator,
+            user: operator,
+            reported_by: operator,
+            reason: 'Finalized with Shortage Discrepancy',
+            module: 'Receiving',
+            timestamp: new Date(),
+            status: 'open',
+            description: `Finalized partial receipt with shortage of ${diff} units for SKU ${item.sku} on ASN ${asn.asnId}`,
+            company: req.user.company
+          }], { session });
+        }
+      }
+    }
+
+    const oldStatus = asn.status;
+    asn.status = 'completed_with_discrepancies';
+    await logActivity(req, 'STATUS_CHANGE', 'ASN', `ASN ${asn.asnId} explicitly finalized with discrepancies from '${oldStatus}' to 'completed_with_discrepancies'`, session);
+
+    Notification.create([{
+      company: req.user.company,
+      kind: 'warning',
+      title: 'ASN Finalized with Discrepancies',
+      body: `ASN ${asn.asnId} (${asn.supplier}) was explicitly finalized with discrepancies by ${operator}.`,
+    }]).catch(() => {});
+
+    await generateInboundDeliveryNote(asn, req.user.company, operator, session);
+
+    const updatedAsn = await asn.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      message: `ASN ${asn.asnId} successfully finalized with discrepancies.`,
+      asn: updatedAsn,
+      status: updatedAsn.status
+    });
 
   } catch (err) {
     await session.abortTransaction();

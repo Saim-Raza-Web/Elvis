@@ -38,7 +38,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "warehouses", label: nav.warehouses, icon: Warehouse },
         { id: "locations", label: nav.locations, icon: MapPin },
         { id: "inventory", label: nav.inventory, icon: Boxes },
-        { id: "receiving", label: nav.receiving, icon: PackageCheck, badge: "3" },
+        { id: "receiving", label: nav.receiving, icon: PackageCheck },
         { id: "qc", label: (nav as any).qc || "Quality Control", icon: ShieldCheck },
         { id: "putaway", label: (nav as any).putaway || "Putaway Queue", icon: Truck },
         { id: "transfers", label: nav.transfers, icon: ArrowRightLeft },
@@ -51,7 +51,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
       label: nav.sections.commerce,
       items: [
         { id: "orders", label: nav.orders, icon: ShoppingCart },
-        { id: "purchase-orders", label: "Purchase Orders", icon: Truck },
+        { id: "purchase-orders", label: (nav as any).purchaseOrders || "Purchase Orders", icon: Truck },
         { id: "ecommerce", label: nav.ecommerce, icon: Globe },
         { id: "shipping", label: nav.shipping, icon: Truck },
         { id: "carriers", label: nav.carriers, icon: Building2 },

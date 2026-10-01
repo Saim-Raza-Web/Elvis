@@ -14,6 +14,8 @@ const discrepancySchema = new mongoose.Schema({
   receivedQty: { type: Number, default: 0 },
   damagedQty: { type: Number, default: 0 },
   difference: { type: Number, default: 0 },
+  status: { type: String, enum: ['open', 'resolved', 'investigating'], default: 'open' },
+  warehouse: { type: String },
   notes: { type: String, default: '' },
   user: { type: String, default: 'system' },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }

@@ -100,8 +100,8 @@ const blankASN = () => ({
   origin: "",
   carrier: "DHL",
   expectedDate: new Date().toISOString().split("T")[0],
-  receivingDock: "Dock 1",
-  warehouse: "MIA",
+  receivingDock: "",
+  warehouse: "",
   notes: "",
   items: [blankLine()],
   __v: undefined as number | undefined
@@ -181,6 +181,8 @@ export function Receiving() {
   const [blindReceiving, setBlindReceiving] = useState(false);
   const [skuWarnings, setSkuWarnings] = useState<Record<number, string>>({});
 
+  const [warehouseLocations, setWarehouseLocations] = useState<any[]>([]);
+
   useEffect(() => {
     clientsService.getAll().then(res => setClients(Array.isArray(res) ? res : [])).catch(() => setClients([]));
     warehousesService.getAll({ all: true }).then(res => setWarehouses(Array.isArray(res) ? res : [])).catch(() => setWarehouses([]));
@@ -189,6 +191,29 @@ export function Receiving() {
       if (res) setBlindReceiving(Boolean(res.blindReceiving));
     }).catch(() => []);
   }, []);
+
+  useEffect(() => {
+    if (!form.warehouse) {
+      setWarehouseLocations([]);
+      return;
+    }
+    const whObj = warehouses.find(w => w.code === form.warehouse || w._id === form.warehouse);
+    const whParam = whObj?.code || form.warehouse;
+    locationsService.getAll({ warehouse: whParam, all: true }).then(res => {
+      const locs = Array.isArray(res) ? res : [];
+      setWarehouseLocations(locs);
+    }).catch(() => setWarehouseLocations([]));
+  }, [form.warehouse, warehouses]);
+
+  const stagingOptions = useMemo(() => {
+    const stg = warehouseLocations.filter(l =>
+      l.locationType === 'STAGING' ||
+      l.type === 'STAGING' ||
+      /STAGE|STAGING|DOCK/i.test(l.code)
+    );
+    if (stg.length > 0) return stg.map(l => l.code);
+    return warehouseLocations.map(l => l.code);
+  }, [warehouseLocations]);
 
   const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -290,7 +315,8 @@ export function Receiving() {
 
   const handleOpenAddModal = async () => {
     const newForm = blankASN();
-    newForm.warehouse = warehouses.length > 0 ? warehouses[0].code : "MIA";
+    newForm.warehouse = warehouses.length === 1 ? warehouses[0].code : "";
+    newForm.receivingDock = "";
     const activeClients = clients.filter(c => c.active !== false);
     newForm.owner = activeClients.length > 0 ? activeClients[0].name : "Internal Stock";
     newForm.ownerType = activeClients.length > 0 && activeClients[0].name !== "Internal Stock" ? "CUSTOMER" : "COMPANY";
@@ -357,6 +383,10 @@ export function Receiving() {
 
   // Form Field Updater
   const updateFormHeader = (key: string, value: any) => {
+    if (key === "warehouse") {
+      setForm(prev => ({ ...prev, warehouse: value, receivingDock: "" }));
+      return;
+    }
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
@@ -397,9 +427,10 @@ export function Receiving() {
   const validateForm = () => {
     if (!form.supplier.trim()) return "Supplier is required.";
     if (!form.owner.trim()) return "Inventory Owner (3PL) is required.";
+    if (!form.warehouse || !form.warehouse.trim()) return "Warehouse selection is required.";
+    if (!form.receivingDock || !form.receivingDock.trim()) return "Receiving Dock / Staging Location is required.";
     if (!form.poNumber.trim()) return "Purchase Order number is required.";
     if (!form.expectedDate) return "Expected arrival date is required.";
-    if (!form.receivingDock.trim()) return "Receiving dock is required.";
     if (!form.items || form.items.length === 0) return "At least one product line is required.";
 
     for (let i = 0; i < form.items.length; i++) {
@@ -423,8 +454,8 @@ export function Receiving() {
       origin: asn.origin || "",
       carrier: asn.carrier || "DHL",
       expectedDate: asn.expectedDate ? new Date(asn.expectedDate).toISOString().split("T")[0] : (asn.expected_date ? new Date(asn.expected_date).toISOString().split("T")[0] : ""),
-      receivingDock: asn.receivingDock || "Dock 1",
-      warehouse: asn.warehouse || "MIA",
+      receivingDock: asn.receivingDock || "",
+      warehouse: asn.warehouse || "",
       notes: asn.notes || "",
       items: asn.items && asn.items.length > 0 ? asn.items.map(i => ({
         sku: i.sku || "",
@@ -711,7 +742,7 @@ export function Receiving() {
       };
 
       const result = await receivingService.receiveGoods(receiveTarget._id, payload);
-      toast.success(`Successfully received goods against ${receiveTarget.asnId || receiveTarget.asnNumber}! Stock updated.`);
+      toast.success(`Successfully received goods against ${receiveTarget.asnId || receiveTarget.asnNumber}! Placed in staging (awaiting putaway).`);
 
       setReceiveTarget(null);
       reload();
@@ -1279,17 +1310,28 @@ export function Receiving() {
               </Field>
             </Row>
             <Row>
-              <Field label={tc?.receivingDock || "Receiving Dock *"} required>
-                <Select value={form.receivingDock} onChange={(e) => updateFormHeader("receivingDock", e.target.value)}>
-                  {DOCKS.map(d => <option key={d} value={d}>{d}</option>)}
+              <Field label="Warehouse *" required hint="Select target receiving warehouse">
+                <Select
+                  value={form.warehouse}
+                  onChange={(e) => updateFormHeader("warehouse", e.target.value)}
+                >
+                  <option value="">-- Select Warehouse --</option>
+                  {(Array.isArray(warehouses) ? warehouses : []).map(w => (
+                    <option key={w._id} value={w.code}>{w.code} - {w.name}</option>
+                  ))}
                 </Select>
               </Field>
-              <Field label={tc?.expectedArrivalDate || "Expected Arrival Date *"} required>
-                <Input
-                  type="date"
-                  value={form.expectedDate}
-                  onChange={(e) => updateFormHeader("expectedDate", e.target.value)}
-                />
+              <Field label={tc?.receivingDock || "Receiving Dock *"} required hint="Staging / dock location in selected warehouse">
+                <Select
+                  value={form.receivingDock}
+                  onChange={(e) => updateFormHeader("receivingDock", e.target.value)}
+                  disabled={!form.warehouse}
+                >
+                  <option value="">-- Select Dock / Staging Location --</option>
+                  {stagingOptions.map(dock => (
+                    <option key={dock} value={dock}>{dock}</option>
+                  ))}
+                </Select>
               </Field>
             </Row>
             <Row>
@@ -1355,7 +1397,7 @@ export function Receiving() {
 
                       {/* F3-bis Autocomplete Results Dropdown */}
                       {activeSearchIdx === idx && (
-                        <div className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                        <div className="absolute z-50 left-0 min-w-[320px] sm:min-w-[420px] max-w-[500px] mt-1 bg-card border border-border rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
                           {searchLoading ? (
                             <div className="p-3 text-xs text-muted-foreground animate-pulse">Searching product catalogue...</div>
                           ) : searchResults.length > 0 ? (

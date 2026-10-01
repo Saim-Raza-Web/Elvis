@@ -13,6 +13,7 @@ import Return from '../models/Return.js';
 import Client from '../models/Client.js';
 import ExpiryAlert from '../models/ExpiryAlert.js';
 import PickTask from '../models/PickTask.js';
+import Discrepancy from '../models/Discrepancy.js';
 
 const router = express.Router();
 
@@ -158,13 +159,21 @@ router.get(['/', '/summary'], requireRole('admin', 'manager', 'management', 'off
     const completedAsns = asnsInPeriod.filter(a => a.status === 'completed' || a.status === 'completed_with_discrepancies').length;
     const pendingAsns = asnsInPeriod.filter(a => a.status === 'pending' || a.status === 'in_progress').length;
 
-    // 5. Returns & Incidents
+    // 5. Returns, Incidents & Discrepancies
     const returnMatch = { company: companyId, createdAt: { $gte: startDate, $lte: endDate } };
     const incidentMatch = { company: companyId, status: { $ne: 'resolved' } };
+    const discrepancyMatch = { company: companyId, status: { $ne: 'resolved' } };
+    if (warehouseFilter) {
+      discrepancyMatch.$or = [
+        { warehouse: warehouseFilter },
+        { asnId: { $in: asnsInPeriod.map(a => a.asnId || a.asnNumber).filter(Boolean) } }
+      ];
+    }
 
-    const [totalReturns, openIncidents, quarantineCount, expiryAlertsCount] = await Promise.all([
+    const [totalReturns, openIncidents, openDiscrepancies, quarantineCount, expiryAlertsCount] = await Promise.all([
       Return.countDocuments(returnMatch).catch(() => 0),
       Incident.countDocuments(incidentMatch).catch(() => 0),
+      Discrepancy.countDocuments(discrepancyMatch).catch(() => 0),
       QuarantineInventory.countDocuments({ company: companyId, status: 'quarantined' }).catch(() => 0),
       ExpiryAlert.countDocuments({ company: companyId, status: 'OPEN' }).catch(() => 0)
     ]);
@@ -209,6 +218,7 @@ router.get(['/', '/summary'], requireRole('admin', 'manager', 'management', 'off
       qualityAndExceptions: {
         returnsCount: totalReturns,
         openIncidents,
+        openDiscrepancies,
         quarantinedLots: quarantineCount
       }
     });

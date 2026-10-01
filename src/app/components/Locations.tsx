@@ -92,7 +92,7 @@ export function Locations() {
   // Add Location modal (LOC-03 Extended Properties & Stage 3 Weight Limits)
   const [showLoc, setShowLoc] = useState(false);
   const [locForm, setLocForm] = useState({
-    zone: "PICK-A",
+    zone: "",
     aisle: "",
     shelf: "",
     bin: "",
@@ -175,7 +175,11 @@ export function Locations() {
 
     try {
       const zonesData = await zonesService.getAll({ warehouse: selectedWarehouse });
-      setZones((zonesData as Zone[]) || []);
+      const loadedZones = (zonesData as Zone[]) || [];
+      setZones(loadedZones);
+      if (loadedZones.length > 0) {
+        setLocForm(prev => ({ ...prev, zone: prev.zone && loadedZones.some(z => z.code === prev.zone) ? prev.zone : loadedZones[0].code }));
+      }
     } catch (err) {
       console.error("Failed to load zones", err);
       toast.error(t.common?.error || "Failed to load zones");
@@ -217,12 +221,36 @@ export function Locations() {
     loadData();
   }, [selectedWarehouse]);
 
-  // Listen for header button CustomEvent
+  // Listen for header button CustomEvent — Open Add Location (Finding #16.C)
   useEffect(() => {
-    const handler = () => { setZoneForm({ code: "", name: "", type: "storage", warehouse: selectedWarehouse, locations: 10, capacity: 1000 }); setShowZone(true); };
+    const handler = () => {
+      setEditLocTarget(null);
+      setLocForm({
+        zone: zones[0]?.code || "",
+        aisle: "",
+        shelf: "",
+        bin: "",
+        sku: "",
+        product: "",
+        capacity: 100,
+        locationType: "PALLET",
+        tempMin: 15,
+        tempMax: 25,
+        palletCapacity: 1,
+        boxCapacity: 50,
+        weightCapacity: 1000,
+        max_weight_kg: "",
+        level_weight_limit: "",
+        allowedOwners: "",
+        active: true,
+        allowed_manufacturers: "",
+        allowed_families: ""
+      });
+      setShowLoc(true);
+    };
     window.addEventListener("open-add-location", handler);
     return () => window.removeEventListener("open-add-location", handler);
-  }, [selectedWarehouse]);
+  }, [selectedWarehouse, zones]);
 
   const toggleSelectLoc = (id: string) => {
     setSelectedLocIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);

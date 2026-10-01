@@ -141,7 +141,7 @@ export function PutawayQueue() {
   };
 
   // Open Execute Modal
-  const openExecuteModal = (task: PutawayTask) => {
+  const openExecuteModal = async (task: PutawayTask) => {
     setSelectedTask(task);
     setScannedTaskBarcode("");
     setScannedBinBarcode("");
@@ -152,6 +152,19 @@ export function PutawayQueue() {
     setSkuError(null);
     setSelectedBin(""); // MUST START COMPLETELY EMPTY!
     setActiveOverrideId(null);
+
+    // Finding #8: Ensure lifecycle assigned -> start -> in_progress -> complete
+    if (task.status === "assigned" || task.status === "pending") {
+      try {
+        const startRes = await putawayService.start(task._id);
+        if (startRes?.task) {
+          setSelectedTask(startRes.task);
+        }
+      } catch (err: any) {
+        console.warn("Could not transition task to in_progress on open:", err?.message);
+      }
+    }
+
     setExecuteModalOpen(true);
     loadLocations();
   };

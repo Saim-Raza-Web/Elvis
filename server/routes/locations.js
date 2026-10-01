@@ -181,9 +181,12 @@ router.post('/', requireOpsRole, async (req, res, next) => {
     if (maxWeightKg !== undefined) locationData.max_weight_kg = maxWeightKg;
     if (levelWeightLimit !== undefined) locationData.level_weight_limit = levelWeightLimit;
 
-    if (resolvedZoneId) {
+    if (req.body.zone && String(req.body.zone).trim()) {
+      if (!resolvedZoneId) {
+        return res.status(400).json({ message: `Invalid zone: '${req.body.zone}' not found in warehouse '${warehouseCode}'.` });
+      }
       locationData.zone = resolvedZoneId;
-    } else if (req.body.zone && !mongoose.Types.ObjectId.isValid(req.body.zone)) {
+    } else {
       delete locationData.zone;
     }
 

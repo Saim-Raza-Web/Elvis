@@ -102,12 +102,19 @@ export function Warehouses() {
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: t.warehouses.totalWarehouses, value: allItems.length, icon: Warehouse, color: "text-primary" },
-          { label: t.status.active, value: allItems.filter((w) => w.status === "active").length, icon: TrendingUp, color: "text-success" },
-          { label: t.warehouses.totalCapacity, value: `${(allItems.reduce((a, w) => a + w.capacity, 0) / 1000).toFixed(0)}k units`, icon: Package, color: "text-blue-500" },
-          { label: t.warehouses.overallUtil, value: allItems.length ? `${Math.round(allItems.reduce((a, w) => a + (w.used || 0), 0) / allItems.reduce((a, w) => a + w.capacity, 0) * 100)}%` : "0%", icon: TrendingUp, color: "text-amber-500" },
-        ].map((s, i) => (
+        {(() => {
+          const totalCap = allItems.reduce((a, w) => a + (Number(w.capacity) || 0), 0);
+          const totalUsed = allItems.reduce((a, w) => a + (Number(w.used) || 0), 0);
+          const overallUtil = totalCap > 0 ? `${Math.min(100, Math.round((totalUsed / totalCap) * 100))}%` : "0%";
+          const capDisplay = totalCap >= 1000 ? `${(totalCap / 1000).toFixed(0)}k units` : `${totalCap} units`;
+
+          return [
+            { label: t.warehouses.totalWarehouses, value: allItems.length, icon: Warehouse, color: "text-primary" },
+            { label: t.status.active, value: allItems.filter((w) => w.status === "active").length, icon: TrendingUp, color: "text-success" },
+            { label: t.warehouses.totalCapacity, value: capDisplay, icon: Package, color: "text-blue-500" },
+            { label: t.warehouses.overallUtil, value: overallUtil, icon: TrendingUp, color: "text-amber-500" },
+          ];
+        })().map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
             <div className="font-bold" style={{ fontSize: "1.5rem", fontFamily: "JetBrains Mono, monospace" }}>{s.value}</div>
@@ -127,7 +134,9 @@ export function Warehouses() {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {warehouses.map((w, i) => {
-          const pct = w.capacity > 0 ? Math.round(((w.used || 0) / w.capacity) * 100) : 0;
+          const cap = Number(w.capacity) || 0;
+          const used = Number(w.used) || 0;
+          const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
           const barColor = pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-success";
           return (
             <div key={w._id} className="rounded-xl border border-border bg-card p-5 hover-lift animate-pop-in" style={{ animationDelay: `${i * 50}ms` }}>
