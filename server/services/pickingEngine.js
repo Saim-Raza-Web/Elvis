@@ -491,10 +491,10 @@ export const pickingEngine = {
         );
 
         if (reservedDoc) {
-          // --- DEDUCT ALLOCATABLE AGGREGATE ON PRODUCT ---
+          // --- DEDUCT ALLOCATABLE AGGREGATE ON PRODUCT AND INCREMENT RESERVED ---
           const productUpdate = await Product.findOneAndUpdate(
             { sku: rec.sku, company: companyId },
-            { $inc: { qty_available: -pickQty } },
+            { $inc: { qty_available: -pickQty, qty_reserved: pickQty } },
             { returnDocument: 'after', session }
           );
 

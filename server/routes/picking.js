@@ -202,6 +202,44 @@ router.get('/batches', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── MANUAL CREATE Pick Task (S2 Fix) ──
+router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (!req.user || !req.user.company) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const taskData = { ...req.body, company: req.user.company };
+    // G-01: Owner Validation for manual creation
+    const explicitOwner = (taskData.owner || '').trim();
+    if (explicitOwner && explicitOwner !== 'Internal Stock') {
+      const { validateOwnerMaster } = await import('../utils/ownerValidation.js');
+      const ownerError = await validateOwnerMaster(explicitOwner, 'CUSTOMER', req.user.company);
+      if (ownerError) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(422).json({ message: ownerError });
+      }
+    }
+
+    const newTask = await PickTask.create([taskData], { session });
+
+    await logActivity(req, 'CREATE', 'PICKING', `Manual Pick Task ${newTask[0].taskId} created for Order ${newTask[0].orderId}`, session);
+
+    await session.commitTransaction();
+    session.endSession();
+    res.status(201).json(newTask[0]);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
+
 // ── CREATE a Pick Batch (STRICT OWNER ISOLATION ENFORCED + DUPLICATE ASSIGNMENT PREVENTION + ROUTE OPTIMIZATION) ──
 router.post('/batches', requireOpsRole, async (req, res, next) => {
   const session = await mongoose.startSession();

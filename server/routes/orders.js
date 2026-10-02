@@ -14,6 +14,7 @@ import { pickingEngine } from '../services/pickingEngine.js';
 import mongoose from 'mongoose';
 import Company from '../models/Company.js';
 import { validateOwnerMaster } from '../utils/ownerValidation.js';
+import Product from '../models/Product.js';
 
 const router = express.Router();
 router.use(protect);
@@ -224,6 +225,23 @@ router.put('/:id', requireOpsRole, async (req, res, next) => {
     // Only allow status update if explicitly provided; otherwise keep existing
     if (!allowedUpdate.status) allowedUpdate.status = existing.status;
 
+    // G-01: Centralized 3PL Owner Validation for updates
+    if (allowedUpdate.owner !== undefined) {
+      const explicitOwner = (allowedUpdate.owner || '').trim();
+      if (allowedUpdate.ownerType === 'CUSTOMER' || (explicitOwner && explicitOwner !== 'Internal Stock')) {
+        const ownerTypeToCheck = allowedUpdate.ownerType || existing.ownerType || 'CUSTOMER';
+        const ownerError = await validateOwnerMaster(explicitOwner, ownerTypeToCheck, req.user.company);
+        if (ownerError) {
+          return res.status(422).json({ message: ownerError });
+        }
+        allowedUpdate.owner = explicitOwner;
+        allowedUpdate.ownerType = 'CUSTOMER';
+      } else {
+        allowedUpdate.owner = explicitOwner || 'Internal Stock';
+        allowedUpdate.ownerType = 'COMPANY';
+      }
+    }
+
     Object.assign(existing, allowedUpdate);
     const updated = await existing.save(); // triggers pre-save hook for totals
 
@@ -304,13 +322,16 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
     if (requestedQty <= 0) continue; // Skip lines that are already fully fulfilled
 
     try {
+      const productDoc = await Product.findOne({ sku: skuClean, company: companyId }).session(session).lean();
+      const pickStrategy = productDoc && productDoc.fefo ? 'FEFO' : 'FIFO';
+
       const allocationResult = await pickingEngine.evaluatePickAllocation({
         companyId,
         warehouse: order.warehouse,
         sku: skuClean,
         qtyNeeded: requestedQty,
         owner: taskOwner,
-        strategy: 'FIFO', // Changed from FEFO to FIFO (RF-P08)
+        strategy: pickStrategy,
         session
       });
 

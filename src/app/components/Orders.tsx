@@ -550,6 +550,8 @@ export function Orders() {
     setEditTarget(o);
     setForm({
       customer: o.customer || "",
+      owner: o.owner || "Internal Stock",
+      ownerType: o.ownerType || "COMPANY",
       email: o.email || "",
       order_type: o.order_type || "B2C",
       channel: o.channel || "web",
