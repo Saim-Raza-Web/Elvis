@@ -962,17 +962,13 @@ router.post('/:id/receive', requireOpsRole, async (req, res, next) => {
 
         let resolvedDestinationBin = proposed.proposedBin;
         if (!resolvedDestinationBin) {
-          try {
-            resolvedDestinationBin = await resolveStagingFallback(req.user.company, warehouse);
-          } catch (stagingErr) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(422).json({
-              message: `RF-P01: ${stagingErr.message}`,
-              sku,
-              warehouse
-            });
-          }
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(422).json({
+            message: `RF-P01: No valid destination bin found for SKU ${sku} (Warehouse: ${warehouse}). Putaway task cannot be created without a valid destination. Please configure valid storage locations or bins.`,
+            sku,
+            warehouse
+          });
         }
 
         const putawayId = await nextPutawayNumber(req.user.company, session);

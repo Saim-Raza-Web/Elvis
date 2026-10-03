@@ -57,7 +57,7 @@ router.get('/', async (req, res, next) => {
     const locationCodes = (result.data || result).map((l) => l.code || l.bin);
     const balances = await InventoryBalance.aggregate([
       { $match: { company: req.user.company, bin: { $in: locationCodes } } },
-      { $group: { _id: '$bin', totalQty: { $sum: '$qtyAvailable' }, skus: { $addToSet: '$sku' }, owners: { $addToSet: '$owner' } } }
+      { $group: { _id: '$bin', totalQty: { $sum: { $add: [{ $ifNull: ['$qtyAvailable', 0] }, { $ifNull: ['$qtyReserved', 0] }, { $ifNull: ['$qtyQuarantine', 0] }, { $ifNull: ['$qtyAwaitingPutaway', 0] }] } }, skus: { $addToSet: '$sku' }, owners: { $addToSet: '$owner' } } }
     ]);
     const balanceMap = {};
     for (const b of balances) balanceMap[b._id] = b;

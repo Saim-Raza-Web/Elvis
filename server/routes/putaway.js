@@ -622,6 +622,27 @@ router.post('/:id/complete', requireOpsRole, blockOffice, async (req, res, next)
       return res.status(400).json({ message: `Inventory Invariant Violation: Insufficient stock awaiting putaway at '${sourceBinCode}'. Available: ${availableToPutaway}, Required: ${qty}.` });
     }
 
+    // N4: FEFO Validation against physical Source Balance
+    const prodDoc = await Product.findOne({ sku: task.sku, company: req.user.company }).session(session);
+    if (prodDoc && prodDoc.fefo) {
+      if (!req.body.expiryDate && !task.expiryDate && !sourceBalance.expiryDate) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: `Product is flagged as FEFO. Expiry Date is mandatory.` });
+      }
+      
+      const providedExpiry = req.body.expiryDate || task.expiryDate;
+      if (providedExpiry && sourceBalance.expiryDate) {
+        const reqDate = new Date(providedExpiry).toISOString().slice(0,10);
+        const srcDate = new Date(sourceBalance.expiryDate).toISOString().slice(0,10);
+        if (reqDate !== srcDate) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({ message: `FEFO Expiry Date mismatch. Requested: ${reqDate}, Physical: ${srcDate}.` });
+        }
+      }
+    }
+
     const operator = req.user.email || req.user.name || 'system';
 
     // 3. Deduct qtyAwaitingPutaway from Source Location in InventoryBalance
@@ -893,6 +914,7 @@ router.post('/:id/complete', requireOpsRole, blockOffice, async (req, res, next)
         asnNumber: task.asnNumber,
         supplier: task.supplier,
         owner: taskOwner,
+        ownerType: task.ownerType,
         sku: task.sku,
         productName: task.productName,
         warehouse: task.warehouse,

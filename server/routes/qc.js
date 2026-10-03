@@ -16,6 +16,7 @@ import AuditLog from '../models/AuditLog.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { putawayEngine, resolveStagingFallback } from '../services/putawayEngine.js';
 import QCProfile from '../models/QCProfile.js';
+import Incident from '../models/Incident.js';
 
 const router = express.Router();
 router.use(protect);
@@ -244,63 +245,77 @@ router.post('/', requireOpsRole, blockOffice, async (req, res, next) => {
       return res.status(400).json({ message: `Invalid status transition from '${qItem.status}' to 'under_inspection'.` });
     }
 
-    const qcId = await nextQcNumber(req.user.company, session);
-    const inspector = req.user.email || req.user.name || 'system';
-
-    qItem.status = 'under_inspection';
-    qItem.inspectionId = qcId;
-    await qItem.save({ session });
-
-    // G-03: Resolve QC Profile for dynamic field initialization
-    // Look up the product to find its qc_profile name, then resolve to a QCProfile document
+    let inspectionDoc = await QCInspection.findOne({ quarantineId, company: req.user.company }).session(session);
     let resolvedProfileId = null;
     let resolvedProfileName = '';
-    let initialDynamicFields = {};
+    const inspector = req.user.email || req.user.name || 'system';
 
-    const productDoc = await Product.findOne({ sku: qItem.sku, company: req.user.company }).session(session);
-    if (productDoc && productDoc.qc_profile) {
-      const profileDoc = await QCProfile.findOne({
-        name: productDoc.qc_profile,
-        company: req.user.company
-      }).session(session);
+    if (inspectionDoc) {
+      // Reuse existing inspection
+      qItem.status = 'under_inspection';
+      qItem.inspectionId = inspectionDoc.inspectionId;
+      await qItem.save({ session });
+      
+      inspectionDoc.status = 'under_inspection';
+      inspectionDoc.inspectionDate = new Date();
+      inspectionDoc.inspector = inspector;
+      await inspectionDoc.save({ session });
+    } else {
+      // Create new inspection
+      const qcId = await nextQcNumber(req.user.company, session);
 
-      if (profileDoc) {
-        resolvedProfileId = profileDoc._id;
-        resolvedProfileName = profileDoc.name;
-        // Initialize each required field in the profile as null so inspectors see the full checklist
-        for (const field of (profileDoc.fields || [])) {
-          initialDynamicFields[field.name] = null;
+      qItem.status = 'under_inspection';
+      qItem.inspectionId = qcId;
+      await qItem.save({ session });
+
+      // G-03: Resolve QC Profile for dynamic field initialization
+      let initialDynamicFields = {};
+      const productDoc = await Product.findOne({ sku: qItem.sku, company: req.user.company }).session(session);
+      if (productDoc && productDoc.qc_profile) {
+        const profileDoc = await QCProfile.findOne({
+          name: productDoc.qc_profile,
+          company: req.user.company
+        }).session(session);
+
+        if (profileDoc) {
+          resolvedProfileId = profileDoc._id;
+          resolvedProfileName = profileDoc.name;
+          for (const field of (profileDoc.fields || [])) {
+            initialDynamicFields[field.name] = null;
+          }
         }
       }
+
+      const created = await QCInspection.create([{
+        inspectionId: qcId,
+        quarantineId: qItem.quarantineId,
+        asnId: qItem.asnId,
+        asnNumber: qItem.asnNumber,
+        sku: qItem.sku,
+        productName: qItem.productName,
+        warehouse: qItem.warehouse,
+        qty: qItem.qty,
+        lotNumber: qItem.lotNumber,
+        batchNumber: qItem.batchNumber,
+        expiryDate: qItem.expiryDate,
+        inspector,
+        inspectionDate: new Date(),
+        status: 'under_inspection',
+        qcProfileId: resolvedProfileId || undefined,
+        qcProfileName: resolvedProfileName,
+        dynamicFields: initialDynamicFields,
+        company: req.user.company
+      }], { session });
+      
+      inspectionDoc = created[0];
     }
 
-    const inspection = await QCInspection.create([{
-      inspectionId: qcId,
-      quarantineId: qItem.quarantineId,
-      asnId: qItem.asnId,
-      asnNumber: qItem.asnNumber,
-      sku: qItem.sku,
-      productName: qItem.productName,
-      warehouse: qItem.warehouse,
-      qty: qItem.qty,
-      lotNumber: qItem.lotNumber,
-      batchNumber: qItem.batchNumber,
-      expiryDate: qItem.expiryDate,
-      inspector,
-      inspectionDate: new Date(),
-      status: 'under_inspection',
-      qcProfileId: resolvedProfileId || undefined,
-      qcProfileName: resolvedProfileName,
-      dynamicFields: initialDynamicFields,
-      company: req.user.company
-    }], { session });
-
-    await logActivity(req, 'QC_STARTED', 'QC', `Started inspection ${qcId} for SKU ${qItem.sku} (${qItem.qty} units)${resolvedProfileName ? ` using profile "${resolvedProfileName}"` : ''}`, session);
+    await logActivity(req, 'QC_STARTED', 'QC', `Started inspection ${inspectionDoc.inspectionId} for SKU ${qItem.sku} (${qItem.qty} units)${resolvedProfileName ? ` using profile "${resolvedProfileName}"` : ''}`, session);
 
     await session.commitTransaction();
     session.endSession();
 
-    res.status(201).json({ quarantineItem: qItem, inspection: inspection[0] });
+    res.status(201).json({ quarantineItem: qItem, inspection: inspectionDoc });
 
   } catch (err) {
     await session.abortTransaction();
@@ -536,6 +551,25 @@ router.post('/:id/pass', requireOpsRole, blockOffice, async (req, res, next) => 
         ownerType: qItem.ownerType,
         status: 'qc_failed',
         failReason: `Partial Rejection from ${qItem.quarantineId}`,
+        company: req.user.company
+      }], { session });
+
+      const incidentId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+      await Incident.create([{
+        incidentId,
+        type: 'QC Failure',
+        sku: qItem.sku,
+        warehouse,
+        asnReference: qItem.asnNumber,
+        asnId: qItem.asnId,
+        owner: qItem.owner,
+        user: operator,
+        operator: operator,
+        reported_by: operator,
+        reason: notes || 'QC Inspection Rejection',
+        module: 'QC',
+        status: 'open',
+        description: `Rejected ${rejectedQty} units during QC inspection ${qItem.inspectionId || qItem.quarantineId}. Route to: ${rejectionDestination || 'Quarantine'}`,
         company: req.user.company
       }], { session });
     }
