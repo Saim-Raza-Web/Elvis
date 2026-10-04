@@ -37,6 +37,9 @@ type Order = {
   // Lines
   product_lines?: ProductLine[];
   delivery_note_number?: string;
+  // Owner
+  owner?: string;
+  ownerType?: string;
 };
 
 const statusFilters = ["All", "pending", "processing", "shipped", "delivered", "cancelled"];
@@ -544,7 +547,7 @@ export function Orders() {
   useEffect(() => {
     window.addEventListener("open-new-order", openAdd);
     return () => window.removeEventListener("open-new-order", openAdd);
-  }, [warehouses]);
+  }, [warehouses, clientsList]);
 
   function openEdit(o: Order) {
     setEditTarget(o);
