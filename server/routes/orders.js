@@ -263,17 +263,19 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
     throw new Error(`Cannot release order ${order.orderId} to fulfillment: Order contains 0 product lines.`);
   }
 
-  // G-01: Central Client/Owner Master Enforcement for B2B Outbound Release
+  // G-01: Central Client/Owner Master Enforcement for Outbound Release
   let taskOwner = 'Internal Stock';
   let ownerType = 'COMPANY';
 
-  if (order.order_type === 'B2B') {
-    const explicitOwner = (order.owner || '').trim();
-    const explicitOwnerType = order.ownerType;
+  const explicitOwner = (order.owner || '').trim();
+  const explicitOwnerType = order.ownerType;
+
+  if (explicitOwner || order.order_type === 'B2B') {
+    const errorPrefix = order.order_type === 'B2B' ? 'B2B Order Release Rejected' : 'Order Release Rejected';
 
     // If explicit ownerType is CUSTOMER, owner cannot be missing
     if (explicitOwnerType === 'CUSTOMER' && !explicitOwner) {
-      const err = new Error('B2B Order Release Rejected: Owner (3PL) is required when ownerType is CUSTOMER.');
+      const err = new Error(`${errorPrefix}: Owner (3PL) is required when ownerType is CUSTOMER.`);
       err.status = 422;
       throw err;
     }
@@ -289,7 +291,7 @@ export async function ensurePickTaskForOrder(order, userCompany, session) {
         // Enforce validation against Client master for CUSTOMER ownerType
         const ownerError = await validateOwnerMaster(explicitOwner, 'CUSTOMER', companyId);
         if (ownerError) {
-          const err = new Error(`B2B Order Release Rejected: ${ownerError}`);
+          const err = new Error(`${errorPrefix}: ${ownerError}`);
           err.status = 422;
           throw err;
         }
