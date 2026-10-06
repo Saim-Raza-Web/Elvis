@@ -1,18 +1,20 @@
 import crypto from 'crypto';
 import axios from 'axios';
 import { BaseIntegrationProvider } from './BaseIntegrationProvider.js';
+import { AmazonConfig } from './AmazonConfig.js';
+import { AmazonSPApiClient } from './AmazonSPApiClient.js';
 
 export class AmazonProvider extends BaseIntegrationProvider {
   constructor() {
     super('AMAZON', 'Amazon Selling Partner (SP-API)');
-    this.appId = process.env.AMAZON_APP_ID || '';
-    this.lwaClientId = process.env.AMAZON_LWA_CLIENT_ID || '';
-    this.lwaClientSecret = process.env.AMAZON_LWA_CLIENT_SECRET || '';
-    this.spApiEndpoint = process.env.AMAZON_SP_API_ENDPOINT || 'https://sellingpartnerapi-eu.amazon.com';
+    const creds = AmazonConfig.getAppCredentials();
+    this.appId = creds.appId;
+    this.lwaClientId = creds.lwaClientId;
+    this.lwaClientSecret = creds.lwaClientSecret;
   }
 
   isProductionConfigured() {
-    return Boolean(this.appId && this.lwaClientId && this.lwaClientSecret);
+    return AmazonConfig.isProductionConfigured();
   }
 
   getProviderInfo() {
@@ -109,9 +111,13 @@ export class AmazonProvider extends BaseIntegrationProvider {
   /**
    * Handles Amazon LWA OAuth code exchange for access & refresh tokens.
    */
-  async handleOAuthCallback({ code, state, query = {}, isSandbox = false }) {
+  async handleOAuthCallback({ code, state, query = {}, body = {}, extra = {}, isSandbox = false }) {
     const oauthCode = code || query.spapi_oauth_code;
     const sellerId = query.selling_partner_id || query.sellerId || 'A_AMAZON_SELLER';
+
+    // Validate selected site from OAuth state
+    const siteId = (extra.sites && extra.sites.length > 0) ? extra.sites[0] : 'ES';
+    const marketplace = AmazonConfig.getMarketplace(siteId);
 
     let accessToken = '';
     let refreshToken = '';
@@ -143,8 +149,10 @@ export class AmazonProvider extends BaseIntegrationProvider {
       scopes: ['sellingpartnerapi::orders', 'sellingpartnerapi::catalog_items', 'sellingpartnerapi::inventory'],
       metadata: {
         sellerId,
-        marketplaceId: 'A1RKKUPIHCS9HS', // Amazon Spain / EU
-        region: 'eu-west-1'
+        marketplaceId: marketplace.marketplaceId,
+        region: marketplace.region,
+        endpoint: marketplace.endpoint,
+        siteCode: marketplace.countryCode
       }
     };
   }
@@ -186,76 +194,191 @@ export class AmazonProvider extends BaseIntegrationProvider {
     return { isValid: true };
   }
 
+  _getClient(store) {
+    const getMeta = (key) => store.metadata?.get ? store.metadata.get(key) : store.metadata?.[key];
+    return new AmazonSPApiClient({
+      marketplace: {
+        marketplaceId: getMeta('marketplaceId'),
+        region: getMeta('region'),
+        endpoint: getMeta('endpoint'),
+        countryCode: getMeta('siteCode'),
+        sellerId: getMeta('sellerId') || store.externalStoreId // Seller ID from connected store
+      },
+      accessToken: store.getAccessToken()
+    });
+  }
+
   /**
-   * Fetches products / catalog from Amazon
+   * Fetches products / catalog from Amazon and normalizes to standard format.
+   * Standard format: { externalId, sku, name, category, price, quantity, barcode, status }
    */
   async fetchProducts(store, options = {}) {
-    // Standard Amazon SP-API Catalog items
-    return [
-      {
-        externalId: 'B08N5WRWNW',
-        sku: 'AMZ-WIRELESS-ANC-HEADSET',
-        name: 'Active Noise Cancelling Wireless Headphones (Black)',
-        category: 'Electronics',
-        price: 89.99,
-        quantity: 50,
-        barcode: '84350030001',
-        status: 'active'
-      },
-      {
-        externalId: 'B09G9FPHY6',
-        sku: 'AMZ-FAST-CHARGER-65W',
-        name: '65W GaN Dual USB-C Fast Wall Charger',
-        category: 'Electronics',
-        price: 34.95,
-        quantity: 120,
-        barcode: '84350030002',
-        status: 'active'
-      }
-    ];
+    const client = this._getClient(store);
+    const getMeta = (key) => store.metadata?.get ? store.metadata.get(key) : store.metadata?.[key];
+    const marketplaceId = getMeta('marketplaceId');
+
+    const response = await client.getCatalogItems({
+      MarketplaceId: marketplaceId,
+      ...options
+    });
+
+    // Normalize Amazon catalog items to standard format
+    const normalizedProducts = (response.items || []).map(item => {
+      const summary = item.AttributeSets?.[0] || {};
+      const product = item.Summaries?.[0] || {};
+
+      return {
+        externalId: item.ASIN || item.ItemIdentifier?.ASIN || '',
+        sku: item.SellerSKU || item.AttributeSets?.[0]?.SellerSKU || '',
+        name: summary.Title || item.Title || product.Title || 'Unknown Product',
+        category: summary.ProductGroup || item.ProductGroup || 'GEN',
+        price: summary.Price?.Amount || summary.ListPrice?.Amount || product.Price?.Amount || 0,
+        quantity: summary.Quantity || item.Quantity || 0,
+        barcode: summary.OriginalReleaseDate || item.UPC || item.EAN || '',
+        status: 'Active',
+        asin: item.ASIN || '',
+        images: summary.SmallImage?.URL || summary.MediumImage?.URL || summary.LargeImage?.URL || ''
+      };
+    });
+
+    return normalizedProducts;
   }
 
   /**
-   * Fetches unfulfilled orders from Amazon SP-API
+   * Fetches unfulfilled orders from Amazon SP-API and normalizes to standard format.
+   * Standard format: { externalOrderId, customerName, customerEmail, items, date, deliveryAddress, total, etc. }
+   *
+   * Handles pagination via nextToken to fetch all pages of orders.
    */
   async fetchOrders(store, options = {}) {
-    const storeIdSuffix = (store?.externalStoreId || 'STORE').slice(-4);
-    return [
-      {
-        externalOrderId: `408-${storeIdSuffix}-9182301`,
-        orderNumber: `AMZ-EUR-${storeIdSuffix}-101`,
-        customerName: 'Carlos Santillana',
-        customerEmail: 'carlos.amazon.buyer@marketplace.amazon.es',
-        date: new Date(),
-        status: 'pending',
-        isB2B: false,
-        b2bClassificationSource: 'amazon_sp_api_unavailable',
-        companyName: '',
-        vatNumber: '',
-        items: [
-          { sku: 'AMZ-WIRELESS-ANC-HEADSET', name: 'Active Noise Cancelling Wireless Headphones (Black)', quantity: 1, price: 89.99, total: 89.99 },
-          { sku: 'AMZ-FAST-CHARGER-65W', name: '65W GaN Dual USB-C Fast Wall Charger', quantity: 2, price: 34.95, total: 69.90 }
-        ],
-        subtotal: 159.89,
-        taxTotal: 33.58,
-        grandTotal: 193.47,
-        deliveryAddress: {
-          street: 'Calle de Serrano',
-          number: '45',
-          city: 'Madrid',
-          region: 'Madrid',
-          postcode: '28001',
-          country: 'Spain'
+    const client = this._getClient(store);
+    const getMeta = (key) => store.metadata?.get ? store.metadata.get(key) : store.metadata?.[key];
+    const marketplaceId = getMeta('marketplaceId');
+    const sellerId = getMeta('sellerId') || store.externalStoreId;
+
+    // Default to fetching recent unfulfilled orders
+    const defaultOptions = {
+      MarketplaceIds: [marketplaceId],
+      OrderStatuses: ['Pending', 'Unshipped', 'PartiallyShipped'],
+      MaxResultsPerPage: 50,
+      CreatedAfter: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() // Last 30 days
+    };
+
+    // Pagination with safety guard against infinite loops
+    const MAX_PAGES = 100; // Safety limit: max 100 pages (5000 orders)
+    let currentPage = 0;
+    let nextToken = null;
+    const allOrders = [];
+    const seenOrderIds = new Set(); // Deduplicate across pages
+
+    do {
+      currentPage++;
+      if (currentPage > MAX_PAGES) {
+        console.warn(`[AmazonProvider] Order pagination exceeded maximum ${MAX_PAGES} pages. Stopping to prevent infinite loop.`);
+        break;
+      }
+
+      const requestOptions = { ...defaultOptions, ...options };
+      if (nextToken) {
+        requestOptions.NextToken = nextToken;
+      }
+
+      const response = await client.getOrders(requestOptions);
+
+      if (response.orders && response.orders.length > 0) {
+        // Deduplicate orders by AmazonOrderId
+        for (const order of response.orders) {
+          if (!seenOrderIds.has(order.AmazonOrderId)) {
+            seenOrderIds.add(order.AmazonOrderId);
+            allOrders.push(order);
+          }
         }
       }
-    ];
+
+      nextToken = response.nextToken || null;
+
+      // Safety: if nextToken repeats, stop to prevent infinite loop
+      if (nextToken && allOrders.length === 0) {
+        console.warn('[AmazonProvider] Received nextToken but no orders. Possible pagination issue. Stopping.');
+        break;
+      }
+    } while (nextToken);
+
+    console.info(`[AmazonProvider] Fetched ${allOrders.length} orders across ${currentPage} pages`);
+
+    // Normalize Amazon orders to standard format
+    const normalizedOrders = [];
+
+    for (const order of allOrders) {
+      // Fetch order items for each order
+      let orderItems = [];
+      try {
+        const itemsResponse = await client.getOrderItems(order.AmazonOrderId);
+        orderItems = itemsResponse.orderItems || [];
+      } catch (err) {
+        console.error(`[AmazonProvider] Failed to fetch items for order ${order.AmazonOrderId}:`, err.message);
+        // Continue with empty items
+      }
+
+      const shippingAddress = order.ShippingAddress || {};
+
+      normalizedOrders.push({
+        externalOrderId: order.AmazonOrderId,
+        customerName: shippingAddress.Name || order.BuyerName || 'Amazon Customer',
+        customerEmail: order.BuyerEmail || '',
+        date: order.PurchaseDate || order.CreationDate || new Date(),
+        status: order.OrderStatus,
+        fulfillmentChannel: order.FulfillmentChannel,
+        items: orderItems.map(item => ({
+          sku: item.SellerSKU || '',
+          name: item.Title || item.ProductInfo?.Title?.Value || 'Product',
+          quantity: item.QuantityOrdered || 1,
+          price: item.ItemPrice?.Amount || 0,
+          total: item.ItemPrice?.Amount || 0
+        })),
+        deliveryAddress: {
+          name: shippingAddress.Name || '',
+          addressLine1: shippingAddress.AddressLine1 || '',
+          addressLine2: shippingAddress.AddressLine2 || '',
+          addressLine3: shippingAddress.AddressLine3 || '',
+          city: shippingAddress.City || '',
+          state: shippingAddress.StateOrRegion || '',
+          postalCode: shippingAddress.PostalCode || '',
+          country: shippingAddress.CountryCode || '',
+          phone: shippingAddress.Phone || ''
+        },
+        subtotal: order.OrderTotal?.Amount || 0,
+        taxTotal: order.Tax?.Amount || 0,
+        grandTotal: order.OrderTotal?.Amount || 0,
+        currency: order.OrderTotal?.CurrencyCode || 'USD',
+        isB2B: order.IsBusinessOrder || false,
+        b2bClassificationSource: order.IsBusinessOrder ? 'amazon_business_order_field' : 'no_b2b_field',
+        companyName: order.IsBusinessOrder ? (order.BuyerTaxInfo?.CompanyLegalName || '') : '',
+        vatNumber: order.IsBusinessOrder ? (order.BuyerTaxInfo?.VatRegistrationNumber || '') : ''
+      });
+    }
+
+    return normalizedOrders;
   }
 
   /**
-   * Pushes internal inventory to Amazon SP-API
+   * Pushes internal inventory to Amazon SP-API.
+   * @param {object} store - ConnectedStore document
+   * @param {string} sku - Product SKU
+   * @param {number} availableQty - Available quantity from WMS
+   * @returns {Promise<object>}
    */
   async updateExternalInventory(store, sku, availableQty) {
-    return { success: true, updatedSku: sku, newLevel: availableQty };
+    const client = this._getClient(store);
+
+    const response = await client.updateInventory(sku, availableQty);
+
+    return {
+      success: response.success,
+      updatedSku: sku,
+      newLevel: availableQty,
+      response
+    };
   }
 
   /**

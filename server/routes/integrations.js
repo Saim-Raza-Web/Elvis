@@ -231,6 +231,7 @@ async function handleCallbackLogic(req, res, next) {
       shopDomain: req.query.shop || req.query.store_url || extra?.shopDomain,
       query: req.query,
       body: req.body,
+      extra,
       isSandbox: isSandboxMode
     });
 
