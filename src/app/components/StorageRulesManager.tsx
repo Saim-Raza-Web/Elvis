@@ -211,9 +211,8 @@ function RuleFormModal({ initial, selectedWarehouse, onSave, onClose }: {
     if (!selectedWarehouse) return;
     const fetchLocs = async () => {
       try {
-        const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
         const res = await fetch(`/api/v1/locations?warehouse=${selectedWarehouse}&all=true`, {
-          headers: { Authorization: `Bearer ${token}` }
+          credentials: 'include'
         });
         const data = await res.json();
         setWarehouseLocations(Array.isArray(data) ? data : (data?.data || []));

@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, requireRole, requireModuleAccess } from '../middleware/auth.js';
+import { protect, requireRole, requireModuleAccess, csrfProtection } from '../middleware/auth.js';
 import { abcEngine } from '../services/abcEngine.js';
 import Product from '../models/Product.js';
 import AuditLog from '../models/AuditLog.js';
@@ -190,6 +190,7 @@ router.all('/cron', handleRecalculate);
 
 // Require authentication and inventory module access for all subsequent routes
 router.use(protect);
+router.use(csrfProtection);
 router.use(requireModuleAccess('inventory'));
 
 // GET /api/v1/abc-classification — Get ABC classification summary & products

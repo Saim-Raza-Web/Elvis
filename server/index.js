@@ -4,7 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import { protect, requireModuleAccess } from './middleware/auth.js';
+import cookieParser from 'cookie-parser';
+import { protect, requireModuleAccess, csrfProtection } from './middleware/auth.js';
 import { ROUTE_MODULE_MAP } from './config/permissions.js';
 
 // Load environment variables
@@ -14,9 +15,38 @@ mongoose.set('bufferCommands', false);
 
 const app = express();
 
+// Configure trust proxy for Vercel serverless / reverse proxies if enabled
+if (process.env.VERCEL || process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
 // Middleware
 app.use(helmet());
-app.use(cors());
+
+// Configure CORS to support credentials (cookies)
+const isProduction = process.env.NODE_ENV === 'production';
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy: Origin not allowed'), false);
+    }
+  },
+  credentials: true, // Allow cookies to be sent/received
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
+}));
+
+app.use(cookieParser());
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
@@ -121,7 +151,7 @@ function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
   const module = ROUTE_MODULE_MAP[segment];
   if (module) {
-    app.use(path, protect, requireModuleAccess(module), router);
+    app.use(path, protect, csrfProtection, requireModuleAccess(module), router);
   } else {
     app.use(path, router);
   }

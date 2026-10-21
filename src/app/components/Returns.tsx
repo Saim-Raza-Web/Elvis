@@ -125,9 +125,8 @@ export function Returns() {
 
   async function downloadReturnNote(ret: ReturnItem) {
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const url = `/api/v1/documents/return-note/${ret._id}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) throw new Error("Failed to download");
       const blob = await res.blob();
       const a = document.createElement("a");

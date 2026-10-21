@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff, Zap, Globe, ChevronRight, CheckCircle2, ArrowLeft, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Zap, Globe, ChevronRight, CheckCircle2, ArrowLeft, AlertCircle, ShieldCheck, Loader2 } from "lucide-react";
 import type { Lang } from "../i18n";
 import { useT } from "../i18n";
 import { authService } from "../../services/auth.service";
@@ -36,6 +36,14 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
   const [error, setError] = useState("");
   const [langOpen, setLangOpen] = useState(false);
   const [isRegistering, setIsRegistering] = useState(initialMode === "signup");
+  
+  // 2FA Challenge state
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [challengeToken, setChallengeToken] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [isRecoveryCode, setIsRecoveryCode] = useState(false);
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [twoFactorError, setTwoFactorError] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,7 +55,14 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
       if (isRegistering) {
         await authService.register(email, password, name);
       } else {
-        await authService.login(email, password);
+        const result = await authService.login(email, password);
+        // Check if 2FA is required
+        if (result.requires2FA) {
+          setRequires2FA(true);
+          setChallengeToken(result.challengeToken);
+          setLoading(false);
+          return;
+        }
       }
       setLoading(false);
       onSuccess();
@@ -57,10 +72,134 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
     }
   }
 
+  async function handleTwoFactorSubmit() {
+    if (!twoFactorCode) {
+      setTwoFactorError("Code is required");
+      return;
+    }
+    setTwoFactorError("");
+    setTwoFactorLoading(true);
+
+    try {
+      await authService.verify2FALogin(challengeToken, twoFactorCode, isRecoveryCode);
+      setTwoFactorLoading(false);
+      onSuccess();
+    } catch (err: any) {
+      setTwoFactorLoading(false);
+      setTwoFactorError(err.response?.data?.message || l.twoFactorError);
+    }
+  }
+
   function fillDemo() {
     setEmail(DEMO_EMAIL);
     setPassword(DEMO_PASSWORD);
     setError("");
+  }
+
+  function handleBackToLogin() {
+    setRequires2FA(false);
+    setChallengeToken("");
+    setTwoFactorCode("");
+    setIsRecoveryCode(false);
+    setTwoFactorError("");
+  }
+
+  // If 2FA is required, show the 2FA screen instead of login form
+  if (requires2FA) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col lg:flex-row">
+        {/* LEFT PANEL */}
+        <div className="hidden lg:flex lg:w-[48%] xl:w-[42%] bg-card border-r border-border flex-col justify-between p-10 relative overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-primary/15 rounded-full blur-[120px]" />
+            <div className="absolute bottom-0 right-0 w-[300px] h-[300px] bg-violet-500/10 rounded-full blur-[100px]" />
+          </div>
+          <div className="relative">
+            <div className="flex items-center gap-2.5 mb-16">
+              <div className="size-9 rounded-xl bg-primary flex items-center justify-center">
+                <Zap className="size-5 text-white" />
+              </div>
+              <span className="font-black text-xl tracking-tight">demologistics</span>
+            </div>
+            <h2 className="text-4xl font-black leading-tight mb-4">
+              {l.leftHeadline}<br />
+              <span className="bg-gradient-to-r from-primary to-violet-400 bg-clip-text text-transparent">{l.leftAccent}</span>
+            </h2>
+            <p className="text-muted-foreground leading-relaxed mb-10 max-w-xs">
+              {l.leftTagline}
+            </p>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL - 2FA */}
+        <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 py-12">
+          <div className="w-full max-w-md">
+            <div className="lg:hidden flex items-center gap-2 mb-8">
+              <div className="size-8 rounded-lg bg-primary flex items-center justify-center">
+                <Zap className="size-4 text-white" />
+              </div>
+              <span className="font-bold text-lg">demologistics</span>
+            </div>
+
+            <div className="flex items-center gap-2 mb-6">
+              <ShieldCheck className="size-6 text-primary" />
+              <h1 className="text-2xl font-black">{l.twoFactorRequired}</h1>
+            </div>
+            <p className="text-muted-foreground mb-8">{l.twoFactorSub}</p>
+
+            <div className="space-y-4">
+              <div>
+                <input
+                  type={isRecoveryCode ? "text" : "text"}
+                  value={twoFactorCode}
+                  onChange={e => { setTwoFactorCode(e.target.value); setTwoFactorError(""); }}
+                  placeholder={isRecoveryCode ? l.recoveryCodePlaceholder : l.twoFactorPlaceholder}
+                  maxLength={isRecoveryCode ? 8 : 6}
+                  className={`w-full px-4 py-3 rounded-xl border bg-card outline-none text-sm transition-all focus:ring-2 focus:ring-primary/30 ${twoFactorError ? "border-destructive" : "border-border focus:border-primary/60"}`}
+                />
+              </div>
+
+              {twoFactorError && (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+                  <AlertCircle className="size-4 shrink-0" />
+                  {twoFactorError}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleTwoFactorSubmit}
+                disabled={twoFactorLoading || !twoFactorCode}
+                className="w-full py-3.5 rounded-xl bg-primary text-white font-semibold text-sm transition-all hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed shadow-md hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2"
+              >
+                {twoFactorLoading ? (
+                  <>
+                    <Loader2 className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {l.submitting}
+                  </>
+                ) : l.twoFactorSubmit}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsRecoveryCode(!isRecoveryCode)}
+                className="w-full py-2 text-sm text-primary hover:underline"
+              >
+                {isRecoveryCode ? l.twoFactorBack : l.useRecoveryCode}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleBackToLogin}
+                className="w-full py-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                {l.twoFactorBack}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

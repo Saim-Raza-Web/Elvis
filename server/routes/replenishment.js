@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, requireRole, requireModuleAccess } from '../middleware/auth.js';
+import { protect, requireRole, requireModuleAccess, csrfProtection } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { replenishmentEngine } from '../services/replenishmentEngine.js';
 import WarehouseTask from '../models/WarehouseTask.js';
@@ -38,6 +38,7 @@ router.all('/cron', async (req, res, next) => {
 
 // Protect all other routes
 router.use(protect);
+router.use(csrfProtection);
 router.use(requireModuleAccess('inventory'));
 router.use(validateWarehouse);
 

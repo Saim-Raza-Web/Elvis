@@ -114,6 +114,8 @@ async function runTests() {
   });
 
   // Seed sample orders for outbound
+  // Use a deterministic test date based on the requested billing period
+  const testDate = new Date('2026-09-15T10:00:00Z');
   await Order.create({
     orderId: `ORD-3PL-${suffix}-1`,
     customer: 'Customer 1',
@@ -127,7 +129,8 @@ async function runTests() {
     ],
     items: 2,
     subtotal: 75,
-    total: 90.75
+    total: 90.75,
+    createdAt: testDate
   });
 
   const calculation = await threePlBillingEngine.calculateMonthlyBilling({

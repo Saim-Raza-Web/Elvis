@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole, requireClientAccess } from '../middleware/auth.js';
+import { protect, requireRole, requireClientAccess, csrfProtection } from '../middleware/auth.js';
 import Client from '../models/Client.js';
 import InventoryBalance from '../models/InventoryBalance.js';
 import Order from '../models/Order.js';
@@ -13,6 +13,7 @@ import { threePlBillingEngine } from '../services/3plBillingEngine.js';
 const router = express.Router();
 
 router.use(protect);
+router.use(csrfProtection);
 router.use(requireRole('admin', 'client_3pl'));
 router.use(requireClientAccess);
 

@@ -26,7 +26,17 @@ const auditLogSchema = new mongoose.Schema({
       'qc_recondition',
       'abc_calculated',
       'abc_override_set',
-      'abc_override_cleared'
+      'abc_override_cleared',
+      'totp_setup_started',
+      'totp_setup_cancelled',
+      'totp_verify_failed',
+      'totp_enabled',
+      'totp_disabled',
+      'totp_regenerated_codes',
+      'totp_login_challenge',
+      'totp_login_success',
+      'totp_login_failed',
+      'totp_recovery_code_used'
     ] 
   },
   

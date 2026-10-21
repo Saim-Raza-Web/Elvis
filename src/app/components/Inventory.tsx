@@ -79,7 +79,7 @@ export function Inventory() {
     // Load replenishment alerts separately so a failure here doesn't break the rest of the page
     try {
       const res = await fetch(`/api/v1/inventory/alerts/low-stock`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token")}` }
+        credentials: 'include'
       });
       if (res.ok) {
         const body = await res.json();

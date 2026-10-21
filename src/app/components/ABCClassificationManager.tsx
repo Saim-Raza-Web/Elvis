@@ -4,6 +4,7 @@ import {
   AlertTriangle, Search, Filter, RotateCcw 
 } from "lucide-react";
 import { toast } from "sonner";
+import { getFetchWithCsrfOptions } from "../../services/api";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { TablePagination } from "./TablePagination";
@@ -43,9 +44,8 @@ export function ABCClassificationManager() {
   const fetchABCData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const res = await fetch("/api/v1/abc-classification", {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       if (!res.ok) throw new Error("Failed to load ABC data");
       const result = await res.json();
@@ -62,11 +62,9 @@ export function ABCClassificationManager() {
     
     try {
       setRecalculating(true);
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
-      const res = await fetch("/api/v1/abc-classification/recalculate", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch("/api/v1/abc-classification/recalculate", getFetchWithCsrfOptions("POST", {
+        headers: { 'Content-Type': 'application/json' }
+      }));
       if (!res.ok) throw new Error("Failed to recalculate ABC classification");
       const result = await res.json();
       toast.success(`ABC classification recalculated: ${result.totalProducts} products processed`);
@@ -82,18 +80,15 @@ export function ABCClassificationManager() {
     if (!selectedProduct) return;
     
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
-      const res = await fetch(`/api/v1/abc-classification/${selectedProduct.sku}/override`, {
-        method: "PUT",
-        headers: { 
-          Authorization: `Bearer ${token}`,
+      const res = await fetch(`/api/v1/abc-classification/${selectedProduct.sku}/override`, getFetchWithCsrfOptions("PUT", {
+        headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           abcClass: overrideClass,
           reason: overrideReason
         })
-      });
+      }));
       if (!res.ok) throw new Error("Failed to set ABC override");
       toast.success(`ABC override set for ${selectedProduct.sku}`);
       setShowOverrideModal(false);
@@ -109,11 +104,7 @@ export function ABCClassificationManager() {
     if (!confirm(`Clear ABC override for ${product.sku}?`)) return;
     
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
-      const res = await fetch(`/api/v1/abc-classification/${product.sku}/override`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch(`/api/v1/abc-classification/${product.sku}/override`, getFetchWithCsrfOptions("DELETE"));
       if (!res.ok) throw new Error("Failed to clear ABC override");
       toast.success(`ABC override cleared for ${product.sku}`);
       await fetchABCData();

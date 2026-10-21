@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import User from '../models/User.js';
 import Client from '../models/Client.js';
 import Warehouse from '../models/Warehouse.js';
@@ -15,9 +16,42 @@ export function getJwtSecret() {
   return secret;
 }
 
+/**
+ * Generate a CSRF token for state-changing requests
+ */
+export function generateCsrfToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Verify CSRF token matches expected value
+ */
+export function verifyCsrfToken(token, expectedToken) {
+  if (!token || !expectedToken) return false;
+  // timingSafeEqual requires buffers of the same length
+  if (token.length !== expectedToken.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expectedToken));
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Authentication middleware that accepts JWT from either:
+ * 1. Authorization: Bearer <token> header (legacy support during migration)
+ * 2. HttpOnly cookie named 'jwt_token' (new secure method)
+ * REJECTS challenge tokens - they must go through 2fa/verify-login
+ */
 export const protect = async (req, res, next) => {
   let token;
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+
+  // Priority 1: Check HttpOnly cookie (new secure method)
+  if (req.cookies && req.cookies.jwt_token) {
+    token = req.cookies.jwt_token;
+  }
+  // Priority 2: Check Authorization header (legacy support during migration)
+  else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
   }
 
@@ -28,6 +62,12 @@ export const protect = async (req, res, next) => {
   try {
     const secret = getJwtSecret();
     const decoded = jwt.verify(token, secret);
+    
+    // Reject challenge tokens - they cannot access normal protected routes
+    if (decoded.type === '2fa_challenge') {
+      return res.status(401).json({ message: 'Challenge token cannot access protected endpoints' });
+    }
+    
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) {
       return res.status(401).json({ message: 'User belonging to this token no longer exists' });
@@ -42,6 +82,64 @@ export const protect = async (req, res, next) => {
     }
     res.status(401).json({ message: 'Not authorized, token failed' });
   }
+};
+
+/**
+ * Middleware to verify 2FA challenge tokens (not full session tokens)
+ * Used during the TOTP verification step of login
+ */
+export const verifyChallengeToken = async (req, res, next) => {
+  const { challengeToken } = req.body;
+  
+  if (!challengeToken) {
+    return res.status(400).json({ message: 'Challenge token is required' });
+  }
+
+  try {
+    const secret = getJwtSecret();
+    const decoded = jwt.verify(challengeToken, secret);
+    
+    if (decoded.type !== '2fa_challenge') {
+      return res.status(401).json({ message: 'Invalid challenge token type' });
+    }
+
+    req.user = await User.findById(decoded.id).select('-password');
+    if (!req.user) {
+      return res.status(401).json({ message: 'User belonging to this token no longer exists' });
+    }
+    
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Invalid or expired challenge token' });
+  }
+};
+
+/**
+ * CSRF protection middleware for state-changing requests
+ * Validates X-CSRF-Token header against session CSRF token
+ * Only applies to cookie-authenticated requests (not Bearer token)
+ * For GET requests, CSRF token is provided in a cookie and/or response header
+ */
+export const csrfProtection = (req, res, next) => {
+  // Skip CSRF for GET, HEAD, OPTIONS (safe methods)
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+
+  // Skip CSRF if authentication is via Bearer token (service-to-service or legacy support)
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    return next();
+  }
+
+  // For cookie-authenticated state-changing methods, validate CSRF token
+  const csrfToken = req.headers['x-csrf-token'];
+  const sessionCsrfToken = req.cookies?.csrf_token;
+
+  if (!csrfToken || !sessionCsrfToken || !verifyCsrfToken(csrfToken, sessionCsrfToken)) {
+    return res.status(403).json({ message: 'Invalid or missing CSRF token' });
+  }
+
+  next();
 };
 
 export const requireRole = (...roles) => (req, res, next) => {

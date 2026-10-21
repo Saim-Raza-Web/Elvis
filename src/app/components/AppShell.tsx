@@ -124,6 +124,10 @@ export function AppShell({
   const [notifs, setNotifs] = useState<any[]>([]);
   const [searchVal, setSearchVal] = useState("");
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showCreateCompanyModal, setShowCreateCompanyModal] = useState(false);
+  const [newCompanyName, setNewCompanyName] = useState("");
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     const user = authService.getCurrentUser();
@@ -216,13 +220,14 @@ export function AppShell({
               <div className="absolute top-full mt-2 left-0 w-64 bg-card border border-border rounded-xl shadow-xl p-1 z-50 animate-fade-in-down">
                 <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t.common.yourCompanies}</div>
                 {companyList.map((c) => (
-                  <button key={c._id} onClick={async () => { 
-                    setCompanyOpen(false); 
+                  <button key={c._id} onClick={async () => {
+                    setCompanyOpen(false);
+                    setSwitchError(null);
                     try {
                       await authService.switchCompany(c._id);
                       window.location.reload();
                     } catch(err) {
-                      alert("Failed to switch company");
+                      setSwitchError("Failed to switch company. Please try again.");
                     }
                   }} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-secondary text-left">
                     <Building2 className="size-4 text-muted-foreground" />
@@ -232,17 +237,11 @@ export function AppShell({
                   </button>
                 ))}
                 <div className="h-px bg-border my-1" />
-                <button onClick={async () => {
+                <button onClick={() => {
                   setCompanyOpen(false);
-                  const name = prompt("Enter new workspace/company name:");
-                  if (name) {
-                    try {
-                      await authService.createCompany(name);
-                      window.location.reload();
-                    } catch(err) {
-                      alert("Failed to create company");
-                    }
-                  }
+                  setNewCompanyName("");
+                  setCreateError(null);
+                  setShowCreateCompanyModal(true);
                 }} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-secondary">
                   <Plus className="size-4" /> {t.common.createCompany}
                 </button>

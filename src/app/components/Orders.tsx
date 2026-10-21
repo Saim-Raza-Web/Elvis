@@ -626,9 +626,8 @@ export function Orders() {
   async function downloadDeliveryNote(o: Order) {
     setDownloadingId(o._id);
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const res = await fetch(`/api/v1/documents/delivery-note/${o._id}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);

@@ -1,12 +1,13 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole, requireOfficeAccess } from '../middleware/auth.js';
+import { protect, requireRole, requireOfficeAccess, csrfProtection } from '../middleware/auth.js';
 import RateCard from '../models/RateCard.js';
 import Client from '../models/Client.js';
 import { threePlBillingEngine } from '../services/3plBillingEngine.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(csrfProtection);
 
 const requireBillingAccess = requireRole('admin', 'manager', 'management', 'office', 'client_3pl');
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, csrfProtection } from '../middleware/auth.js';
 import { paginateQuery } from '../utils/pagination.js';
 import ConnectedStore from '../models/ConnectedStore.js';
 import IntegrationSyncLog from '../models/IntegrationSyncLog.js';
@@ -21,7 +21,7 @@ const requireAdminOnly = requireRole('admin');
  * GET /api/v1/integrations/providers
  * Returns all supported platforms (Shopify, WooCommerce, Amazon, eBay) and capabilities.
  */
-router.get('/providers', protect, (req, res) => {
+router.get('/providers', protect, csrfProtection, (req, res) => {
   try {
     const providers = providerRegistry.listAll();
     res.json(providers);
@@ -38,7 +38,7 @@ router.get('/providers', protect, (req, res) => {
  * POST /api/v1/integrations/:provider/connect
  * Generates official OAuth authorization redirect URL with signed CSRF state.
  */
-router.post('/:provider/connect', protect, requireAdminOrManager, async (req, res, next) => {
+router.post('/:provider/connect', protect, csrfProtection, requireAdminOrManager, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -100,7 +100,7 @@ router.post('/:provider/connect', protect, requireAdminOrManager, async (req, re
  * POST /api/v1/integrations/:provider/connect-token
  * Direct token-based store connection (e.g. Temu MMS Authorization Token).
  */
-router.post('/:provider/connect-token', protect, requireAdminOrManager, async (req, res, next) => {
+router.post('/:provider/connect-token', protect, csrfProtection, requireAdminOrManager, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -330,7 +330,7 @@ router.post('/:provider/callback', handleCallbackLogic);
  * GET /api/v1/integrations/stores
  * Returns all connected stores for the authenticated user's company.
  */
-router.get('/stores', protect, async (req, res, next) => {
+router.get('/stores', protect, csrfProtection, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -359,7 +359,7 @@ router.get('/stores', protect, async (req, res, next) => {
  * GET /api/v1/integrations/stores/:id
  * Gets detailed store info and health metrics.
  */
-router.get('/stores/:id', protect, async (req, res, next) => {
+router.get('/stores/:id', protect, csrfProtection, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -378,7 +378,7 @@ router.get('/stores/:id', protect, async (req, res, next) => {
  * PUT /api/v1/integrations/stores/:id/settings
  * Updates sync configuration rules and inventory direction.
  */
-router.put('/stores/:id/settings', protect, requireAdminOnly, async (req, res, next) => {
+router.put('/stores/:id/settings', protect, csrfProtection, requireAdminOnly, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -406,7 +406,7 @@ router.put('/stores/:id/settings', protect, requireAdminOnly, async (req, res, n
  * POST /api/v1/integrations/stores/:id/sync
  * Manually triggers a synchronization job.
  */
-router.post('/stores/:id/sync', protect, requireAdminOrManager, async (req, res, next) => {
+router.post('/stores/:id/sync', protect, csrfProtection, requireAdminOrManager, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -431,7 +431,7 @@ router.post('/stores/:id/sync', protect, requireAdminOrManager, async (req, res,
  * GET /api/v1/integrations/stores/:id/sync-history
  * Returns paginated audit logs for a store.
  */
-router.get('/stores/:id/sync-history', protect, async (req, res, next) => {
+router.get('/stores/:id/sync-history', protect, csrfProtection, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -455,7 +455,7 @@ router.get('/stores/:id/sync-history', protect, async (req, res, next) => {
  * POST /api/v1/integrations/stores/:id/disconnect
  * Disconnects the store and revokes credentials.
  */
-router.post('/stores/:id/disconnect', protect, requireAdminOnly, async (req, res, next) => {
+router.post('/stores/:id/disconnect', protect, csrfProtection, requireAdminOnly, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });
@@ -484,7 +484,7 @@ router.post('/stores/:id/disconnect', protect, requireAdminOnly, async (req, res
  * DELETE /api/v1/integrations/stores/:id
  * Deletes a store record permanently.
  */
-router.delete('/stores/:id', protect, requireAdminOnly, async (req, res, next) => {
+router.delete('/stores/:id', protect, csrfProtection, requireAdminOnly, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) {
       return res.status(403).json({ message: 'Company tenant context required' });

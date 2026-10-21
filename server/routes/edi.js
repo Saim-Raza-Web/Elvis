@@ -1,12 +1,13 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, csrfProtection } from '../middleware/auth.js';
 import EdiInterchange from '../models/EdiInterchange.js';
 import { EdiManager } from '../services/edi/EdiManager.js';
 import { defaultSftpAdapter } from '../services/edi/SftpAdapter.js';
 
 const router = express.Router();
 router.use(protect);
+router.use(csrfProtection);
 
 // ── GET /api/v1/edi/status — SFTP & EDI Boundary Status ──
 router.get('/status', requireRole('admin', 'manager', 'management', 'office'), (req, res) => {

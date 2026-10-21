@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload, Truck, BarChart3 } from "lucide-react";
+import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload, Truck, BarChart3, QrCode, Copy, Check, AlertTriangle, Loader2 } from "lucide-react";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
 import { settingsService } from "../../services/settings.service";
@@ -15,6 +15,345 @@ import { StorageRulesManager } from "./StorageRulesManager";
 import { ABCClassificationManager } from "./ABCClassificationManager";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
+
+// Two-Factor Auth Section Component
+function TwoFactorAuthSection({ t }: { t: any }) {
+  const t2fa = t.settings.twoFactorAuth;
+  const [status, setStatus] = useState<{ enabled: boolean; setupPending: boolean } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [setupStep, setSetupStep] = useState<'idle' | 'qr' | 'verify' | 'success' | 'recovery'>('idle');
+  const [qrData, setQrData] = useState<{ secret: string; qrCode: string } | null>(null);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [regenPassword, setRegenPassword] = useState('');
+  const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+  const [showRegenConfirm, setShowRegenConfirm] = useState(false);
+
+  const loadStatus = async () => {
+    try {
+      setLoading(true);
+      const data = await authService.get2FAStatus();
+      setStatus(data);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to load 2FA status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  const handleStartSetup = async () => {
+    try {
+      setLoading(true);
+      const data = await authService.setup2FA();
+      setQrData(data);
+      setSetupStep('qr');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || t2fa.errorSetupFailed);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!verifyCode || verifyCode.length !== 6) {
+      toast.error('Please enter a 6-digit code');
+      return;
+    }
+    try {
+      setLoading(true);
+      const data = await authService.verify2FA(verifyCode);
+      setRecoveryCodes(data.recoveryCodes || []);
+      setSetupStep('recovery');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || t2fa.errorVerifyFailed);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelSetup = async () => {
+    try {
+      setLoading(true);
+      await authService.cancel2FASetup();
+      setSetupStep('idle');
+      setQrData(null);
+      setVerifyCode('');
+      await loadStatus();
+    } catch (err: any) {
+      toast.error('Failed to cancel setup');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    try {
+      setLoading(true);
+      await authService.disable2FA(disablePassword);
+      toast.success(t2fa.successTitle);
+      setShowDisableConfirm(false);
+      setDisablePassword('');
+      await loadStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || t2fa.errorDisableFailed);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    try {
+      setLoading(true);
+      const data = await authService.regenerateRecoveryCodes(regenPassword);
+      setRecoveryCodes(data.recoveryCodes || []);
+      setSetupStep('recovery');
+      setShowRegenConfirm(false);
+      setRegenPassword('');
+      toast.success(t2fa.successTitle);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || t2fa.errorRegenerateFailed);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  if (loading && !status) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6">
+      <h3 className="font-bold mb-1">{t.settings.twoFA}</h3>
+      <p className="text-sm text-muted-foreground mb-4">{t.settings.twoFASub}</p>
+
+      {setupStep === 'idle' && (
+        <>
+          {status?.enabled ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm">
+                <Check className="size-4 text-green-500" />
+                <span className="font-medium">{t2fa.statusEnabled}</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowRegenConfirm(true)}
+                  className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors"
+                >
+                  {t2fa.regenerateButton}
+                </button>
+                <button
+                  onClick={() => setShowDisableConfirm(true)}
+                  className="px-4 py-2 border border-destructive/30 text-destructive rounded-lg text-sm font-semibold hover:bg-destructive/10 transition-colors"
+                >
+                  {t2fa.disableButton}
+                </button>
+              </div>
+            </div>
+          ) : status?.setupPending ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm text-amber-600">
+                <AlertTriangle className="size-4" />
+                <span className="font-medium">{t2fa.statusPending}</span>
+              </div>
+              <button
+                onClick={handleCancelSetup}
+                className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors"
+              >
+                {t2fa.cancelButton}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleStartSetup}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-colors"
+            >
+              {t2fa.enableButton}
+            </button>
+          )}
+        </>
+      )}
+
+      {setupStep === 'qr' && qrData && (
+        <div className="space-y-4">
+          <p className="text-sm">{t2fa.setupDescription}</p>
+          <div className="flex justify-center bg-white p-4 rounded-lg">
+            <img src={qrData.qrCode} alt="QR Code" className="w-48 h-48" />
+          </div>
+          <div className="text-sm">
+            <p className="font-medium mb-2">{t2fa.setupManualKey}</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-3 py-2 bg-secondary rounded text-xs font-mono break-all">{qrData.secret}</code>
+              <button
+                onClick={() => copyToClipboard(qrData.secret)}
+                className="p-2 hover:bg-secondary rounded transition-colors"
+                title="Copy"
+              >
+                <Copy className="size-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleCancelSetup}
+              className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors"
+            >
+              {t.common?.cancel || 'Cancel'}
+            </button>
+            <button
+              onClick={() => setSetupStep('verify')}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-colors"
+            >
+              {t.common?.next || 'Next'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {setupStep === 'verify' && (
+        <div className="space-y-4">
+          <p className="text-sm">{t2fa.verifyDescription}</p>
+          <div>
+            <input
+              type="text"
+              value={verifyCode}
+              onChange={e => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder={t2fa.verifyPlaceholder}
+              maxLength={6}
+              className="w-full px-4 py-3 rounded-lg border border-border bg-card outline-none focus:border-primary/50 text-center text-2xl font-mono tracking-widest"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleCancelSetup}
+              disabled={loading}
+              className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors disabled:opacity-50"
+            >
+              {t2fa.cancelButton}
+            </button>
+            <button
+              onClick={handleVerify}
+              disabled={loading || verifyCode.length !== 6}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {loading && <Loader2 className="size-4 animate-spin" />}
+              {t2fa.verifyButton}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {setupStep === 'recovery' && recoveryCodes.length > 0 && (
+        <div className="space-y-4">
+          <h4 className="font-bold">{t2fa.recoveryCodesTitle}</h4>
+          <p className="text-sm text-muted-foreground">{t2fa.recoveryCodesDescription}</p>
+          <div className="bg-destructive/10 border border-destructive/30 p-4 rounded-lg">
+            <p className="text-sm font-semibold text-destructive mb-3">{t2fa.recoveryCodesWarning}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {recoveryCodes.map((code, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-background rounded border">
+                  <code className="text-xs font-mono">{code}</code>
+                  <button
+                    onClick={() => copyToClipboard(code)}
+                    className="p-1 hover:bg-secondary rounded transition-colors"
+                    title="Copy"
+                  >
+                    <Copy className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => { setSetupStep('idle'); setRecoveryCodes([]); setVerifyCode(''); loadStatus(); }}
+            className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-colors"
+          >
+            {t2fa.recoveryCodesClose}
+          </button>
+        </div>
+      )}
+
+      {showDisableConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowDisableConfirm(false)}>
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-lg">{t2fa.disableTitle}</h3>
+            <p className="text-sm text-muted-foreground">{t2fa.disableDescription}</p>
+            <input
+              type="password"
+              value={disablePassword}
+              onChange={e => setDisablePassword(e.target.value)}
+              placeholder={t.common?.password || "Password"}
+              className="w-full px-3 py-2 rounded-lg border border-border bg-card outline-none focus:border-primary/50"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowDisableConfirm(false)}
+                className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors"
+              >
+                {t.common?.cancel || 'Cancel'}
+              </button>
+              <button
+                onClick={handleDisable}
+                disabled={loading || !disablePassword}
+                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {loading && <Loader2 className="size-4 animate-spin" />}
+                {t2fa.disableConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRegenConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowRegenConfirm(false)}>
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-lg">{t2fa.regenerateTitle}</h3>
+            <p className="text-sm text-muted-foreground">{t2fa.regenerateDescription}</p>
+            <input
+              type="password"
+              value={regenPassword}
+              onChange={e => setRegenPassword(e.target.value)}
+              placeholder={t.common?.password || "Password"}
+              className="w-full px-3 py-2 rounded-lg border border-border bg-card outline-none focus:border-primary/50"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowRegenConfirm(false)}
+                className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors"
+              >
+                {t.common?.cancel || 'Cancel'}
+              </button>
+              <button
+                onClick={handleRegenerate}
+                disabled={loading || !regenPassword}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {loading && <Loader2 className="size-4 animate-spin" />}
+                {t2fa.regenerateButton}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const settingsTabIds = ["general", "notifications", "security", "team", "roles", "api"] as const;
 const settingsTabIcons = [Settings2, Bell, Shield, Users, LockKeyhole, Key];
@@ -234,9 +573,8 @@ export function Settings() {
   async function handlePreviewDeliveryNote() {
     try {
       setPreviewLoading(true);
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const res = await fetch("/api/v1/documents/preview-delivery-note", {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       if (!res.ok) throw new Error("Failed to generate preview");
       const blob = await res.blob();
@@ -863,30 +1201,26 @@ export function Settings() {
         {activeTab === "security" && (
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-card p-6">
-              <h3 className="font-bold mb-4">Change Password</h3>
+              <h3 className="font-bold mb-4">{t.settings.password}</h3>
               <div className="space-y-3 max-w-sm">
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Current password</label>
+                  <label className="text-sm font-medium mb-1.5 block">{t.common?.currentPassword || "Current password"}</label>
                   <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">New password</label>
+                  <label className="text-sm font-medium mb-1.5 block">{t.common?.newPassword || "New password"}</label>
                   <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Confirm new password</label>
+                  <label className="text-sm font-medium mb-1.5 block">{t.common?.confirmPassword || "Confirm new password"}</label>
                   <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors" style={{ fontSize: "0.875rem" }} />
                 </div>
                 <button onClick={handleUpdatePassword} disabled={pwLoading} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all mt-2 disabled:opacity-50">
-                  <Shield className="size-4" /> {pwLoading ? "Updating…" : "Update password"}
+                  <Shield className="size-4" /> {pwLoading ? t.settings.twoFactorAuth?.submitting || "Updating…" : t.settings.updatePassword}
                 </button>
               </div>
             </div>
-            <div className="rounded-xl border border-border bg-card p-6">
-              <h3 className="font-bold mb-1">Two-Factor Authentication</h3>
-              <p className="text-sm text-muted-foreground mb-4">Add an extra layer of security to your account</p>
-              <button className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors">Enable 2FA</button>
-            </div>
+            <TwoFactorAuthSection t={t} />
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, requireRole } from '../middleware/auth.js';
+import { protect, requireRole, csrfProtection } from '../middleware/auth.js';
 import { validateWarehouse } from '../middleware/warehouseValidator.js';
 import { expiryAlertService } from '../services/expiryAlertService.js';
 import { expiryWorker } from '../services/expiryWorker.js';
@@ -42,6 +42,7 @@ router.get('/cron', async (req, res, next) => {
 });
 
 router.use(protect);
+router.use(csrfProtection);
 router.use(validateWarehouse);
 
 const requireOpsRole = requireRole('admin', 'manager');

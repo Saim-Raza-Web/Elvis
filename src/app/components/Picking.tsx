@@ -310,9 +310,8 @@ export function Picking() {
   // Download PDF Delivery Note
   const handleDownloadPdfFile = async (dnNumber: string) => {
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const response = await fetch(`/api/v1/documents/dn/${dnNumber}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));

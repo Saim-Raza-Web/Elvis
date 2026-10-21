@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { MapPin, Plus, Search, Boxes, AlertTriangle, Warehouse, Edit3, Printer, CheckSquare, Square, Play, CheckCircle2, XCircle, Clock, ShieldCheck, ArrowRight, Activity, AlertCircle, Upload, Download, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
+import { getFetchWithCsrfOptions } from "../../services/api";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { TablePagination } from "./TablePagination";
@@ -188,7 +189,7 @@ export function Locations() {
 
     try {
       const res = await fetch(`/api/v1/storage-rules?warehouse=${selectedWarehouse}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("jwt_token") || localStorage.getItem("token")}` }
+        credentials: 'include'
       });
       const rulesData = await res.json();
       setRules(Array.isArray(rulesData) ? rulesData : []);
@@ -435,14 +436,12 @@ export function Locations() {
   const handleAddRule = async () => {
     try {
       if (!ruleForm.name || !ruleForm.targetZone) { toast.error("Rule name and Target Zone are required"); return; }
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const url = editRuleTarget ? `/api/v1/storage-rules/${editRuleTarget._id}` : `/api/v1/storage-rules`;
       const method = editRuleTarget ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      const res = await fetch(url, getFetchWithCsrfOptions(method, {
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ruleForm)
-      });
+      }));
       if (!res.ok) throw new Error("Failed to save storage rule");
       toast.success(editRuleTarget ? `Rule ${ruleForm.name} updated` : `Rule ${ruleForm.name} created`);
       setShowRule(false);
@@ -456,11 +455,7 @@ export function Locations() {
   const handleDeleteRule = async () => {
     if (!deleteRuleTarget) return;
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
-      const res = await fetch(`/api/v1/storage-rules/${deleteRuleTarget._id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch(`/api/v1/storage-rules/${deleteRuleTarget._id}`, getFetchWithCsrfOptions("DELETE"));
       if (!res.ok) throw new Error("Failed to delete rule");
       toast.success(`Rule ${deleteRuleTarget.name} deleted`);
       setDeleteRuleTarget(null);

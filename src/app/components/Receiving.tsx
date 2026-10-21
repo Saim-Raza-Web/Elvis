@@ -321,10 +321,9 @@ export function Receiving() {
     newForm.owner = activeClients.length > 0 ? activeClients[0].name : "Internal Stock";
     newForm.ownerType = activeClients.length > 0 && activeClients[0].name !== "Internal Stock" ? "CUSTOMER" : "COMPANY";
     try {
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const [asnRes, poRes] = await Promise.all([
-        fetch("/api/v1/receiving/next-asn", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/v1/receiving/next-po", { headers: { Authorization: `Bearer ${token}` } })
+        fetch("/api/v1/receiving/next-asn", { credentials: 'include' }),
+        fetch("/api/v1/receiving/next-po", { credentials: 'include' })
       ]);
       if (asnRes.ok) {
         const asnData = await asnRes.json();
@@ -491,9 +490,8 @@ export function Receiving() {
   const handleDownloadDeliveryNote = async (asn: ASN) => {
     try {
       const asnId = asn.asnId || asn.asnNumber || asn._id;
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       const response = await fetch(`/api/v1/documents/inbound-delivery-note/${asnId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       if (!response.ok) {
         const err = await response.json();
@@ -514,12 +512,11 @@ export function Receiving() {
   const handleDownloadPdfFile = async (asn: ASN) => {
     try {
       const asnId = asn.asnId || asn.asnNumber || asn._id;
-      const token = localStorage.getItem("jwt_token") || localStorage.getItem("token");
       
       let dnNumber = asn.deliveryNoteNumber;
       if (!dnNumber) {
         const asnRes = await fetch(`/api/v1/receiving/${asnId}`, {
-          headers: { Authorization: `Bearer ${token}` }
+          credentials: 'include'
         });
         if (asnRes.ok) {
           const freshAsn = await asnRes.json();
@@ -529,7 +526,7 @@ export function Receiving() {
       if (!dnNumber) throw new Error("Delivery Note number not assigned yet");
 
       const response = await fetch(`/api/v1/documents/dn/${dnNumber}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -586,10 +583,9 @@ export function Receiving() {
     const updatedLines = await Promise.all(
       initialLines.map(async (line) => {
         try {
-          const token = localStorage.getItem("jwt_token");
           const r = await fetch(
             `/api/v1/putaway/propose-location?sku=${encodeURIComponent(line.sku)}&warehouse=${encodeURIComponent(warehouse)}&owner=${encodeURIComponent(asn.owner || '')}&qty=${line.remaining || 1}`,
-            { headers: { Authorization: `Bearer ${token}` } }
+            { credentials: 'include' }
           );
           if (r.ok) {
             const proposal = await r.json();

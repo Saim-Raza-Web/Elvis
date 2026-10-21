@@ -213,6 +213,14 @@ export class AmazonProvider extends BaseIntegrationProvider {
    * Standard format: { externalId, sku, name, category, price, quantity, barcode, status }
    */
   async fetchProducts(store, options = {}) {
+    // Sandbox mode: return fixture data without making real API calls
+    if (options.isSandbox) {
+      return [
+        { externalId: 'B08N5KWB9H', sku: 'SANDBOX-SKU-001', name: 'Amazon Sandbox Product', category: 'Electronics', price: 29.99, quantity: 50, barcode: '0123456789012', status: 'Active', asin: 'B08N5KWB9H', images: '' },
+        { externalId: 'B07FZ8S74R', sku: 'SANDBOX-SKU-002', name: 'Amazon Sandbox Product 2', category: 'Home', price: 14.99, quantity: 120, barcode: '0987654321098', status: 'Active', asin: 'B07FZ8S74R', images: '' }
+      ];
+    }
+
     const client = this._getClient(store);
     const getMeta = (key) => store.metadata?.get ? store.metadata.get(key) : store.metadata?.[key];
     const marketplaceId = getMeta('marketplaceId');
@@ -251,6 +259,24 @@ export class AmazonProvider extends BaseIntegrationProvider {
    * Handles pagination via nextToken to fetch all pages of orders.
    */
   async fetchOrders(store, options = {}) {
+    // Sandbox mode: return fixture data without making real API calls
+    if (options.isSandbox) {
+      return [
+        {
+          externalOrderId: '114-SANDBOX-0001',
+          orderNumber: '114-SANDBOX-0001',
+          customerName: 'Sandbox Customer',
+          customerEmail: 'sandbox@example.com',
+          date: new Date().toISOString(),
+          status: 'Unshipped',
+          fulfillmentChannel: 'MFN',
+          items: [{ sku: 'SANDBOX-SKU-001', name: 'Amazon Sandbox Product', quantity: 2, price: 29.99, total: 59.98 }],
+          deliveryAddress: { name: 'Sandbox Customer', addressLine1: '1 Test Street', city: 'Madrid', state: 'MD', postalCode: '28001', country: 'ES', phone: '' },
+          subtotal: 59.98, taxTotal: 0, grandTotal: 59.98, currency: 'EUR', isB2B: false
+        }
+      ];
+    }
+
     const client = this._getClient(store);
     const getMeta = (key) => store.metadata?.get ? store.metadata.get(key) : store.metadata?.[key];
     const marketplaceId = getMeta('marketplaceId');
@@ -368,7 +394,12 @@ export class AmazonProvider extends BaseIntegrationProvider {
    * @param {number} availableQty - Available quantity from WMS
    * @returns {Promise<object>}
    */
-  async updateExternalInventory(store, sku, availableQty) {
+  async updateExternalInventory(store, sku, availableQty, options = {}) {
+    // Sandbox mode: simulate success without real API call
+    if (options && options.isSandbox) {
+      return { success: true, updatedSku: sku, newLevel: availableQty, response: { sandbox: true } };
+    }
+
     const client = this._getClient(store);
 
     const response = await client.updateInventory(sku, availableQty);
