@@ -11,10 +11,6 @@ const LANGS: { code: Lang; flag: string; label: string }[] = [
   { code: "it", flag: "🇮🇹", label: "IT" },
 ];
 
-// Demo credentials accepted on the login page
-const DEMO_EMAIL = "admin@demologistics.io";
-const DEMO_PASSWORD = "admin123";
-
 interface Props {
   lang: Lang;
   setLang: (l: Lang) => void;
@@ -90,12 +86,6 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
     }
   }
 
-  function fillDemo() {
-    setEmail(DEMO_EMAIL);
-    setPassword(DEMO_PASSWORD);
-    setError("");
-  }
-
   function handleBackToLogin() {
     setRequires2FA(false);
     setChallengeToken("");
@@ -119,7 +109,7 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
               <div className="size-9 rounded-xl bg-primary flex items-center justify-center">
                 <Zap className="size-5 text-white" />
               </div>
-              <span className="font-black text-xl tracking-tight">demologistics</span>
+              <span className="font-black text-xl tracking-tight">ELVIS WMS</span>
             </div>
             <h2 className="text-4xl font-black leading-tight mb-4">
               {l.leftHeadline}<br />
@@ -138,7 +128,7 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
               <div className="size-8 rounded-lg bg-primary flex items-center justify-center">
                 <Zap className="size-4 text-white" />
               </div>
-              <span className="font-bold text-lg">demologistics</span>
+              <span className="font-bold text-lg">ELVIS WMS</span>
             </div>
 
             <div className="flex items-center gap-2 mb-6">
@@ -301,22 +291,11 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
             <div className="size-8 rounded-lg bg-primary flex items-center justify-center">
               <Zap className="size-4 text-white" />
             </div>
-            <span className="font-bold text-lg">demologistics</span>
+            <span className="font-bold text-lg">ELVIS WMS</span>
           </div>
 
           <h1 className="text-3xl font-black mb-1 animate-fade-in-down">{isRegistering ? "Create Account" : l.title}</h1>
-          <p className="text-muted-foreground mb-8 animate-fade-in-down" style={{ animationDelay: "40ms" }}>{isRegistering ? "Join demologistics today." : l.subtitle}</p>
-
-          {/* Demo hint */}
-          <button
-            onClick={fillDemo}
-            className="w-full mb-6 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 text-primary text-sm font-medium flex items-center gap-2 hover:bg-primary/10 transition-colors animate-pop-in"
-            style={{ animationDelay: "60ms" }}
-          >
-            <Zap className="size-4 shrink-0" />
-            <span className="text-left flex-1">{l.demoHint}</span>
-            <span className="text-xs opacity-60">Click to fill</span>
-          </button>
+          <p className="text-muted-foreground mb-8 animate-fade-in-down" style={{ animationDelay: "40ms" }}>{isRegistering ? "Create your ELVIS WMS account today." : l.subtitle}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4 animate-pop-in" style={{ animationDelay: "80ms" }}>
             {/* Name (Register only) */}

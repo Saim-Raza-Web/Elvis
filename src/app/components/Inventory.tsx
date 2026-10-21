@@ -205,7 +205,12 @@ export function Inventory() {
     try {
       setIsSubmittingStock(true);
       setStockErrors([]);
-      const targetWh = selectedStockWh || (warehouses[0]?.code || "BCN");
+      const targetWh = selectedStockWh || (warehouses[0]?.code || "");
+      if (!targetWh) {
+        toast.error("Selecciona o configura un almacén válido");
+        setIsSubmittingStock(false);
+        return;
+      }
       const payload: any = {
         warehouse: targetWh
       };
@@ -559,9 +564,10 @@ export function Inventory() {
 
           <Field label="Almacén Destino *" required>
             <Select
-              value={selectedStockWh || (warehouses[0]?.code || "BCN")}
+              value={selectedStockWh || (warehouses[0]?.code || "")}
               onChange={(e) => setSelectedStockWh(e.target.value)}
             >
+              {warehouses.length === 0 && <option value="">Sin almacenes configurados</option>}
               {warehouses.map(w => (
                 <option key={w._id || w.code} value={w.code}>{w.name} ({w.code})</option>
               ))}

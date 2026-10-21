@@ -146,6 +146,8 @@ import billing3plRoutes from './routes/billing_3pl.js';
 import clientPortalRoutes from './routes/client_portal.js';
 import kpiRoutes from './routes/kpi.js';
 import ediRoutes from './routes/edi.js';
+import rolesRoutes from './routes/roles.js';
+import docsRoutes from './routes/docs.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -212,6 +214,8 @@ mountModuleRoute('/api/v1/kpi', kpiRoutes);
 app.use('/api/v1/3pl/billing', billing3plRoutes);
 app.use('/api/v1/client-portal', clientPortalRoutes);
 app.use('/api/v1/edi', ediRoutes);
+app.use('/api/v1/roles', rolesRoutes);
+app.use('/api/v1/docs', docsRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

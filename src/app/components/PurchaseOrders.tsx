@@ -3,7 +3,7 @@ import { Plus, Search, Send, CheckCircle, PackageOpen, FileText, Ban, Eye, Mail 
 import { toast } from "sonner";
 import { PrimaryButton, SecondaryButton } from "./AppShell";
 import { purchaseOrdersService, type PurchaseOrder } from "../../services/purchase_orders.service";
-import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit, ConfirmModal } from "./Modal";
 import { useLang } from "../LangContext";
 
 export function PurchaseOrders() {
@@ -12,6 +12,7 @@ export function PurchaseOrders() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [cancelPoId, setCancelPoId] = useState<string | null>(null);
   
   // Modals
   const [showReceive, setShowReceive] = useState(false);
@@ -59,11 +60,16 @@ export function PurchaseOrders() {
     }
   };
 
-  const handleCancel = async (id: string) => {
-    if (!confirm("Are you sure you want to cancel this PO?")) return;
+  const handleCancel = (id: string) => {
+    setCancelPoId(id);
+  };
+
+  const executeCancelPo = async () => {
+    if (!cancelPoId) return;
     try {
-      await purchaseOrdersService.cancel(id);
+      await purchaseOrdersService.cancel(cancelPoId);
       toast.success("Purchase Order cancelled");
+      setCancelPoId(null);
       loadPOs();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to cancel PO");

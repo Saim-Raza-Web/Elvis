@@ -1,5 +1,6 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "elvis-wms",
+  "description": "ELVIS WMS — Enterprise Warehouse Management System",
   "private": true,
   "version": "0.0.1",
   "type": "module",

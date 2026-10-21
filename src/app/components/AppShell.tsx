@@ -201,7 +201,7 @@ export function AppShell({
               <div className="size-4 bg-accent rounded-sm animate-pulse-soft" />
             </div>
             <span className="hidden sm:inline" style={{ fontSize: "1.125rem", fontWeight: 700, letterSpacing: "-0.02em" }}>
-              demo<span style={{ color: "var(--accent)", fontWeight: 300 }}>logistics</span>
+              ELVIS<span style={{ color: "var(--accent)", fontWeight: 300 }}> WMS</span>
             </span>
           </button>
 
@@ -328,8 +328,16 @@ export function AppShell({
             {userOpen && (
               <div className="absolute top-full right-0 mt-2 w-56 bg-card border border-border rounded-xl shadow-xl p-1 z-50 animate-fade-in-down">
                 <div className="px-3 py-2 text-xs">
-                  <div className="font-semibold truncate">{currentUser?.email || "admin@demologistics.io"}</div>
-                  <div className="text-muted-foreground truncate">{currentUser?.name || activeCompany.name}</div>
+                  <div className="font-semibold truncate">{currentUser?.email || "user@elviswms.com"}</div>
+                  <div className="text-muted-foreground truncate flex items-center justify-between gap-1 mt-0.5">
+                    <span>{currentUser?.name || activeCompany.name}</span>
+                    <span className="uppercase text-[9px] font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">{currentUser?.role || "user"}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1">
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${currentUser?.totpEnabled ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-500"}`}>
+                      <ShieldCheck className="size-3" /> {currentUser?.totpEnabled ? "2FA Active" : "2FA Off"}
+                    </span>
+                  </div>
                 </div>
                 <div className="h-px bg-border" />
                 <button onClick={() => navigate("subscription")} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-secondary"><CreditCard className="size-4" /> {t.nav.subscription}</button>

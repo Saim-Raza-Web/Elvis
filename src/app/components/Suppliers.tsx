@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Search, Pencil, Trash2, Truck, Globe, Mail, Phone, Calendar, PackageOpen } from "lucide-react";
 import { toast } from "sonner";
-import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit, ConfirmModal } from "./Modal";
 import { PrimaryButton, SecondaryButton } from "./AppShell";
 import { suppliersService, type Supplier } from "../../services/suppliers.service";
 import { type SupplierProduct } from "../../services/suppliers.service";
@@ -22,6 +22,8 @@ export function Suppliers() {
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [availableProducts, setAvailableProducts] = useState<any[]>([]);
+  const [unmapTargetId, setUnmapTargetId] = useState<string | null>(null);
+  const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null);
   
   const [mapForm, setMapForm] = useState({
     productId: "",
@@ -120,12 +122,17 @@ export function Suppliers() {
     }
   };
 
-  const handleUnmapProduct = async (mappingId: string) => {
+  const handleUnmapProduct = (mappingId: string) => {
     if (!selectedSupplier) return;
-    if (!confirm("Are you sure you want to unmap this product?")) return;
+    setUnmapTargetId(mappingId);
+  };
+
+  const executeUnmapProduct = async () => {
+    if (!selectedSupplier || !unmapTargetId) return;
     try {
-      await suppliersService.deleteProduct(selectedSupplier._id, mappingId);
+      await suppliersService.deleteProduct(selectedSupplier._id, unmapTargetId);
       toast.success("Product unmapped");
+      setUnmapTargetId(null);
       const prods = await suppliersService.getProducts(selectedSupplier._id);
       setSupplierProducts(prods);
     } catch (e) {
@@ -153,11 +160,16 @@ export function Suppliers() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this supplier?")) return;
+  const handleDelete = (id: string) => {
+    setDeleteSupplierId(id);
+  };
+
+  const executeDeleteSupplier = async () => {
+    if (!deleteSupplierId) return;
     try {
-      await suppliersService.delete(id);
+      await suppliersService.delete(deleteSupplierId);
       toast.success("Supplier deleted.");
+      setDeleteSupplierId(null);
       loadSuppliers();
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || "Failed to delete supplier");
@@ -334,6 +346,28 @@ export function Suppliers() {
           </div>
         </div>
       </Modal>
+
+      {/* Unmap Product Confirmation Modal */}
+      <ConfirmModal
+        open={Boolean(unmapTargetId)}
+        onClose={() => setUnmapTargetId(null)}
+        onConfirm={executeUnmapProduct}
+        title="Unmap Product"
+        message="Are you sure you want to unmap this product from the supplier? Lead times and supplier SKU references will be removed."
+        confirmText="Unmap"
+        variant="destructive"
+      />
+
+      {/* Delete Supplier Confirmation Modal */}
+      <ConfirmModal
+        open={Boolean(deleteSupplierId)}
+        onClose={() => setDeleteSupplierId(null)}
+        onConfirm={executeDeleteSupplier}
+        title="Delete Supplier"
+        message="Are you sure you want to delete this supplier? This action cannot be undone."
+        confirmText="Delete Supplier"
+        variant="destructive"
+      />
     </div>
   );
 }

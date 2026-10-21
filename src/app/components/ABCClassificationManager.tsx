@@ -6,7 +6,7 @@ import {
 import { toast } from "sonner";
 import { getFetchWithCsrfOptions } from "../../services/api";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
-import { Modal, Field, Input, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { Modal, Field, Input, Row, ModalCancel, ModalSubmit, ConfirmModal } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
@@ -40,6 +40,8 @@ export function ABCClassificationManager() {
   const [selectedProduct, setSelectedProduct] = useState<ABCProduct | null>(null);
   const [overrideClass, setOverrideClass] = useState<"A" | "B" | "C">("A");
   const [overrideReason, setOverrideReason] = useState("");
+  const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
+  const [clearOverrideProduct, setClearOverrideProduct] = useState<ABCProduct | null>(null);
 
   const fetchABCData = async () => {
     try {
@@ -57,9 +59,12 @@ export function ABCClassificationManager() {
     }
   };
 
-  const handleRecalculate = async () => {
-    if (!confirm("Recalculate ABC classification for all products? This may take several minutes.")) return;
-    
+  const handleRecalculate = () => {
+    setShowRecalcConfirm(true);
+  };
+
+  const executeRecalculate = async () => {
+    setShowRecalcConfirm(false);
     try {
       setRecalculating(true);
       const res = await fetch("/api/v1/abc-classification/recalculate", getFetchWithCsrfOptions("POST", {
@@ -100,13 +105,18 @@ export function ABCClassificationManager() {
     }
   };
 
-  const handleClearOverride = async (product: ABCProduct) => {
-    if (!confirm(`Clear ABC override for ${product.sku}?`)) return;
-    
+  const handleClearOverride = (product: ABCProduct) => {
+    setClearOverrideProduct(product);
+  };
+
+  const executeClearOverride = async () => {
+    if (!clearOverrideProduct) return;
+    const sku = clearOverrideProduct.sku;
     try {
-      const res = await fetch(`/api/v1/abc-classification/${product.sku}/override`, getFetchWithCsrfOptions("DELETE"));
+      const res = await fetch(`/api/v1/abc-classification/${sku}/override`, getFetchWithCsrfOptions("DELETE"));
       if (!res.ok) throw new Error("Failed to clear ABC override");
-      toast.success(`ABC override cleared for ${product.sku}`);
+      toast.success(`ABC override cleared for ${sku}`);
+      setClearOverrideProduct(null);
       await fetchABCData();
     } catch (err: any) {
       toast.error(err.message || "Failed to clear ABC override");
@@ -342,6 +352,29 @@ export function ABCClassificationManager() {
           </div>
         </Modal>
       )}
+
+      {/* Recalculate ABC Confirmation Modal */}
+      <ConfirmModal
+        open={showRecalcConfirm}
+        onClose={() => setShowRecalcConfirm(false)}
+        onConfirm={executeRecalculate}
+        title="Recalculate ABC Classification"
+        message="Are you sure you want to recalculate ABC classification for all products across the company? This will evaluate movement velocity, unit volume, and revenue tiering."
+        confirmText="Recalculate Now"
+        variant="primary"
+        loading={recalculating}
+      />
+
+      {/* Clear Override Confirmation Modal */}
+      <ConfirmModal
+        open={Boolean(clearOverrideProduct)}
+        onClose={() => setClearOverrideProduct(null)}
+        onConfirm={executeClearOverride}
+        title="Clear ABC Override"
+        message={`Are you sure you want to clear the manual ABC override for SKU '${clearOverrideProduct?.sku}'? The product will revert to its dynamically calculated tier.`}
+        confirmText="Clear Override"
+        variant="destructive"
+      />
     </div>
   );
 }

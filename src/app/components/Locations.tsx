@@ -1099,7 +1099,8 @@ export function Locations() {
             <button
               type="button"
               onClick={() => {
-                const sample = "code,warehouse,zone,locationType,status,maxUnits,maxWeight\nESTANTERIAS-A01-R01-N01-B01,BCN,ESTANTERIAS,RESERVE,AVAILABLE,1000,1200\nESTANTERIAS-A01-R01-N01-B02,BCN,ESTANTERIAS,PICK_FACE,AVAILABLE,200,300";
+                const currentWh = selectedWarehouse || (warehouses[0]?.code || "WH-MAIN");
+                const sample = `code,warehouse,zone,locationType,status,maxUnits,maxWeight\nESTANTERIAS-A01-R01-N01-B01,${currentWh},ESTANTERIAS,RESERVE,AVAILABLE,1000,1200\nESTANTERIAS-A01-R01-N01-B02,${currentWh},ESTANTERIAS,PICK_FACE,AVAILABLE,200,300`;
                 const blob = new Blob([sample], { type: "text/csv;charset=utf-8;" });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
@@ -1166,7 +1167,7 @@ export function Locations() {
               rows={5}
               value={csvText}
               onChange={(e) => { setCsvText(e.target.value); setSelectedFile(null); }}
-              placeholder={`code,warehouse,zone,locationType,status,maxUnits,maxWeight\nESTANTERIAS-A01-R01-N01-B01,BCN,ESTANTERIAS,RESERVE,AVAILABLE,1000,1200`}
+              placeholder={`code,warehouse,zone,locationType,status,maxUnits,maxWeight\nESTANTERIAS-A01-R01-N01-B01,${selectedWarehouse || (warehouses[0]?.code || "WH-MAIN")},ESTANTERIAS,RESERVE,AVAILABLE,1000,1200`}
               className="w-full p-3 bg-secondary/30 border border-border rounded-xl font-mono text-xs outline-none focus:border-primary"
             />
           </div>

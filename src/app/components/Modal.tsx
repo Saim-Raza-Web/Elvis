@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { useLang } from "../LangContext";
 
@@ -131,5 +131,128 @@ export function ModalSubmit({ children, onClick, variant = "primary", disabled }
     <button onClick={onClick} disabled={disabled} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${cls}`}>
       {children}
     </button>
+  );
+}
+
+interface ConfirmModalProps {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: "primary" | "destructive" | "success";
+  loading?: boolean;
+}
+
+export function ConfirmModal({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  variant = "destructive",
+  loading = false,
+}: ConfirmModalProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      width="sm"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors disabled:opacity-50"
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className={`px-5 py-2 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50 ${
+              variant === "destructive" ? "bg-destructive hover:bg-destructive/90" : "bg-primary hover:bg-primary/90"
+            }`}
+          >
+            {loading ? "Processing..." : confirmText}
+          </button>
+        </>
+      }
+    >
+      <p className="text-sm text-muted-foreground leading-relaxed">{message}</p>
+    </Modal>
+  );
+}
+
+interface PromptModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (val: string) => void;
+  title: string;
+  subtitle?: string;
+  label?: string;
+  placeholder?: string;
+  defaultValue?: string;
+  submitText?: string;
+}
+
+export function PromptModal({
+  open,
+  onClose,
+  onSubmit,
+  title,
+  subtitle,
+  label = "Value",
+  placeholder = "",
+  defaultValue = "",
+  submitText = "Save",
+}: PromptModalProps) {
+  const [val, setVal] = useState(defaultValue);
+
+  useEffect(() => {
+    if (open) setVal(defaultValue);
+  }, [open, defaultValue]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!val.trim()) return;
+    onSubmit(val.trim());
+    onClose();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      subtitle={subtitle}
+      width="sm"
+      footer={
+        <>
+          <ModalCancel onClose={onClose} />
+          <ModalSubmit onClick={handleSubmit} disabled={!val.trim()}>
+            {submitText}
+          </ModalSubmit>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <Field label={label} required>
+          <Input
+            autoFocus
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            placeholder={placeholder}
+          />
+        </Field>
+      </form>
+    </Modal>
   );
 }

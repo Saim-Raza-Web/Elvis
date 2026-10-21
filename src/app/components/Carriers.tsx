@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Building2, Plus, Truck, CheckCircle2, Zap, Edit3, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
-import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit, ConfirmModal } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
@@ -33,6 +33,7 @@ export function Carriers() {
 
   const [form, setForm] = useState({ name: "", type: "international", account: "", status: "active", on_time: 90, cost_avg: 8.0, regions: "US,EU", zones: "", weight_brackets_str: "[{\"min\":0, \"max\":10, \"rate\":5.0}]" });
   const [ruleForm, setRuleForm] = useState({ name: "", condition: "", carrier: "", active: true });
+  const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
 
   const { items: pagedCarriers, allItems: carrierList, pagination, page, setPage, isLoading, reload } = usePaginatedList<Carrier>(
     carriersListService,
@@ -112,13 +113,20 @@ export function Carriers() {
     } catch (err) { toast.error(t.common?.error || "Failed to save rule"); }
   }
 
-  async function handleDeleteRule(id: string) {
-    if (!confirm("Delete this rule?")) return;
+  function handleDeleteRule(id: string) {
+    setDeleteRuleId(id);
+  }
+
+  async function executeDeleteRule() {
+    if (!deleteRuleId) return;
     try {
-      await carrierRulesService.delete(id);
+      await carrierRulesService.delete(deleteRuleId);
       toast.success(t.common?.operationSuccess || "Rule deleted.");
+      setDeleteRuleId(null);
       loadData();
-    } catch (err) { toast.error(t.common?.error || "Failed to delete rule"); }
+    } catch (err) {
+      toast.error(t.common?.error || "Failed to delete rule");
+    }
   }
 
   function openAddRule() {
@@ -298,6 +306,17 @@ export function Carriers() {
           </Select></Field>
         </Row>
       </Modal>
+
+      {/* Delete Carrier Rule Confirmation Modal */}
+      <ConfirmModal
+        open={Boolean(deleteRuleId)}
+        onClose={() => setDeleteRuleId(null)}
+        onConfirm={executeDeleteRule}
+        title="Delete Carrier Rule"
+        message="Are you sure you want to delete this carrier assignment rule? Automation matching this rule will stop."
+        confirmText="Delete Rule"
+        variant="destructive"
+      />
     </div>
   );
 }

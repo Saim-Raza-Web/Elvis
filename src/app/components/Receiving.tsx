@@ -592,7 +592,8 @@ export function Receiving() {
             return { ...line, bin: proposal.proposedBin || "", zone: proposal.zone || "Z-RECEIVING", ruleApplied: proposal.ruleApplied || "" };
           }
         } catch (_) { }
-        return { ...line, bin: `${warehouse}-RCV-DOCK1`, zone: "Z-RECEIVING" };
+        const defaultBin = line.bin || (asn.receivingDock || (asn.dock || ""));
+        return { ...line, bin: defaultBin, zone: "Z-RECEIVING" };
       })
     );
     setProposeLoading(false);

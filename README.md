@@ -1,7 +1,7 @@
 
-  # Elvis Project
+# ELVIS WMS — Enterprise Warehouse Management System
 
-  This is a code bundle for Elvis Project. The original project is available at https://www.figma.com/design/m8VpryRUxPVQ2xWKfZj72i/Elvis-Project.
+ELVIS WMS is a multi-tenant, enterprise-grade warehouse management, real-time inventory tracking, and supply chain logistics platform.
 
   ## Running the code
 
