@@ -36,5 +36,25 @@ export const adminService = {
   getMetrics: async () => {
     const response = await api.get('/admin/metrics');
     return response.data;
+  },
+  getRoles: async () => {
+    const response = await api.get('/roles');
+    return response.data;
+  },
+  createRole: async (data: { name: string; roleId?: string; description?: string; color?: string; permissions: Record<string, boolean> }) => {
+    const response = await api.post('/roles', data);
+    return response.data;
+  },
+  updateRole: async (roleId: string, data: { name?: string; description?: string; color?: string; permissions?: Record<string, boolean> }) => {
+    const response = await api.put(`/roles/${roleId}`, data);
+    return response.data;
+  },
+  deleteRole: async (roleId: string) => {
+    const response = await api.delete(`/roles/${roleId}`);
+    return response.data;
+  },
+  getApiDocs: async () => {
+    const response = await api.get('/docs');
+    return response.data;
   }
 };

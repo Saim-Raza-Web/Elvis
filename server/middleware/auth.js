@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User from '../models/User.js';
+import Role from '../models/Role.js';
 import Client from '../models/Client.js';
 import Warehouse from '../models/Warehouse.js';
 import { canAccessModule } from '../config/permissions.js';
@@ -152,14 +153,37 @@ export const requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
-export const requireModuleAccess = (module) => (req, res, next) => {
+export const requireModuleAccess = (module) => async (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
   }
-  if (!canAccessModule(req.user.role, module)) {
-    return res.status(403).json({ message: `Access denied to ${module}` });
+
+  // Admin role always has unrestricted module access
+  if (req.user.role === 'admin') {
+    return next();
   }
-  next();
+
+  try {
+    let customPermissions = null;
+    if (req.user.company && req.user.role) {
+      const roleDoc = await Role.findOne({
+        company: req.user.company,
+        roleId: req.user.role.toLowerCase()
+      }).lean();
+
+      if (roleDoc && roleDoc.permissions) {
+        customPermissions = roleDoc.permissions;
+      }
+    }
+
+    if (!canAccessModule(req.user.role, module, customPermissions)) {
+      return res.status(403).json({ message: `Access denied to ${module}` });
+    }
+
+    next();
+  } catch (err) {
+    next(err);
+  }
 };
 
 /**

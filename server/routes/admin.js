@@ -2,10 +2,12 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { protect, requireRole } from '../middleware/auth.js';
 import User from '../models/User.js';
+import Role from '../models/Role.js';
 import Company from '../models/Company.js';
 import Warehouse from '../models/Warehouse.js';
 import Order from '../models/Order.js';
 import ActivityLog from '../models/ActivityLog.js';
+import { ROLE_DEFINITIONS } from '../config/permissions.js';
 
 const router = express.Router();
 
@@ -15,7 +17,7 @@ router.use(requireRole('admin'));
 router.get('/users', async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
-    const users = await User.find({ company: req.user.company }).select('-password');
+    const users = await User.find({ company: req.user.company }).select('-password -totpSecret -totpRecoveryCodes');
     res.json(users);
   } catch (err) {
     next(err);
@@ -33,16 +35,27 @@ router.post('/users', async (req, res, next) => {
     if (existing) return res.status(400).json({ message: 'User with this email already exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const assignedRole = (role || 'warehouse_staff').trim().toLowerCase();
+
+    // Validate role exists as system role or company custom role
+    const isSystemRole = ROLE_DEFINITIONS.some(r => r.id === assignedRole);
+    if (!isSystemRole) {
+      const customRole = await Role.findOne({ company: req.user.company, roleId: assignedRole });
+      if (!customRole) {
+        return res.status(400).json({ message: `Role '${assignedRole}' does not exist in this company` });
+      }
+    }
+
     const user = await User.create({
       email,
       name: name || email.split('@')[0],
       password: hashedPassword,
-      role: role || 'warehouse_staff',
+      role: assignedRole,
       company: req.user.company,
     });
 
     await Company.findByIdAndUpdate(req.user.company, { $addToSet: { users: user._id } });
-    const safe = await User.findById(user._id).select('-password');
+    const safe = await User.findById(user._id).select('-password -totpSecret -totpRecoveryCodes');
     res.status(201).json(safe);
   } catch (err) {
     next(err);
@@ -55,13 +68,32 @@ router.put('/users/:id', async (req, res, next) => {
     const { name, role } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
-    if (role !== undefined) updates.role = role;
+    if (role !== undefined) {
+      const assignedRole = role.trim().toLowerCase();
+      const isSystemRole = ROLE_DEFINITIONS.some(r => r.id === assignedRole);
+      if (!isSystemRole) {
+        const customRole = await Role.findOne({ company: req.user.company, roleId: assignedRole });
+        if (!customRole) {
+          return res.status(400).json({ message: `Role '${assignedRole}' does not exist in this company` });
+        }
+      }
+
+      // Prevent sole admin from demoting themselves
+      if (req.params.id === req.user._id.toString() && assignedRole !== 'admin') {
+        const adminCount = await User.countDocuments({ company: req.user.company, role: 'admin' });
+        if (adminCount <= 1) {
+          return res.status(400).json({ message: 'Cannot demote the sole administrator of the company' });
+        }
+      }
+
+      updates.role = assignedRole;
+    }
 
     const user = await User.findOneAndUpdate(
       { _id: req.params.id, company: req.user.company },
       updates,
       { new: true }
-    ).select('-password');
+    ).select('-password -totpSecret -totpRecoveryCodes');
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (err) {

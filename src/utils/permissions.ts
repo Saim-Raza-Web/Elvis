@@ -1,33 +1,54 @@
 /** Keep in sync with server/config/permissions.js */
 export type PermissionModule =
   | 'dashboard'
-  | 'warehouses'
   | 'inventory'
+  | 'locations'
+  | 'receiving'
+  | 'qc'
+  | 'picking'
+  | 'packing'
+  | 'shipping'
+  | 'returns'
   | 'orders'
+  | 'warehouses'
   | 'billing'
   | 'reports'
   | 'settings'
   | 'admin';
 
-export type UserRole = 'admin' | 'manager' | 'warehouse_staff' | 'client_3pl' | 'management' | 'office';
+export type UserRole = 'admin' | 'manager' | 'warehouse_staff' | 'client_3pl' | 'management' | 'office' | string;
 
 export const PERMISSION_MODULES: PermissionModule[] = [
   'dashboard',
-  'warehouses',
   'inventory',
+  'locations',
+  'receiving',
+  'qc',
+  'picking',
+  'packing',
+  'shipping',
+  'returns',
   'orders',
+  'warehouses',
   'billing',
   'reports',
   'settings',
   'admin',
 ];
 
-export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean>> = {
+export const ROLE_PERMISSIONS: Record<string, Record<PermissionModule, boolean>> = {
   admin: {
     dashboard: true,
-    warehouses: true,
     inventory: true,
+    locations: true,
+    receiving: true,
+    qc: true,
+    picking: true,
+    packing: true,
+    shipping: true,
+    returns: true,
     orders: true,
+    warehouses: true,
     billing: true,
     reports: true,
     settings: true,
@@ -35,9 +56,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean
   },
   manager: {
     dashboard: true,
-    warehouses: true,
     inventory: true,
+    locations: true,
+    receiving: true,
+    qc: true,
+    picking: true,
+    packing: true,
+    shipping: true,
+    returns: true,
     orders: true,
+    warehouses: true,
     billing: false,
     reports: true,
     settings: false,
@@ -45,9 +73,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean
   },
   warehouse_staff: {
     dashboard: true,
-    warehouses: false,
     inventory: true,
+    locations: false,
+    receiving: true,
+    qc: false,
+    picking: true,
+    packing: true,
+    shipping: true,
+    returns: true,
     orders: false,
+    warehouses: false,
     billing: false,
     reports: false,
     settings: false,
@@ -55,9 +90,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean
   },
   client_3pl: {
     dashboard: true,
-    warehouses: false,
     inventory: true,
+    locations: false,
+    receiving: false,
+    qc: false,
+    picking: false,
+    packing: false,
+    shipping: false,
+    returns: false,
     orders: true,
+    warehouses: false,
     billing: false,
     reports: false,
     settings: false,
@@ -65,9 +107,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean
   },
   management: {
     dashboard: true,
-    warehouses: true,
     inventory: true,
+    locations: true,
+    receiving: true,
+    qc: true,
+    picking: true,
+    packing: true,
+    shipping: true,
+    returns: true,
     orders: true,
+    warehouses: true,
     billing: false,
     reports: true,
     settings: false,
@@ -75,9 +124,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean
   },
   office: {
     dashboard: true,
-    warehouses: false,
     inventory: false,
+    locations: false,
+    receiving: false,
+    qc: false,
+    picking: false,
+    packing: false,
+    shipping: false,
+    returns: true,
     orders: true,
+    warehouses: false,
     billing: false,
     reports: true,
     settings: false,
@@ -87,51 +143,65 @@ export const ROLE_PERMISSIONS: Record<UserRole, Record<PermissionModule, boolean
 
 export const ROLE_DEFINITIONS = [
   {
-    id: 'admin' as UserRole,
+    id: 'admin',
     name: 'Admin',
     description: 'Full access to all features and settings',
     color: 'text-primary bg-primary/10',
     permissions: ROLE_PERMISSIONS.admin,
+    isSystem: true,
   },
   {
-    id: 'manager' as UserRole,
+    id: 'manager',
     name: 'Manager',
-    description: 'Can manage warehouse operations and view reports',
+    description: 'Can manage warehouse operations, quality, and view reports',
     color: 'text-blue-500 bg-blue-500/10',
     permissions: ROLE_PERMISSIONS.manager,
+    isSystem: true,
   },
   {
-    id: 'warehouse_staff' as UserRole,
+    id: 'warehouse_staff',
     name: 'Warehouse Staff',
-    description: 'Can perform picking, packing, receiving operations',
+    description: 'Can perform picking, packing, receiving, and returns operations',
     color: 'text-success bg-success/10',
     permissions: ROLE_PERMISSIONS.warehouse_staff,
+    isSystem: true,
   },
   {
-    id: 'client_3pl' as UserRole,
+    id: 'client_3pl',
     name: '3PL Client',
     description: 'Client with access to own inventory and orders only',
     color: 'text-purple-500 bg-purple-500/10',
     permissions: ROLE_PERMISSIONS.client_3pl,
+    isSystem: true,
   },
   {
-    id: 'management' as UserRole,
+    id: 'management',
     name: 'Management',
     description: 'Warehouse-scoped manager with limited warehouse access',
     color: 'text-orange-500 bg-orange-500/10',
     permissions: ROLE_PERMISSIONS.management,
+    isSystem: true,
   },
   {
-    id: 'office' as UserRole,
+    id: 'office',
     name: 'Office',
-    description: 'Business and reporting access, no warehouse operations',
+    description: 'Business and reporting access with customer returns handling',
     color: 'text-cyan-500 bg-cyan-500/10',
     permissions: ROLE_PERMISSIONS.office,
+    isSystem: true,
   },
 ];
 
-export function canAccessModule(role: string | undefined, module: PermissionModule): boolean {
-  const r = (role || 'warehouse_staff') as UserRole;
+export function canAccessModule(role: string | undefined, module: PermissionModule, customRolePermissions?: Record<string, boolean>): boolean {
+  if (role === 'admin') return true;
+
+  if (customRolePermissions && typeof customRolePermissions === 'object') {
+    if (module in customRolePermissions) {
+      return Boolean(customRolePermissions[module]);
+    }
+  }
+
+  const r = (role || 'warehouse_staff');
   const perms = ROLE_PERMISSIONS[r] || ROLE_PERMISSIONS.warehouse_staff;
   return Boolean(perms[module]);
 }
@@ -140,26 +210,27 @@ export function canAccessModule(role: string | undefined, module: PermissionModu
 export const PAGE_MODULE_MAP: Record<string, PermissionModule> = {
   dashboard: 'dashboard',
   warehouses: 'warehouses',
-  locations: 'inventory',
+  locations: 'locations',
   inventory: 'inventory',
-  receiving: 'inventory',
+  receiving: 'receiving',
   transfers: 'inventory',
   'stock-counts': 'inventory',
-  picking: 'inventory',
-  packing: 'inventory',
-  shipping: 'inventory',
-  returns: 'inventory',
+  picking: 'picking',
+  packing: 'packing',
+  shipping: 'shipping',
+  returns: 'returns',
+  qc: 'qc',
   incidents: 'inventory',
   activity: 'inventory',
   orders: 'orders',
   ecommerce: 'orders',
   crm: 'orders',
-  carriers: 'inventory',
+  carriers: 'shipping',
   billing: 'billing',
   accounting: 'billing',
   reports: 'reports',
   settings: 'settings',
   admin: 'admin',
   subscription: 'settings',
-  'client-portal': 'orders',
+  'client-portal': 'dashboard',
 };

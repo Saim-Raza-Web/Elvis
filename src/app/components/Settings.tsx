@@ -13,8 +13,10 @@ import { Suppliers } from "./Suppliers";
 import { ProductCategories } from "./ProductCategories";
 import { StorageRulesManager } from "./StorageRulesManager";
 import { ABCClassificationManager } from "./ABCClassificationManager";
+import { ApiDocsModal } from "./ApiDocsModal";
+import { ConfirmModal, PromptModal } from "./Modal";
 
-type User = { _id: string; name: string; email: string; role: string; createdAt: string; };
+type User = { _id: string; name: string; email: string; role: string; createdAt: string; totpEnabled?: boolean; };
 
 // Two-Factor Auth Section Component
 function TwoFactorAuthSection({ t }: { t: any }) {
@@ -423,6 +425,40 @@ export function Settings() {
   const [invitePassword, setInvitePassword] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
 
+  // Roles Management State
+  const [rolesList, setRolesList] = useState<any[]>(roles);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [roleModalMode, setRoleModalMode] = useState<'create' | 'edit' | 'view'>('create');
+  const [activeRoleTarget, setActiveRoleTarget] = useState<any | null>(null);
+  const [roleForm, setRoleForm] = useState<{
+    roleId: string;
+    name: string;
+    description: string;
+    color: string;
+    permissions: Record<string, boolean>;
+  }>({
+    roleId: "",
+    name: "",
+    description: "",
+    color: "bg-primary/15 text-primary",
+    permissions: {}
+  });
+
+  // Edit User Role Modal State
+  const [editingUserTarget, setEditingUserTarget] = useState<User | null>(null);
+  const [editingUserRole, setEditingUserRole] = useState("warehouse_staff");
+  const [editUserLoading, setEditUserLoading] = useState(false);
+
+  // API Docs Modal State
+  const [showApiDocs, setShowApiDocs] = useState(false);
+
+  // In-app Modal Confirmation / Prompt State
+  const [showCreateKeyPrompt, setShowCreateKeyPrompt] = useState(false);
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
+  const [confirmDeleteMemberId, setConfirmDeleteMemberId] = useState<string | null>(null);
+  const [confirmDeleteRoleTarget, setConfirmDeleteRoleTarget] = useState<any | null>(null);
+
   // Clients / 3PL Owners State
   const [clientsList, setClientsList] = useState<ClientOwner[]>([]);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -478,6 +514,7 @@ export function Settings() {
   useEffect(() => {
     loadSettings();
     fetchClientsList();
+    fetchRoles();
   }, []);
 
   const handleSaveClientForm = async () => {
@@ -645,44 +682,125 @@ export function Settings() {
     }
   }
 
-  async function handleRemoveMember(id: string) {
-    if (!confirm("Remove this team member? They will lose access immediately.")) return;
-    try {
-      await adminService.deleteUser(id);
-      setTeamMembers(prev => prev.filter(m => m._id !== id));
-      toast.success(t.common?.operationSuccess || "Team member removed.");
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to remove member.");
-    }
+  function handleRemoveMember(id: string) {
+    setConfirmDeleteMemberId(id);
   }
+
+  const fetchRoles = async () => {
+    try {
+      setRolesLoading(true);
+      const data = await adminService.getRoles();
+      if (Array.isArray(data) && data.length > 0) {
+        setRolesList(data);
+      }
+    } catch (err: any) {
+      console.error("Failed to load roles:", err);
+    } finally {
+      setRolesLoading(false);
+    }
+  };
+
+  const handleOpenCreateRole = () => {
+    setRoleModalMode('create');
+    setActiveRoleTarget(null);
+    setRoleForm({
+      roleId: '',
+      name: '',
+      description: '',
+      color: 'bg-primary/15 text-primary',
+      permissions: permissionModules.reduce((acc, m) => ({ ...acc, [m]: false }), {})
+    });
+    setShowRoleModal(true);
+  };
+
+  const handleOpenEditRole = (role: any, mode: 'edit' | 'view') => {
+    setRoleModalMode(mode);
+    setActiveRoleTarget(role);
+    setRoleForm({
+      roleId: role.roleId || role.id,
+      name: role.name,
+      description: role.description || '',
+      color: role.color || 'bg-primary/15 text-primary',
+      permissions: { ...(role.permissions || {}) }
+    });
+    setShowRoleModal(true);
+  };
+
+  const handleSaveRole = async () => {
+    if (!roleForm.name.trim()) {
+      toast.error('Role name is required');
+      return;
+    }
+    try {
+      if (roleModalMode === 'create') {
+        await adminService.createRole({
+          name: roleForm.name.trim(),
+          roleId: roleForm.roleId.trim() || undefined,
+          description: roleForm.description,
+          color: roleForm.color,
+          permissions: roleForm.permissions
+        });
+        toast.success(`Role '${roleForm.name}' created successfully`);
+      } else {
+        await adminService.updateRole(activeRoleTarget.roleId || activeRoleTarget.id, {
+          name: roleForm.name.trim(),
+          description: roleForm.description,
+          color: roleForm.color,
+          permissions: roleForm.permissions
+        });
+        toast.success(`Role '${roleForm.name}' updated successfully`);
+      }
+      setShowRoleModal(false);
+      fetchRoles();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to save role');
+    }
+  };
+
+  const handleDeleteRole = (role: any) => {
+    if (role.isSystem || role.id === 'admin') {
+      toast.error('Cannot delete built-in system role');
+      return;
+    }
+    setConfirmDeleteRoleTarget(role);
+  };
+
+  const handleOpenEditUserRole = (u: User) => {
+    setEditingUserTarget(u);
+    setEditingUserRole(u.role);
+  };
+
+  const handleSaveUserRole = async () => {
+    if (!editingUserTarget) return;
+    try {
+      setEditUserLoading(true);
+      await adminService.updateUser(editingUserTarget._id, { role: editingUserRole });
+      toast.success(`Updated role for ${editingUserTarget.name || editingUserTarget.email}`);
+      setEditingUserTarget(null);
+      const data = await adminService.getUsers();
+      setTeamMembers(data);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err.message || 'Failed to update user role');
+    } finally {
+      setEditUserLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (activeTab === "team") {
       adminService.getUsers().then(data => setTeamMembers(data)).catch(() => toast.error(t.common?.error || "Failed to load users"));
+      fetchRoles();
+    } else if (activeTab === "roles") {
+      fetchRoles();
     }
   }, [activeTab]);
 
-  async function handleCreateKey() {
-    const name = prompt("Enter a name for the new API Key:");
-    if (!name) return;
-    try {
-      const updatedKeys = await settingsService.createApiKey(name);
-      setKeys(updatedKeys);
-      toast.success(t.common?.operationSuccess || "API key created.");
-    } catch (err) {
-      toast.error(t.common?.error || "Failed to create API key.");
-    }
+  function handleCreateKey() {
+    setShowCreateKeyPrompt(true);
   }
 
-  async function handleDeleteKey(id: string) {
-    if (!confirm("Are you sure you want to delete this API key? This will break any integrations using it.")) return;
-    try {
-      const updatedKeys = await settingsService.deleteApiKey(id);
-      setKeys(updatedKeys);
-      toast.success(t.common?.operationSuccess || "API key deleted.");
-    } catch (err) {
-      toast.error(t.common?.error || "Failed to delete API key.");
-    }
+  function handleDeleteKey(id: string) {
+    setConfirmDeleteKey(id);
   }
 
   const Toggle = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
@@ -1250,10 +1368,11 @@ export function Settings() {
                     <div>
                       <label className="text-sm font-medium mb-1 block">Role</label>
                       <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm">
-                        <option value="admin">{tc?.admin || "Admin"}</option>
-                        <option value="manager">{tc?.manager || "Manager"}</option>
-                        <option value="warehouse_staff">{tc?.warehouseStaff || "Warehouse Staff"}</option>
-                        <option value="readonly">{tc?.readOnly || "Read-only"}</option>
+                        {rolesList.map((r: any) => (
+                          <option key={r.id || r.roleId} value={r.id || r.roleId}>
+                            {r.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1266,6 +1385,43 @@ export function Settings() {
                 </div>
               </div>
             )}
+
+            {/* Edit User Role Modal */}
+            {editingUserTarget && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingUserTarget(null)}>
+                <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg">Change Role</h3>
+                    <button onClick={() => setEditingUserTarget(null)} className="p-1 rounded-lg hover:bg-secondary transition-colors"><X className="size-4" /></button>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Update platform permissions for <strong>{editingUserTarget.name || editingUserTarget.email}</strong>.
+                    </p>
+                    <label className="text-sm font-medium mb-1.5 block">Select Role</label>
+                    <select
+                      value={editingUserRole}
+                      onChange={e => setEditingUserRole(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 outline-none focus:border-primary/50 transition-colors text-sm"
+                    >
+                      {rolesList.map((r: any) => (
+                        <option key={r.id || r.roleId} value={r.id || r.roleId}>
+                          {r.name} {r.description ? `— ${r.description}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex gap-2 justify-end pt-2 border-t border-border">
+                    <button onClick={() => setEditingUserTarget(null)} className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">{tc?.cancel || "Cancel"}</button>
+                    <button onClick={handleSaveUserRole} disabled={editUserLoading} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center gap-1.5">
+                      {editUserLoading && <Loader2 className="size-3.5 animate-spin" />}
+                      Save Role
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="p-4 border-b border-border flex items-center justify-between">
                 <h3 className="font-bold">Team Members</h3>
@@ -1281,8 +1437,9 @@ export function Settings() {
                     <tr>
                       <th className="text-left px-4 py-3">Member</th>
                       <th className="text-left px-4 py-3 hidden sm:table-cell">Role</th>
+                      <th className="text-left px-4 py-3 hidden sm:table-cell">2FA Status</th>
                       <th className="text-left px-4 py-3 hidden md:table-cell">Joined</th>
-                      <th className="text-right px-4 py-3"></th>
+                      <th className="text-right px-4 py-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1304,9 +1461,33 @@ export function Settings() {
                             m.role === "admin" ? "bg-primary/15 text-primary" : m.role === "manager" ? "bg-amber-500/15 text-amber-500" : "bg-secondary text-muted-foreground"
                           }`}>{m.role}</span>
                         </td>
+                        <td className="px-4 py-3 hidden sm:table-cell">
+                          {m.totpEnabled ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                              <Shield className="size-3" /> Enabled
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                              Disabled
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 hidden md:table-cell text-xs text-muted-foreground">{m.createdAt?.slice(0, 10)}</td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleRemoveMember(m._id)} className="text-xs text-muted-foreground hover:text-destructive transition-colors">Remove</button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleOpenEditUserRole(m)}
+                              className="text-xs text-primary hover:underline font-medium"
+                            >
+                              Edit Role
+                            </button>
+                            <button
+                              onClick={() => handleRemoveMember(m._id)}
+                              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1322,59 +1503,249 @@ export function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-bold">Roles & Permissions</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Define what each role can access across the platform</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Define custom roles and configure server-enforced access per module</p>
               </div>
-              <button className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all"><Plus className="size-3.5" /> New role</button>
+              <button
+                onClick={handleOpenCreateRole}
+                className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all"
+              >
+                <Plus className="size-3.5" /> New role
+              </button>
             </div>
 
             {/* Permission matrix */}
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[600px]">
+                <table className="w-full text-sm min-w-[750px]">
                   <thead className="bg-secondary/50 border-b border-border">
                     <tr>
                       <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold">Role</th>
                       {permissionModules.map((m) => (
-                        <th key={m} className="px-3 py-3 text-center text-xs text-muted-foreground font-semibold capitalize">{m}</th>
+                        <th key={m} className="px-2.5 py-3 text-center text-xs text-muted-foreground font-semibold capitalize">{m}</th>
                       ))}
                       <th className="px-4 py-3 text-right text-xs text-muted-foreground font-semibold">{t.common?.actions || "Actions"}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {roles.map((role, i) => (
-                      <tr key={role.id} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${role.color}`}>{role.name}</span>
-                            <span className="text-xs text-muted-foreground hidden lg:block">{teamMembers.filter((m) => m.role === role.id).length} user{teamMembers.filter((m) => m.role === role.id).length !== 1 ? "s" : ""}</span>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5 hidden md:block">{role.description}</div>
-                        </td>
-                        {permissionModules.map((mod) => (
-                          <td key={mod} className="px-3 py-3 text-center">
-                            {role.permissions[mod]
-                              ? <span className="size-5 rounded-full bg-success/15 text-success inline-flex items-center justify-center text-xs font-bold">✓</span>
-                              : <span className="size-5 rounded-full bg-secondary text-muted-foreground/30 inline-flex items-center justify-center text-xs">—</span>
-                            }
+                    {rolesList.map((role: any, i: number) => {
+                      const roleKey = role.id || role.roleId;
+                      const userCount = teamMembers.filter((m) => m.role === roleKey).length;
+                      return (
+                        <tr key={roleKey} className="border-t border-border hover:bg-secondary/30 transition-colors animate-fade-in-up" style={{ animationDelay: `${i * 30}ms` }}>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${role.color || "bg-primary/15 text-primary"}`}>{role.name}</span>
+                              <span className="text-xs text-muted-foreground hidden lg:block">{userCount} user{userCount !== 1 ? "s" : ""}</span>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5 hidden md:block">{role.description}</div>
                           </td>
-                        ))}
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title={t.common?.view || "View"}><Eye className="size-3.5" /></button>
-                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground" title={t.common?.edit || "Edit"}><Pencil className="size-3.5" /></button>}
-                            {role.id !== "admin" && <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={t.common?.delete || "Delete"}><Trash2 className="size-3.5" /></button>}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          {permissionModules.map((mod) => (
+                            <td key={mod} className="px-2.5 py-3 text-center">
+                              {role.permissions && role.permissions[mod]
+                                ? <span className="size-5 rounded-full bg-success/15 text-success inline-flex items-center justify-center text-xs font-bold">✓</span>
+                                : <span className="size-5 rounded-full bg-secondary text-muted-foreground/30 inline-flex items-center justify-center text-xs">—</span>
+                              }
+                            </td>
+                          ))}
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => handleOpenEditRole(role, 'view')}
+                                className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                                title="View details"
+                              >
+                                <Eye className="size-3.5" />
+                              </button>
+                              {roleKey !== "admin" && (
+                                <button
+                                  onClick={() => handleOpenEditRole(role, 'edit')}
+                                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                                  title="Edit role"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                              )}
+                              {!role.isSystem && roleKey !== "admin" && (
+                                <button
+                                  onClick={() => handleDeleteRole(role)}
+                                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"
+                                  title="Delete role"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground">Role assignments are per-user. To change a user's role, go to <strong>Team</strong> and edit their access level.</p>
+              <p className="text-xs text-muted-foreground">
+                All permissions are strictly enforced on the server for every API endpoint. System roles cannot be deleted, but permissions on custom roles can be fully tailored.
+              </p>
             </div>
+
+            {/* Role Create / Edit / View Modal */}
+            {showRoleModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowRoleModal(false)}>
+                <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between border-b border-border pb-3">
+                    <h3 className="font-bold text-lg">
+                      {roleModalMode === 'create' ? "Create Custom Role" : roleModalMode === 'edit' ? `Edit Role: ${roleForm.name}` : `Role Details: ${roleForm.name}`}
+                    </h3>
+                    <button onClick={() => setShowRoleModal(false)} className="p-1 rounded-lg hover:bg-secondary transition-colors">
+                      <X className="size-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold block mb-1">Role Name *</label>
+                        <input
+                          disabled={roleModalMode === 'view'}
+                          value={roleForm.name}
+                          onChange={e => setRoleForm({ ...roleForm, name: e.target.value })}
+                          placeholder="e.g. Quality Inspector"
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm outline-none focus:border-primary/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold block mb-1">Role Identifier (Slug)</label>
+                        <input
+                          disabled={roleModalMode !== 'create'}
+                          value={roleForm.roleId}
+                          onChange={e => setRoleForm({ ...roleForm, roleId: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
+                          placeholder="e.g. quality_inspector"
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm outline-none focus:border-primary/50 font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold block mb-1">Description</label>
+                      <input
+                        disabled={roleModalMode === 'view'}
+                        value={roleForm.description}
+                        onChange={e => setRoleForm({ ...roleForm, description: e.target.value })}
+                        placeholder="Brief summary of responsibilities..."
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-secondary/50 text-sm outline-none focus:border-primary/50"
+                      />
+                    </div>
+
+                    {roleModalMode !== 'view' && (
+                      <div>
+                        <label className="text-xs font-semibold block mb-1">Badge Color</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {[
+                            { label: "Blue", class: "bg-primary/15 text-primary" },
+                            { label: "Amber", class: "bg-amber-500/15 text-amber-500" },
+                            { label: "Emerald", class: "bg-emerald-500/15 text-emerald-500" },
+                            { label: "Purple", class: "bg-purple-500/15 text-purple-500" },
+                            { label: "Rose", class: "bg-rose-500/15 text-rose-500" },
+                            { label: "Cyan", class: "bg-cyan-500/15 text-cyan-500" }
+                          ].map(c => (
+                            <button
+                              key={c.label}
+                              type="button"
+                              onClick={() => setRoleForm({ ...roleForm, color: c.class })}
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${c.class} ${roleForm.color === c.class ? "ring-2 ring-primary ring-offset-2" : "border-transparent"}`}
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Permissions list */}
+                    <div className="pt-2 border-t border-border">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-semibold">Module Permissions</label>
+                        {roleModalMode !== 'view' && (
+                          <div className="flex gap-2 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const all: Record<string, boolean> = {};
+                                permissionModules.forEach(m => { all[m] = true; });
+                                setRoleForm({ ...roleForm, permissions: all });
+                              }}
+                              className="text-primary hover:underline"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-muted-foreground">|</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const none: Record<string, boolean> = {};
+                                permissionModules.forEach(m => { none[m] = false; });
+                                setRoleForm({ ...roleForm, permissions: none });
+                              }}
+                              className="text-muted-foreground hover:underline"
+                            >
+                              Clear All
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-secondary/30 p-3 rounded-xl border border-border">
+                        {permissionModules.map(mod => {
+                          const isChecked = Boolean(roleForm.permissions[mod]);
+                          return (
+                            <label
+                              key={mod}
+                              className={`flex items-center gap-2 p-2 rounded-lg text-xs cursor-pointer select-none transition-colors ${isChecked ? "bg-card border border-primary/30" : "hover:bg-secondary"}`}
+                            >
+                              <input
+                                type="checkbox"
+                                disabled={roleModalMode === 'view'}
+                                checked={isChecked}
+                                onChange={e => {
+                                  setRoleForm({
+                                    ...roleForm,
+                                    permissions: {
+                                      ...roleForm.permissions,
+                                      [mod]: e.target.checked
+                                    }
+                                  });
+                                }}
+                                className="rounded border-border text-primary focus:ring-primary size-4"
+                              />
+                              <span className="capitalize font-medium">{mod}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 justify-end pt-3 border-t border-border">
+                    <button
+                      onClick={() => setShowRoleModal(false)}
+                      className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors"
+                    >
+                      {roleModalMode === 'view' ? 'Close' : 'Cancel'}
+                    </button>
+                    {roleModalMode !== 'view' && (
+                      <button
+                        onClick={handleSaveRole}
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 transition-all"
+                      >
+                        {roleModalMode === 'create' ? 'Create Role' : 'Save Changes'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1410,12 +1781,104 @@ export function Settings() {
             </div>
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="font-bold mb-1">API Documentation</h3>
-              <p className="text-sm text-muted-foreground mb-3">Integrate demologistics with your existing systems using our REST API.</p>
-              <button className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors">View docs</button>
+              <p className="text-sm text-muted-foreground mb-3">Integrate ELVIS WMS with your existing systems using our interactive OpenAPI REST documentation.</p>
+              <button
+                onClick={() => setShowApiDocs(true)}
+                className="px-4 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-secondary transition-colors flex items-center gap-2"
+              >
+                <FileText className="size-4 text-primary" /> View docs
+              </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* OpenAPI Documentation Modal */}
+      <ApiDocsModal isOpen={showApiDocs} onClose={() => setShowApiDocs(false)} />
+
+      {/* Create API Key In-App Prompt Modal */}
+      <PromptModal
+        open={showCreateKeyPrompt}
+        onClose={() => setShowCreateKeyPrompt(false)}
+        onSubmit={async (name) => {
+          try {
+            const updatedKeys = await settingsService.createApiKey(name);
+            setKeys(updatedKeys);
+            toast.success(t.common?.operationSuccess || "API key created.");
+          } catch (err) {
+            toast.error(t.common?.error || "Failed to create API key.");
+          }
+        }}
+        title="Create API Key"
+        subtitle="Generate a new API key for external service integrations"
+        label="Key Identifier / Name"
+        placeholder="e.g. ERP Integration Key"
+        submitText="Generate Key"
+      />
+
+      {/* Delete API Key Confirm Modal */}
+      <ConfirmModal
+        open={Boolean(confirmDeleteKey)}
+        onClose={() => setConfirmDeleteKey(null)}
+        onConfirm={async () => {
+          if (!confirmDeleteKey) return;
+          try {
+            const updatedKeys = await settingsService.deleteApiKey(confirmDeleteKey);
+            setKeys(updatedKeys);
+            setConfirmDeleteKey(null);
+            toast.success(t.common?.operationSuccess || "API key deleted.");
+          } catch (err) {
+            toast.error(t.common?.error || "Failed to delete API key.");
+          }
+        }}
+        title="Delete API Key"
+        message="Are you sure you want to delete this API key? This will permanently break any integrations using it."
+        confirmText="Delete Key"
+        variant="destructive"
+      />
+
+      {/* Delete Member Confirm Modal */}
+      <ConfirmModal
+        open={Boolean(confirmDeleteMemberId)}
+        onClose={() => setConfirmDeleteMemberId(null)}
+        onConfirm={async () => {
+          if (!confirmDeleteMemberId) return;
+          try {
+            await adminService.deleteUser(confirmDeleteMemberId);
+            setTeamMembers(prev => prev.filter(m => m._id !== confirmDeleteMemberId));
+            setConfirmDeleteMemberId(null);
+            toast.success(t.common?.operationSuccess || "Team member removed.");
+          } catch (err: any) {
+            toast.error(err?.response?.data?.message || "Failed to remove member.");
+          }
+        }}
+        title="Remove Team Member"
+        message="Are you sure you want to remove this team member? They will lose access to the system immediately."
+        confirmText="Remove Member"
+        variant="destructive"
+      />
+
+      {/* Delete Role Confirm Modal */}
+      <ConfirmModal
+        open={Boolean(confirmDeleteRoleTarget)}
+        onClose={() => setConfirmDeleteRoleTarget(null)}
+        onConfirm={async () => {
+          if (!confirmDeleteRoleTarget) return;
+          const roleKey = confirmDeleteRoleTarget.roleId || confirmDeleteRoleTarget.id;
+          try {
+            await adminService.deleteRole(roleKey);
+            toast.success(`Role '${confirmDeleteRoleTarget.name}' deleted.`);
+            setConfirmDeleteRoleTarget(null);
+            fetchRoles();
+          } catch (err: any) {
+            toast.error(err?.response?.data?.message || err.message || "Failed to delete role.");
+          }
+        }}
+        title="Delete Custom Role"
+        message={`Are you sure you want to delete role '${confirmDeleteRoleTarget?.name}'? Users assigned to this role must be reassigned first.`}
+        confirmText="Delete Role"
+        variant="destructive"
+      />
     </div>
   );
 }
