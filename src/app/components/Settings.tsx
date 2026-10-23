@@ -1794,7 +1794,7 @@ export function Settings() {
       </div>
 
       {/* OpenAPI Documentation Modal */}
-      <ApiDocsModal isOpen={showApiDocs} onClose={() => setShowApiDocs(false)} />
+      {showApiDocs && <ApiDocsModal onClose={() => setShowApiDocs(false)} />}
 
       {/* Create API Key In-App Prompt Modal */}
       <PromptModal

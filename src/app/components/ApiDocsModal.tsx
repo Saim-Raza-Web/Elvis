@@ -5,14 +5,26 @@ import { adminService } from '../../services/admin.service';
 
 interface ApiDocsModalProps {
   onClose: () => void;
+  isOpen?: boolean;
 }
 
-export function ApiDocsModal({ onClose }: ApiDocsModalProps) {
+export function ApiDocsModal({ onClose, isOpen = true }: ApiDocsModalProps) {
+  if (!isOpen) return null;
+
   const [spec, setSpec] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Close on ESC key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
 
   useEffect(() => {
     adminService.getApiDocs()
