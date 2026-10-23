@@ -256,10 +256,11 @@ export class DistributedTotpRateLimiter {
     const client = this.getStore();
     const isRedisActive = client && (client instanceof Redis || (client.eval && client !== devInMemoryStore));
 
-    // FAIL-CLOSED POLICY IN PRODUCTION AND PREVIEW:
-    // If running in production or preview and no valid Redis client is provisioned or reachable, fail closed!
-    if ((isProduction || isPreview) && (!isRedisActive || client === devInMemoryStore)) {
-      console.error(`[REDIS_SECURITY_ALERT] ${process.env.NODE_ENV.toUpperCase()} mode active but Redis rate limiter is unavailable. Failing closed.`);
+    // FAIL-CLOSED POLICY IN PRODUCTION ONLY:
+    // In production, fail closed if Redis is unavailable
+    // In preview, allow in-memory fallback for initial deployment testing
+    if (isProduction && (!isRedisActive || client === devInMemoryStore)) {
+      console.error(`[REDIS_SECURITY_ALERT] PRODUCTION mode active but Redis rate limiter is unavailable. Failing closed.`);
       return {
         allowed: false,
         statusCode: 503,
@@ -267,6 +268,11 @@ export class DistributedTotpRateLimiter {
         message: 'Authentication service temporarily unavailable. Please try again shortly.',
         error: 'SERVICE_UNAVAILABLE'
       };
+    }
+
+    // Preview mode: Warn but allow in-memory fallback
+    if (isPreview && (!isRedisActive || client === devInMemoryStore)) {
+      console.warn(`[RATE_LIMIT_WARNING] Preview mode using in-memory fallback. Redis not configured or unreachable.`);
     }
 
     const maxAttempts = options.maxAttempts || this.maxAttempts;
