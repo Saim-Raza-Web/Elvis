@@ -6,6 +6,8 @@ import {
   SeurCarrierAdapter,
   MrwCarrierAdapter
 } from './ExtensibleCarrierAdapters.js';
+import { CorreosExpressCarrierAdapter } from './CorreosExpressCarrierAdapter.js';
+import { NacexCarrierAdapter } from './NacexCarrierAdapter.js';
 
 class CarrierAdapterRegistry {
   constructor() {
@@ -23,6 +25,10 @@ class CarrierAdapterRegistry {
     this.register(new DhlCarrierAdapter());
     this.register(new SeurCarrierAdapter());
     this.register(new MrwCarrierAdapter());
+
+    // Spanish carrier expansion — Requirement #2
+    this.register(new CorreosExpressCarrierAdapter());
+    this.register(new NacexCarrierAdapter());
   }
 
   /**
@@ -48,11 +54,14 @@ class CarrierAdapterRegistry {
     if (!adapter) {
       // Fallback aliases
       if (clean.includes('CTT')) return this.adapters.get('CTT');
+      if (clean === 'CORREOS_EXPRESS' || clean.includes('CORREOS_EX') || clean === 'CX')
+        return this.adapters.get('CORREOS_EXPRESS');
       if (clean.includes('CORREO')) return this.adapters.get('CORREOS');
       if (clean.includes('GLS')) return this.adapters.get('GLS');
       if (clean.includes('DHL')) return this.adapters.get('DHL');
       if (clean.includes('SEUR')) return this.adapters.get('SEUR');
       if (clean.includes('MRW')) return this.adapters.get('MRW');
+      if (clean.includes('NACEX')) return this.adapters.get('NACEX');
       throw new Error(`Carrier '${code}' is not supported. Supported: ${Array.from(this.adapters.keys()).join(', ')}`);
     }
     return adapter;

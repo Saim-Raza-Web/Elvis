@@ -45,22 +45,23 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Charts library (large — isolated for better caching)
-          'vendor-recharts': ['recharts'],
-          // Radix UI primitives
-          'vendor-radix': [
-            '@radix-ui/react-accordion',
-            '@radix-ui/react-alert-dialog',
-            '@radix-ui/react-avatar',
-            '@radix-ui/react-checkbox',
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-popover',
-            '@radix-ui/react-select',
-            '@radix-ui/react-tabs',
-            '@radix-ui/react-tooltip',
-          ],
+        manualChunks(id) {
+          // Heavy third-party libraries isolated into dedicated cacheable vendor chunks
+          if (id.includes('node_modules/recharts')) {
+            return 'vendor-recharts';
+          }
+          if (id.includes('node_modules/xlsx')) {
+            return 'vendor-xlsx';
+          }
+          if (id.includes('node_modules/@zxing')) {
+            return 'vendor-zxing';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'vendor-lucide';
+          }
+          if (id.includes('node_modules/@radix-ui')) {
+            return 'vendor-radix';
+          }
         },
       },
     },

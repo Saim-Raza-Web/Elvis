@@ -209,7 +209,7 @@ export function LoginPage({ lang, setLang, initialMode, onSuccess, onBack }: Pro
             <div className="size-9 rounded-xl bg-primary flex items-center justify-center">
               <Zap className="size-5 text-white" />
             </div>
-            <span className="font-black text-xl tracking-tight">demologistics</span>
+            <span className="font-black text-xl tracking-tight">ELVIS WMS</span>
           </div>
 
           {/* Headline */}

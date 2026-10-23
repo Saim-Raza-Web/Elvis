@@ -77,9 +77,33 @@ export function RecallManagement() {
   const [shippedData, setShippedData] = useState<ShippedOrder[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [recalls, setRecalls] = useState<any[]>([]);
+  const [isLoadingRecalls, setIsLoadingRecalls] = useState(false);
+  const [showConfirmRecall, setShowConfirmRecall] = useState(false);
+
+  const loadRecalls = async () => {
+    setIsLoadingRecalls(true);
+    try {
+      const res = await recallService.getRecallHistory({ lotNumber: search.trim() || undefined });
+      setRecalls(res.recalls || []);
+    } catch (err: any) {
+      console.error("Failed to load recall history", err);
+    } finally {
+      setIsLoadingRecalls(false);
+    }
+  };
+
   useEffect(() => {
     warehousesService.getAll({ all: true }).then(setWarehouses).catch(() => toast.error(t.common?.error || "Failed to load warehouses"));
+    loadRecalls();
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadRecalls();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const handlePreview = async () => {
     if (!form.lotNumber.trim()) {
@@ -127,7 +151,7 @@ export function RecallManagement() {
     }
   };
 
-  const handleExecuteRecall = async () => {
+  const handleConfirmAndExecute = async () => {
     if (!form.lotNumber.trim()) {
       toast.error("Lot number is required");
       return;
@@ -144,8 +168,10 @@ export function RecallManagement() {
         reason: form.reason
       });
       toast.success(`Lot recall executed: ${result.recallId}`);
+      setShowConfirmRecall(false);
       setShowCreate(false);
       setForm({ lotNumber: "", sku: "", warehouse: "", owner: "", quantity: "", reason: "" });
+      loadRecalls();
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || "Failed to execute recall");
     } finally {
@@ -183,7 +209,7 @@ export function RecallManagement() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`${t.common.search} by lot number...`}
+              placeholder={`${t.common?.search || "Search"} by lot number...`}
               className="w-full pl-9 pr-4 py-2 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary/50 text-sm"
             />
           </div>
@@ -191,17 +217,127 @@ export function RecallManagement() {
 
         <div className="flex items-center gap-2">
           <PrimaryButton icon={AlertTriangle} onClick={() => setShowCreate(true)}>
-            Initiate Recall
+            Initiate Batch Withdrawal
           </PrimaryButton>
         </div>
+      </div>
+
+      {/* Recalls History Table */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+              <ShieldCheck className="size-4 text-primary" />
+              Batch Withdrawal & Recall Audit Trail
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Immutable ledger of lot recalls, quarantine holds, and affected shipment tracing.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadRecalls}
+            disabled={isLoadingRecalls}
+            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-all"
+            title="Refresh history"
+          >
+            <RefreshCw className={`size-4 ${isLoadingRecalls ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+
+        {isLoadingRecalls ? (
+          <div className="p-12 text-center text-muted-foreground text-xs">
+            <RefreshCw className="size-6 animate-spin mx-auto mb-2 text-primary" />
+            Loading withdrawal events...
+          </div>
+        ) : recalls.length === 0 ? (
+          <div className="p-12 text-center text-muted-foreground space-y-2">
+            <Package className="size-10 mx-auto opacity-30 text-muted-foreground" />
+            <div className="font-semibold text-sm">No batch withdrawals recorded</div>
+            <p className="text-xs max-w-md mx-auto">
+              Initiate a lot recall above to withdraw hazardous or defective stock. Stock will be atomically moved from available into quarantine and logged in the immutable audit trail.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-secondary/60 text-muted-foreground font-semibold">
+                <tr>
+                  <th className="p-3">Event / Reference</th>
+                  <th className="p-3">Lot Number</th>
+                  <th className="p-3">SKU</th>
+                  <th className="p-3 text-right">Quarantined Qty</th>
+                  <th className="p-3">Operator</th>
+                  <th className="p-3">Reason</th>
+                  <th className="p-3">Timestamp</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {recalls.map((r, i) => (
+                  <tr key={r._id || r.event_id || i} className="hover:bg-muted/30 transition-all">
+                    <td className="p-3 font-mono text-[11px] text-primary">
+                      {r.reference_id || r.event_id || "LOT-RECALL"}
+                    </td>
+                    <td className="p-3 font-mono font-semibold text-foreground">
+                      {r.lot_number || "—"}
+                    </td>
+                    <td className="p-3 font-mono text-muted-foreground">
+                      {typeof r.sku === "object" ? r.sku?.sku || "ALL" : (r.sku || "ALL")}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                      {(r.quantity ?? 0).toLocaleString()}
+                    </td>
+                    <td className="p-3 text-muted-foreground">
+                      {r.user_name || "system"}
+                    </td>
+                    <td className="p-3 text-foreground/80 max-w-xs truncate" title={r.reason_text || ""}>
+                      {r.reason_text || "Lot quarantine recall"}
+                    </td>
+                    <td className="p-3 text-muted-foreground">
+                      {r.timestamp ? new Date(r.timestamp).toLocaleString() : "—"}
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setForm({
+                            lotNumber: r.lot_number || "",
+                            sku: typeof r.sku === "object" ? r.sku?.sku || "" : (r.sku || ""),
+                            warehouse: "",
+                            owner: "",
+                            quantity: "",
+                            reason: ""
+                          });
+                          try {
+                            const result = await recallService.previewRecall({
+                              lotNumber: r.lot_number
+                            });
+                            setPreviewData(result);
+                            setShowPreview(true);
+                          } catch (err: any) {
+                            toast.error("Failed to load recall preview");
+                          }
+                        }}
+                        className="px-2.5 py-1 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded font-medium text-[11px] transition-all"
+                      >
+                        Inspect Impact
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Create Recall Modal */}
       <Modal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        title="Initiate Lot Recall"
-        subtitle="Execute atomic lot quarantine and shipped orders discovery"
+        title="Initiate Batch Withdrawal / Lot Recall"
+        subtitle="Execute atomic lot quarantine and discover affected shipped orders"
         footer={
           <>
             <ModalCancel onClose={() => setShowCreate(false)} />
@@ -211,15 +347,21 @@ export function RecallManagement() {
               disabled={isSubmitting}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
             >
-              <Search className="size-4" /> Preview
+              <Search className="size-4" /> Preview Impact
             </button>
             <button
               type="button"
-              onClick={handleExecuteRecall}
+              onClick={() => {
+                if (!form.lotNumber.trim()) {
+                  toast.error("Lot number is required");
+                  return;
+                }
+                setShowConfirmRecall(true);
+              }}
               disabled={isSubmitting}
               className="px-4 py-2 bg-destructive hover:bg-destructive/90 text-white rounded-lg font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
             >
-              <Ban className="size-4" /> Execute Recall
+              <Ban className="size-4" /> Execute Withdrawal
             </button>
           </>
         }
@@ -402,6 +544,60 @@ export function RecallManagement() {
           )}
         </div>
       </Modal>
+
+      {/* Confirmation Modal */}
+      {showConfirmRecall && (
+        <Modal
+          open={true}
+          onClose={() => { if (!isSubmitting) setShowConfirmRecall(false); }}
+          title="Confirm Batch Withdrawal / Quarantine"
+          subtitle={`Are you sure you want to withdraw lot "${form.lotNumber}"?`}
+          footer={
+            <div className="flex gap-2 justify-end w-full">
+              <button
+                type="button"
+                onClick={() => setShowConfirmRecall(false)}
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg text-sm font-medium hover:bg-secondary/80 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAndExecute}
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-bold hover:opacity-90 transition-all"
+              >
+                {isSubmitting ? "Executing Recall..." : "Confirm & Quarantine Stock"}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl space-y-2 text-destructive">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <AlertTriangle className="size-4" />
+                Physical Inventory Invariant Notice
+              </div>
+              <p>
+                Authorizing this withdrawal will immediately shift physical stock from <strong>qtyAvailable</strong> to <strong>qtyQuarantine</strong>. Any active picking tasks referencing this lot will be automatically blocked.
+              </p>
+            </div>
+
+            <div className="bg-muted/40 p-3 rounded-lg border border-border space-y-1">
+              <div><strong>Lot Number:</strong> <span className="font-mono">{form.lotNumber}</span></div>
+              {form.sku && <div><strong>SKU:</strong> <span className="font-mono">{form.sku}</span></div>}
+              {form.warehouse && <div><strong>Warehouse:</strong> {form.warehouse}</div>}
+              {form.quantity && <div><strong>Partial Qty:</strong> {form.quantity} units</div>}
+              {form.reason && <div><strong>Reason:</strong> {form.reason}</div>}
+            </div>
+
+            <p className="text-muted-foreground text-[11px]">
+              This action generates an immutable audit record and cannot be undone directly without QC inspection release.
+            </p>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

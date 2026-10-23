@@ -148,6 +148,7 @@ import kpiRoutes from './routes/kpi.js';
 import ediRoutes from './routes/edi.js';
 import rolesRoutes from './routes/roles.js';
 import docsRoutes from './routes/docs.js';
+import subscriptionRoutes from './routes/subscription.js';
 
 function mountModuleRoute(path, router) {
   const segment = path.replace('/api/v1/', '');
@@ -216,6 +217,7 @@ app.use('/api/v1/client-portal', clientPortalRoutes);
 app.use('/api/v1/edi', ediRoutes);
 app.use('/api/v1/roles', rolesRoutes);
 app.use('/api/v1/docs', docsRoutes);
+app.use('/api/v1/subscription', subscriptionRoutes);
 
 app.get('/', (req, res) => {
   res.send('demologistics API is running');

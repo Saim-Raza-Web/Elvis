@@ -19,5 +19,11 @@ export const returnsService = {
   delete: async (id) => {
     const response = await api.delete('/returns/' + id);
     return response.data;
+  },
+  refund: async (id, data = {}, idempotencyKey = null) => {
+    const headers = {};
+    if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
+    const response = await api.post(`/returns/${id}/refund`, data, { headers });
+    return response.data;
   }
 };

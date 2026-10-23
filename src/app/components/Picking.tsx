@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   ScanLine, CheckCircle2, Clock, AlertCircle, Package, User, Plus, Search, Filter,
   Layers, MapPin, QrCode, FileText, Download, AlertTriangle, Check, X, Camera, RefreshCw,
-  Maximize, Minimize, Power
+  Maximize, Minimize, Power, Edit3
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, PrimaryButton, SecondaryButton } from "./AppShell";
@@ -88,6 +88,8 @@ const priorityColor: Record<string, string> = {
 
 export function Picking() {
   const { t, lang } = useLang();
+  const tp = t.picking as any;
+  const tc = t.common as any;
   const {
     isFullscreen,
     isWakeLocked,
@@ -396,6 +398,43 @@ export function Picking() {
     }
   };
 
+  // Batch Editing State & Handlers
+  const [editingBatch, setEditingBatch] = useState<PickBatch | null>(null);
+  const [batchEditForm, setBatchEditForm] = useState<{
+    priority: "low" | "normal" | "high" | "urgent";
+    assignee: string;
+    status: "pending" | "in_progress";
+  }>({
+    priority: "normal",
+    assignee: "",
+    status: "pending"
+  });
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
+
+  const handleOpenEditBatch = (batch: PickBatch) => {
+    setEditingBatch(batch);
+    setBatchEditForm({
+      priority: (batch.priority as any) || "normal",
+      assignee: batch.assignee || "",
+      status: batch.status === "in_progress" ? "in_progress" : "pending"
+    });
+  };
+
+  const handleSaveBatchEdit = async () => {
+    if (!editingBatch) return;
+    setIsSavingBatch(true);
+    try {
+      await pickingService.updateBatch(editingBatch._id || editingBatch.batchId, batchEditForm);
+      toast.success(`Pick Batch ${editingBatch.batchId} updated successfully`);
+      setEditingBatch(null);
+      reloadBatches();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to update pick batch");
+    } finally {
+      setIsSavingBatch(false);
+    }
+  };
+
   // Manual Task Creation
   async function handleManualPick() {
     if (!manualForm.order) { toast.error("Order ID is required."); return; }
@@ -472,10 +511,10 @@ export function Picking() {
       {/* ── Interactive Clickable Status KPI Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { id: "pending", label: lang === "es" ? "Tareas Pendientes" : "Pending Tasks", value: counts.pending, icon: Clock, color: "text-warning", badge: "bg-warning/15 text-warning" },
+          { id: "pending", label: tp?.pendingTasks || "Pending Tasks", value: counts.pending, icon: Clock, color: "text-warning", badge: "bg-warning/15 text-warning" },
           { id: "in_progress", label: t.status.in_progress || "In Progress", value: counts.inProgress, icon: Package, color: "text-primary", badge: "bg-primary/15 text-primary" },
-          { id: "partially_picked", label: lang === "es" ? "Parcialmente Recogido" : "Partially Picked", value: counts.partiallyPicked, icon: AlertTriangle, color: "text-amber-500", badge: "bg-amber-500/15 text-amber-500" },
-          { id: "completed", label: lang === "es" ? "Picks Completados" : "Completed Picks", value: counts.completed, icon: CheckCircle2, color: "text-success", badge: "bg-success/15 text-success" },
+          { id: "partially_picked", label: t.status?.partially_picked || "Partially Picked", value: counts.partiallyPicked, icon: AlertTriangle, color: "text-amber-500", badge: "bg-amber-500/15 text-amber-500" },
+          { id: "completed", label: tp?.completedPicks || "Completed Picks", value: counts.completed, icon: CheckCircle2, color: "text-success", badge: "bg-success/15 text-success" },
         ].map((s) => (
           <div
             key={s.id}
@@ -491,7 +530,7 @@ export function Picking() {
             <div className="flex items-baseline justify-between">
               <div className="font-bold text-2xl" style={{ fontFamily: "JetBrains Mono, monospace" }}>{s.value}</div>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.badge}`}>
-                {statusFilter === s.id ? (lang === "es" ? "FILTRO ACTIVO" : "ACTIVE FILTER") : (lang === "es" ? "FILTRAR" : "FILTER")}
+                {statusFilter === s.id ? (tc?.activeFilter || "ACTIVE FILTER") : (tc?.filter || "FILTER")}
               </span>
             </div>
           </div>
@@ -505,13 +544,13 @@ export function Picking() {
             onClick={() => setView("tasks")}
             className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${view === "tasks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}
           >
-            {lang === "es" ? "Tareas de Picking" : "Pick Tasks"} ({filteredTasks.length})
+            {tp?.pickTasks || "Pick Tasks"} ({filteredTasks.length})
           </button>
           <button
             onClick={() => setView("batches")}
             className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${view === "batches" ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}
           >
-            {lang === "es" ? "Lotes de Picking" : "Pick Batches"} ({batches.length})
+            {tp?.pickBatches || "Pick Batches"} ({batches.length})
           </button>
         </div>
 
@@ -521,7 +560,7 @@ export function Picking() {
           <input
             value={scanValue}
             onChange={(e) => setScanValue(e.target.value)}
-            placeholder={lang === "es" ? "Escaneo rápido de ID de pedido o tarea…" : "Quick Scan Order ID or Pick Task ID…"}
+            placeholder={tp?.quickScanPlaceholder || "Quick Scan Order ID or Pick Task ID…"}
             onKeyDown={(e) => e.key === "Enter" && handleQuickScanSubmit()}
             className="flex-1 bg-transparent text-xs font-mono outline-none px-1"
           />
@@ -529,7 +568,7 @@ export function Picking() {
             onClick={handleQuickScanSubmit}
             className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all"
           >
-            {lang === "es" ? "Ejecutar Escaneo" : "Execute Scan"}
+            {tp?.executeScan || "Execute Scan"}
           </button>
         </div>
 
@@ -540,11 +579,11 @@ export function Picking() {
               disabled={isSubmitting}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all"
             >
-              <Layers className="size-4" /> {lang === "es" ? "Crear Lote" : "Create Batch"} ({selectedTaskIds.length})
+              <Layers className="size-4" /> {tp?.createBatch || "Create Batch"} ({selectedTaskIds.length})
             </button>
           )}
           <PrimaryButton icon={Plus} onClick={() => setShowManual(true)}>
-            {lang === "es" ? "Crear tarea de picking" : "Create pick task"}
+            {tp?.taskCreated || "Create pick task"}
           </PrimaryButton>
         </div>
       </div>
@@ -557,35 +596,35 @@ export function Picking() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={lang === "es" ? "Buscar ID de tarea, pedido, cliente o propietario…" : "Search Task ID, Order ID, Customer or Owner…"}
+              placeholder={tp?.searchPlaceholder || "Search Task ID, Order ID, Customer or Owner…"}
               className="w-full pl-9 pr-4 py-1.5 bg-secondary/50 border border-border rounded-lg outline-none text-xs focus:border-primary/50"
             />
           </div>
 
           <div className="flex items-center gap-2 text-xs">
             <Filter className="size-3.5 text-muted-foreground" />
-            <span className="font-bold text-muted-foreground">{lang === "es" ? "Propietario 3PL:" : "3PL Owner:"}</span>
+            <span className="font-bold text-muted-foreground">{tp?.ownerLabel || "3PL Owner:"}</span>
             <select
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
               className="px-2.5 py-1.5 bg-secondary/50 border border-border rounded-lg text-xs font-medium outline-none"
             >
-              <option value="all">{lang === "es" ? "Todos los propietarios" : "All Owners"}</option>
+              <option value="all">{tc?.allOwners || "All Owners"}</option>
               {uniqueOwners.map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="font-bold text-muted-foreground">{lang === "es" ? "Estado:" : "Status:"}</span>
+            <span className="font-bold text-muted-foreground">{tc?.status || "Status"}:</span>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-2.5 py-1.5 bg-secondary/50 border border-border rounded-lg text-xs font-medium outline-none"
             >
-              <option value="all">{lang === "es" ? "Todos los estados" : "All Statuses"}</option>
+              <option value="all">{tc?.allStatuses || "All Statuses"}</option>
               <option value="pending">{t.status.pending}</option>
               <option value="in_progress">{t.status.in_progress}</option>
-              <option value="partially_picked">{lang === "es" ? "Parcialmente Recogido" : "Partially Picked"}</option>
+              <option value="partially_picked">{t.status?.partially_picked || "Partially Picked"}</option>
               <option value="completed">{t.status.completed}</option>
             </select>
           </div>
@@ -615,14 +654,14 @@ export function Picking() {
                     }}
                   />
                 </th>
-                <th className="p-3 whitespace-nowrap">{lang === "es" ? "ID Tarea" : "Task ID"}</th>
-                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Cliente 3PL" : "Owner (3PL Client)"}</th>
-                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Ref Pedido" : "Order Ref"}</th>
-                <th className="p-3 text-center whitespace-nowrap">{lang === "es" ? "Nº Líneas" : "Lines Count"}</th>
-                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Prioridad" : "Priority"}</th>
-                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Asignado" : "Assignee"}</th>
-                <th className="p-3 whitespace-nowrap">{lang === "es" ? "Estado" : "Status"}</th>
-                <th className="p-3 text-right whitespace-nowrap">{lang === "es" ? "Acciones" : "Actions"}</th>
+                <th className="p-3 whitespace-nowrap">{tp?.taskId || "Task ID"}</th>
+                <th className="p-3 whitespace-nowrap">{tp?.ownerClient || "Owner (3PL Client)"}</th>
+                <th className="p-3 whitespace-nowrap">{tp?.orderRef || "Order Ref"}</th>
+                <th className="p-3 text-center whitespace-nowrap">{tp?.linesCount || "Lines Count"}</th>
+                <th className="p-3 whitespace-nowrap">{tp?.priority || "Priority"}</th>
+                <th className="p-3 whitespace-nowrap">{tp?.assignee || "Assignee"}</th>
+                <th className="p-3 whitespace-nowrap">{tc?.status || "Status"}</th>
+                <th className="p-3 text-right whitespace-nowrap">{tc?.actions || "Actions"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -686,7 +725,7 @@ export function Picking() {
                             onClick={() => openExecuteModal(task)}
                             className="px-2.5 py-1 bg-primary text-primary-foreground rounded text-[11px] font-bold hover:opacity-90 flex items-center gap-1"
                           >
-                            <ScanLine className="size-3" /> Execute Pick
+                            <ScanLine className="size-3" /> {tp?.executePick || "Execute Pick"}
                           </button>
                         )}
                         {task.deliveryNoteNumber && (
@@ -695,7 +734,7 @@ export function Picking() {
                             className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-bold hover:bg-emerald-700 flex items-center gap-1"
                             title={`Download Delivery Note ${task.deliveryNoteNumber}`}
                           >
-                            <Download className="size-3" /> Delivery Note
+                            <Download className="size-3" /> {tp?.deliveryNote || "Delivery Note"}
                           </button>
                         )}
                       </div>
@@ -744,6 +783,13 @@ export function Picking() {
                 <div className="flex justify-end gap-2 pt-2 border-t border-border">
                   {batch.status === 'pending' || batch.status === 'in_progress' ? (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditBatch(batch)}
+                        className="px-3 py-1.5 border border-border bg-secondary hover:bg-secondary/80 text-foreground rounded-lg text-xs font-bold flex items-center gap-1 transition-all"
+                      >
+                        <Edit3 className="size-3.5" /> Edit
+                      </button>
                       <button
                         onClick={() => handleCompleteBatch(batch)}
                         className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 flex items-center gap-1"
@@ -1065,9 +1111,9 @@ export function Picking() {
       <Modal
         open={showManual}
         onClose={() => setShowManual(false)}
-        title="Create New B2B Pick Task"
+        title={tp?.createNewPickTask || "Create New B2B Pick Task"}
         subtitle="Manually create a pick task for an order"
-        footer={<><ModalCancel onClose={() => setShowManual(false)} /><ModalSubmit onClick={handleManualPick}>Create pick task</ModalSubmit></>}
+        footer={<><ModalCancel onClose={() => setShowManual(false)} /><ModalSubmit onClick={handleManualPick}>{tp?.taskCreated || "Create pick task"}</ModalSubmit></>}
       >
         <Row>
           <Field label="Order ID *" required><Input value={manualForm.order} onChange={(e) => setManualForm({ ...manualForm, order: e.target.value.toUpperCase() })} placeholder="ORD-2026-001" /></Field>
@@ -1091,6 +1137,61 @@ export function Picking() {
           <Field label="Quantity *"><Input type="number" min="1" value={manualForm.qty} onChange={(e) => setManualForm({ ...manualForm, qty: Math.max(1, Number(e.target.value)) })} /></Field>
         </Row>
       </Modal>
+
+      {/* ── Edit Pick Batch Modal ── */}
+      {editingBatch && (
+        <Modal
+          open={true}
+          onClose={() => { if (!isSavingBatch) setEditingBatch(null); }}
+          title={`Edit Pick Batch: ${editingBatch.batchId}`}
+          subtitle={`Owner: ${editingBatch.owner} · Total items: ${editingBatch.total_items}`}
+          footer={
+            <>
+              <ModalCancel onClose={() => setEditingBatch(null)} />
+              <ModalSubmit onClick={handleSaveBatchEdit} disabled={isSavingBatch}>
+                {isSavingBatch ? "Saving..." : "Save Changes"}
+              </ModalSubmit>
+            </>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <Row>
+              <Field label="Priority">
+                <Select
+                  value={batchEditForm.priority}
+                  onChange={(e) => setBatchEditForm({ ...batchEditForm, priority: e.target.value as any })}
+                >
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </Select>
+              </Field>
+              <Field label="Batch Status">
+                <Select
+                  value={batchEditForm.status}
+                  onChange={(e) => setBatchEditForm({ ...batchEditForm, status: e.target.value as any })}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="in_progress">In Progress</option>
+                </Select>
+              </Field>
+            </Row>
+
+            <Field label="Assigned Operator / Picker">
+              <Input
+                value={batchEditForm.assignee}
+                onChange={(e) => setBatchEditForm({ ...batchEditForm, assignee: e.target.value })}
+                placeholder="Picker name, email, or badge ID..."
+              />
+            </Field>
+
+            <div className="p-3 bg-secondary/30 rounded-lg border border-border text-xs text-muted-foreground">
+              To mark a batch as completed or to cancel tasks back to the queue, use the Complete Batch or Cancel Batch actions on the batch card.
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

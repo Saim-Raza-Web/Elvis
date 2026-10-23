@@ -9,6 +9,8 @@ const returnSchema = new mongoose.Schema({
   reason: String,
   items: Number,
   amount: Number,
+  stripePaymentIntentId: { type: String, default: null },
+  refundedAmount: { type: Number, default: 0 },
   status: String,
   date: Date,
   warehouse: String,

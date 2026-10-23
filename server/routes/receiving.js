@@ -1446,7 +1446,17 @@ router.patch('/:id/status', requireOpsRole, async (req, res, next) => {
       return res.status(400).json({ message: `Invalid status. Must be one of: ${allowed.join(', ')}` });
     }
 
-    const item = await ASN.findOne({ _id: req.params.id, company: req.user.company, isDeleted: { $ne: true } });
+    const idOrNum = req.params.id;
+    const query = {
+      company: req.user.company,
+      isDeleted: { $ne: true },
+      $or: [
+        ...(mongoose.Types.ObjectId.isValid(idOrNum) ? [{ _id: idOrNum }] : []),
+        { asnId: idOrNum },
+        { asnNumber: idOrNum }
+      ]
+    };
+    const item = await ASN.findOne(query);
     if (!item) return res.status(404).json({ message: 'ASN not found' });
 
     // Validate state machine transition

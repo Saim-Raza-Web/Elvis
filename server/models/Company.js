@@ -17,6 +17,14 @@ const companySchema = new mongoose.Schema({
     country: { type: String, default: '' },
   },
   plan: { type: String, enum: ['starter', 'professional', 'enterprise'], default: 'starter' },
+  subscriptionStatus: { 
+    type: String, 
+    enum: ['active', 'past_due', 'canceled', 'trialing', 'incomplete', 'unpaid'], 
+    default: 'active' 
+  },
+  stripeCustomerId: { type: String, default: null },
+  currentPeriodEnd: { type: Date, default: null },
+  subscriptionCheckoutId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionCheckout', default: null },
   users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   warehouses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' }],
   timezone: { type: String, default: 'America/New_York' },

@@ -21,6 +21,19 @@ export function Admin() {
   const [inviteForm, setInviteForm] = useState({ email: "", name: "", password: "", role: "warehouse_staff" });
   const [editUser, setEditUser] = useState<any | null>(null);
   const [editUserForm, setEditUserForm] = useState({ name: "", role: "warehouse_staff" });
+  const [editCompany, setEditCompany] = useState<any | null>(null);
+  const [editCompanyForm, setEditCompanyForm] = useState({
+    name: "",
+    tradingName: "",
+    vatNumber: "",
+    phone: "",
+    email: "",
+    website: "",
+    plan: "starter",
+    status: "active"
+  });
+  const [deleteCompanyId, setDeleteCompanyId] = useState<string | null>(null);
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -50,10 +63,44 @@ export function Admin() {
     }
   }
 
+  function handleOpenEditCompany(c: any) {
+    setEditCompany(c);
+    setEditCompanyForm({
+      name: c.name || "",
+      tradingName: c.tradingName || "",
+      vatNumber: c.vatNumber || "",
+      phone: c.phone || "",
+      email: c.email || "",
+      website: c.website || "",
+      plan: c.plan || "starter",
+      status: c.status || "active"
+    });
+  }
+
+  async function handleUpdateCompany() {
+    if (!editCompany) return;
+    if (!editCompanyForm.name.trim()) {
+      return toast.error(tc?.error || "Company name is required");
+    }
+    try {
+      setIsSavingCompany(true);
+      await adminService.updateCompany(editCompany._id, editCompanyForm);
+      toast.success(tc?.operationSuccess || "Company details updated successfully");
+      setEditCompany(null);
+      const comps = await adminService.getCompanies();
+      setCompanies(comps);
+    } catch(e: any) {
+      toast.error(e.response?.data?.message || tc?.error || "Failed to update company");
+    } finally {
+      setIsSavingCompany(false);
+    }
+  }
+
   async function handleDeleteCompany(id: string) {
     try {
       await adminService.deleteCompany(id);
       toast.success(tc?.operationSuccess || "Company deleted");
+      setDeleteCompanyId(null);
       const comps = await adminService.getCompanies();
       setCompanies(comps);
     } catch(e) {
@@ -122,7 +169,7 @@ export function Admin() {
           { label: t.admin.totalCompanies, value: companies.length, icon: Building2, color: "text-primary" },
           { label: t.admin.totalUsers, value: companies.reduce((a, c) => a + c.users, 0), icon: Users, color: "text-blue-500" },
           { label: t.admin.mrr, value: `€${totalRevenueMRR.toLocaleString()}`, icon: CreditCard, color: "text-success" },
-          { label: t.admin.platformUptime, value: "99.98%", icon: Server, color: "text-success" },
+          { label: t.admin.platformUptime, value: "Live", icon: Server, color: "text-success" },
         ].map((s, i) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4 hover-lift animate-pop-in" style={{ animationDelay: `${i * 40}ms` }}>
             <div className="flex items-center justify-between mb-2"><span className="text-xs text-muted-foreground">{s.label}</span><s.icon className={`size-4 ${s.color}`} /></div>
@@ -183,8 +230,8 @@ export function Admin() {
                     <td className="px-4 py-3 text-right hidden sm:table-cell text-xs text-muted-foreground">{c.createdAt?.slice(0, 10)}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
-                        <button className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"><Edit3 className="size-3.5" /></button>
-                        <button onClick={() => handleDeleteCompany(c._id)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
+                        <button onClick={() => handleOpenEditCompany(c)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={tc?.edit || "Edit Company"}><Edit3 className="size-3.5" /></button>
+                        <button onClick={() => setDeleteCompanyId(c._id)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={tc?.delete || "Delete Company"}><Trash2 className="size-3.5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -204,6 +251,117 @@ export function Admin() {
               </Select></Field>
             </Row>
           </Modal>
+
+          {/* Edit Company Modal */}
+          <Modal
+            open={Boolean(editCompany)}
+            onClose={() => setEditCompany(null)}
+            title={tc?.editCompany || "Edit Company"}
+            subtitle="Update legal details, plan and communication configuration"
+            footer={
+              <>
+                <ModalCancel onClose={() => setEditCompany(null)} />
+                <ModalSubmit onClick={handleUpdateCompany} disabled={isSavingCompany}>
+                  {isSavingCompany ? "Saving..." : (tc?.save || "Save Changes")}
+                </ModalSubmit>
+              </>
+            }
+          >
+            <Field label={tc?.companyName || "Company Name"} required>
+              <Input
+                value={editCompanyForm.name}
+                onChange={e => setEditCompanyForm({ ...editCompanyForm, name: e.target.value })}
+                placeholder="e.g. Acme Logistics S.L."
+              />
+            </Field>
+            <Row>
+              <Field label="Trading / Commercial Name">
+                <Input
+                  value={editCompanyForm.tradingName}
+                  onChange={e => setEditCompanyForm({ ...editCompanyForm, tradingName: e.target.value })}
+                  placeholder="e.g. Acme WMS"
+                />
+              </Field>
+              <Field label="VAT / CIF / Tax ID">
+                <Input
+                  value={editCompanyForm.vatNumber}
+                  onChange={e => setEditCompanyForm({ ...editCompanyForm, vatNumber: e.target.value })}
+                  placeholder="e.g. B-12345678"
+                />
+              </Field>
+            </Row>
+            <Row>
+              <Field label="Contact Email">
+                <Input
+                  type="email"
+                  value={editCompanyForm.email}
+                  onChange={e => setEditCompanyForm({ ...editCompanyForm, email: e.target.value })}
+                  placeholder="admin@company.com"
+                />
+              </Field>
+              <Field label="Phone">
+                <Input
+                  value={editCompanyForm.phone}
+                  onChange={e => setEditCompanyForm({ ...editCompanyForm, phone: e.target.value })}
+                  placeholder="+34 912 345 678"
+                />
+              </Field>
+            </Row>
+            <Row>
+              <Field label="Website">
+                <Input
+                  value={editCompanyForm.website}
+                  onChange={e => setEditCompanyForm({ ...editCompanyForm, website: e.target.value })}
+                  placeholder="https://company.com"
+                />
+              </Field>
+              <Field label={tc?.plan || "Subscription Plan"}>
+                <Select
+                  value={editCompanyForm.plan}
+                  onChange={e => setEditCompanyForm({ ...editCompanyForm, plan: e.target.value })}
+                >
+                  <option value="starter">{tc?.starter || "Starter"}</option>
+                  <option value="professional">{tc?.professional || "Professional"}</option>
+                  <option value="enterprise">{tc?.enterprise || "Enterprise"}</option>
+                </Select>
+              </Field>
+            </Row>
+            <Field label={tc?.status || "Status"}>
+              <Select
+                value={editCompanyForm.status}
+                onChange={e => setEditCompanyForm({ ...editCompanyForm, status: e.target.value })}
+              >
+                <option value="active">{tc?.active || "Active"}</option>
+                <option value="inactive">{tc?.inactive || "Inactive"}</option>
+              </Select>
+            </Field>
+          </Modal>
+
+          {/* Delete Company Confirmation Modal */}
+          {deleteCompanyId && (
+            <Modal
+              open={true}
+              onClose={() => setDeleteCompanyId(null)}
+              title={tc?.deleteCompany || "Delete Company"}
+              subtitle="Are you sure you want to delete this company? All associated data will be removed."
+              footer={
+                <>
+                  <ModalCancel onClose={() => setDeleteCompanyId(null)} />
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCompany(deleteCompanyId)}
+                    className="px-4 py-2 bg-destructive hover:bg-destructive/90 text-white rounded-lg font-bold text-xs transition-all"
+                  >
+                    {tc?.delete || "Delete"}
+                  </button>
+                </>
+              }
+            >
+              <div className="text-xs text-muted-foreground p-2">
+                This action is permanent and cannot be undone. Please confirm you wish to remove this workspace.
+              </div>
+            </Modal>
+          )}
 
           {/* Recent signups */}
           <div className="rounded-xl border border-border bg-card p-5">

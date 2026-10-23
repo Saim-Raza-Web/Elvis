@@ -2,29 +2,29 @@ import api from './api';
 import { fetchList, fetchPaginated } from './listApi';
 
 export const shippingService = {
-  getAll: async (params = {}) => fetchList('/shipping', params),
-  getPage: async (params = {}) => fetchPaginated('/shipping', params),
-  getById: async (id) => {
+  getAll: async (params: any = {}) => fetchList('/shipping', params),
+  getPage: async (params: any = {}) => fetchPaginated('/shipping', params),
+  getById: async (id: string) => {
     const response = await api.get('/shipping/' + id);
     return response.data;
   },
-  create: async (data) => {
+  create: async (data: any) => {
     const response = await api.post('/shipping', data);
     return response.data;
   },
-  update: async (id, data) => {
+  update: async (id: string, data: any) => {
     const response = await api.put('/shipping/' + id, data);
     return response.data;
   },
-  delete: async (id) => {
+  delete: async (id: string) => {
     const response = await api.delete('/shipping/' + id);
     return response.data;
   },
-  groupOrders: async (data) => {
+  groupOrders: async (data: any) => {
     const response = await api.post('/shipping/group-orders', data);
     return response.data;
   },
-  signShipment: async (id, data) => {
+  signShipment: async (id: string, data: any) => {
     const response = await api.post('/shipping/' + id + '/sign', data);
     return response.data;
   },
@@ -42,6 +42,10 @@ export const shippingService = {
   },
   getRateQuote: async (data: any) => {
     const response = await api.post('/shipping/rate-quote', data);
+    return response.data;
+  },
+  syncTracking: async (id: string) => {
+    const response = await api.post('/shipping/' + id + '/sync-tracking');
     return response.data;
   }
 };

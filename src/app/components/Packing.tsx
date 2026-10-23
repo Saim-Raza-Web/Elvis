@@ -8,6 +8,7 @@ import { useLang } from "../LangContext";
 
 import { useEffect } from "react";
 import { packingService } from "../../services/packing.service";
+import { shippingService } from "../../services/shipping.service";
 import { usePaginatedList, type ListService } from "../../hooks/usePaginatedList";
 
 const packingListService: ListService<PackTask> = {
@@ -18,9 +19,7 @@ const packingListService: ListService<PackTask> = {
   },
 };
 
-type PackTask = { _id: string; id: string; order: string; customer: string; items: number; picked: number; station: string; priority: string; status: string; packId?: string; packItems?: any[] };
-
-
+type PackTask = { _id: string; id: string; order: string; customer: string; items: number; picked: number; station: string; priority: string; status: string; packId?: string; packItems?: any[]; label_printed?: boolean; labelPrinted?: boolean; tracking?: string; carrier?: string };
 
 const priorityColor: Record<string, string> = {
   high: "text-destructive bg-destructive/10",
@@ -37,6 +36,8 @@ export function Packing() {
   const [boxType, setBoxType] = useState("Box M (30×25×20)");
   const [material, setMaterial] = useState("Bubble wrap");
   const [labelPrinted, setLabelPrinted] = useState(false);
+  const [isGeneratingLabel, setIsGeneratingLabel] = useState(false);
+  const [labelInfo, setLabelInfo] = useState<{ trackingNumber: string; carrierName: string; labelUrl?: string; labelBase64?: string } | null>(null);
   const [weighed, setWeighed] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [manualForm, setManualForm] = useState({ order: "", customer: "", items: 1, station: "Pack-01", priority: "normal" });
@@ -66,6 +67,18 @@ export function Packing() {
     } else {
       setPackItems([]);
     }
+    if (activePack?.label_printed || activePack?.labelPrinted) {
+      setLabelPrinted(true);
+      if (activePack.tracking) {
+        setLabelInfo({
+          trackingNumber: activePack.tracking,
+          carrierName: activePack.carrier || "Carrier"
+        });
+      }
+    } else {
+      setLabelPrinted(false);
+      setLabelInfo(null);
+    }
   }, [activePack]);
 
   useEffect(() => {
@@ -86,12 +99,83 @@ export function Packing() {
 
   async function handlePrintLabel() {
     if (!activePack) return;
+    setIsGeneratingLabel(true);
     try {
-      await packingService.update(activePack._id, { label_printed: true });
+      const w = parseFloat(weight) || 1.5;
+      const res = await shippingService.generateLabel(activePack.order || activePack.packId || activePack.id, {
+        carrier: activePack.carrier || "CTT",
+        weightKg: w,
+        packId: activePack.packId || activePack.id,
+        orderId: activePack.order,
+        boxType,
+        material
+      });
+
+      setLabelInfo({
+        trackingNumber: res.trackingNumber,
+        carrierName: res.carrierName || res.carrier,
+        labelUrl: res.labelUrl,
+        labelBase64: res.labelBase64
+      });
+
+      await packingService.update(activePack._id, {
+        label_printed: true,
+        labelPrinted: true,
+        tracking: res.trackingNumber,
+        carrier: res.carrierName || res.carrier
+      });
+
       setLabelPrinted(true);
-      toast.success(`Shipping label for ${activePack.order} sent to printer.`);
-    } catch (err) {
-      toast.error(t.common?.error || "Failed to update label status");
+
+      // Open / download PDF
+      if (res.labelBase64) {
+        try {
+          const byteCharacters = atob(res.labelBase64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: "application/pdf" });
+          const blobUrl = URL.createObjectURL(blob);
+          const printWindow = window.open(blobUrl, "_blank");
+          if (!printWindow) {
+            const a = document.createElement("a");
+            a.href = blobUrl;
+            a.download = `label-${res.trackingNumber}.pdf`;
+            a.click();
+          }
+        } catch (_) {
+          if (res.labelUrl) window.open(res.labelUrl, "_blank");
+        }
+      } else if (res.labelUrl) {
+        window.open(res.labelUrl, "_blank");
+      }
+
+      toast.success(
+        `Shipping label generated for ${activePack.order} via ${res.carrierName || res.carrier} (${res.trackingNumber})`
+      );
+    } catch (err: any) {
+      console.error("Label generation failed:", err);
+      toast.error(
+        err.response?.data?.message || err.message || t.common?.error || "Failed to generate carrier shipping label"
+      );
+    } finally {
+      setIsGeneratingLabel(false);
+    }
+  }
+
+  function handleOpenLabel() {
+    if (labelInfo?.labelUrl) {
+      window.open(labelInfo.labelUrl, "_blank");
+    } else if (labelInfo?.labelBase64) {
+      try {
+        const byteCharacters = atob(labelInfo.labelBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: "application/pdf" });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, "_blank");
+      } catch (_) {}
     }
   }
 
@@ -280,13 +364,40 @@ export function Packing() {
                   ))}
                 </div>
 
+                {labelInfo && (
+                  <div className="flex items-center justify-between p-3 mb-4 rounded-lg bg-success/10 border border-success/30 text-xs">
+                    <div>
+                      <span className="font-bold text-success">Carrier Label Generated:</span> {labelInfo.carrierName} —{" "}
+                      <span style={{ fontFamily: "JetBrains Mono, monospace" }} className="font-semibold">{labelInfo.trackingNumber}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenLabel}
+                      className="px-2.5 py-1 text-xs font-semibold bg-success text-white rounded hover:opacity-90 flex items-center gap-1.5 transition-all active:scale-95"
+                    >
+                      <Printer className="size-3" /> View / Reprint PDF
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={handlePrintLabel}
-                    className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-semibold transition-all active:scale-95 ${labelPrinted ? "border-success text-success bg-success/5" : "border-border hover:bg-secondary"}`}
+                    disabled={isGeneratingLabel}
+                    className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 ${labelPrinted ? "border-success text-success bg-success/5" : "border-border hover:bg-secondary"}`}
                   >
-                    <Printer className="size-4" /> {labelPrinted ? t.packing.labelPrinted : t.packing.printLabel}
+                    <Printer className={`size-4 ${isGeneratingLabel ? "animate-spin" : ""}`} />
+                    {isGeneratingLabel ? "Generating Label..." : labelPrinted ? `${t.packing.labelPrinted} (Regenerate)` : t.packing.printLabel}
                   </button>
+                  {labelPrinted && (
+                    <button
+                      type="button"
+                      onClick={handleOpenLabel}
+                      className="flex items-center gap-2 px-3 py-2 border border-border hover:bg-secondary rounded-lg text-sm font-semibold transition-all active:scale-95"
+                    >
+                      <Printer className="size-4 text-primary" /> Open PDF
+                    </button>
+                  )}
                   <button
                     onClick={handleWeigh}
                     className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-semibold transition-all active:scale-95 ${weighed ? "border-success text-success bg-success/5" : "border-border hover:bg-secondary"}`}

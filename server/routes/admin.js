@@ -136,7 +136,22 @@ router.post('/companies', async (req, res, next) => {
 
 router.put('/companies/:id', async (req, res, next) => {
   try {
-    const company = await Company.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
+
+    // Enforce tenant isolation: admins cannot edit other companies
+    if (req.user.company.toString() !== req.params.id) {
+      return res.status(403).json({ message: 'Forbidden: You can only edit your own company details' });
+    }
+
+    if (req.body.name !== undefined && !String(req.body.name).trim()) {
+      return res.status(400).json({ message: 'Company name cannot be empty' });
+    }
+
+    const allowed = { ...req.body };
+    delete allowed._id;
+    delete allowed.users; // cannot overwrite users array directly
+
+    const company = await Company.findByIdAndUpdate(req.params.id, allowed, { new: true });
     if (!company) return res.status(404).json({ message: 'Company not found' });
     res.json(company);
   } catch (err) {

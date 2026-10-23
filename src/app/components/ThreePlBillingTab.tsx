@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import {
   Calculator, Download, RefreshCw, FileText, CheckCircle2,
   AlertCircle, Plus, Building, Layers, ArrowUpRight, Clock,
-  DollarSign, PackageCheck, Boxes, Truck
+  DollarSign, PackageCheck, Boxes, Truck, Edit3
 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { billingService } from "../../services/billing.service";
 import { clientsService } from "../../services/clients.service";
 
@@ -22,6 +23,23 @@ export function ThreePlBillingTab() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [warehouse, setWarehouse] = useState("MIA");
   const [liquidation, setLiquidation] = useState<any | null>(null);
+
+  // Rate card editing state
+  const [editingRateCard, setEditingRateCard] = useState<any | null>(null);
+  const [showAddRateCard, setShowAddRateCard] = useState(false);
+  const [isSavingRateCard, setIsSavingRateCard] = useState(false);
+  const [rateCardForm, setRateCardForm] = useState({
+    name: "",
+    client: "",
+    warehouse: "MIA",
+    modality: "RECURRENT",
+    monthlyMinimum: 350.00,
+    storagePalletDayCost: 0.45,
+    outboundB2COrderBase: 2.20,
+    outboundB2BPalletCost: 4.25,
+    isActive: true,
+    twentyDayRuleEnabled: true
+  });
 
   // Load clients & rate cards
   useEffect(() => {
@@ -104,6 +122,90 @@ export function ThreePlBillingTab() {
       toast.success("Liquidación 3PL CSV downloaded successfully");
     } catch (err: any) {
       toast.error("Failed to generate CSV");
+    }
+  }
+
+  // Rate Card Handlers
+  function handleOpenAddRateCard() {
+    setEditingRateCard(null);
+    setRateCardForm({
+      name: "",
+      client: clients.length > 0 ? clients[0].name : "",
+      warehouse: warehouse || "MIA",
+      modality: "RECURRENT",
+      monthlyMinimum: 350.00,
+      storagePalletDayCost: 0.45,
+      outboundB2COrderBase: 2.20,
+      outboundB2BPalletCost: 4.25,
+      isActive: true,
+      twentyDayRuleEnabled: true
+    });
+    setShowAddRateCard(true);
+  }
+
+  function handleOpenEditRateCard(rc: any) {
+    setShowAddRateCard(false);
+    setEditingRateCard(rc);
+    setRateCardForm({
+      name: rc.name || "",
+      client: rc.client || (clients.length > 0 ? clients[0].name : ""),
+      warehouse: rc.warehouse || "MIA",
+      modality: rc.modality || "RECURRENT",
+      monthlyMinimum: rc.monthlyMinimum ?? (rc.minimums?.monthlyMinimumAmount ?? 350.00),
+      storagePalletDayCost: rc.rates?.storage?.palletDayCost ?? (rc.rates?.storage?.perLocationPerMonth ?? 0.45),
+      outboundB2COrderBase: rc.rates?.outboundB2C?.orderPreparationBase ?? (rc.rates?.outboundB2C?.orderFee ?? 2.20),
+      outboundB2BPalletCost: rc.rates?.outboundB2B?.palletFee ?? 4.25,
+      isActive: rc.isActive !== false,
+      twentyDayRuleEnabled: rc.twentyDayRuleEnabled !== false
+    });
+  }
+
+  async function handleSaveRateCard() {
+    if (!rateCardForm.name.trim() || !rateCardForm.client.trim()) {
+      toast.error("Rate card name and client are required");
+      return;
+    }
+    setIsSavingRateCard(true);
+    try {
+      const payload: any = {
+        name: rateCardForm.name.trim(),
+        client: rateCardForm.client.trim(),
+        warehouse: rateCardForm.warehouse,
+        modality: rateCardForm.modality,
+        monthlyMinimum: Number(rateCardForm.monthlyMinimum) || 0,
+        isActive: Boolean(rateCardForm.isActive),
+        twentyDayRuleEnabled: Boolean(rateCardForm.twentyDayRuleEnabled),
+        rates: {
+          storage: {
+            palletDayCost: Number(rateCardForm.storagePalletDayCost) || 0,
+            perLocationPerMonth: Number(rateCardForm.storagePalletDayCost) || 0
+          },
+          outboundB2C: {
+            orderPreparationBase: Number(rateCardForm.outboundB2COrderBase) || 0,
+            orderFee: Number(rateCardForm.outboundB2COrderBase) || 0
+          },
+          outboundB2B: {
+            palletFee: Number(rateCardForm.outboundB2BPalletCost) || 0
+          }
+        }
+      };
+
+      if (editingRateCard) {
+        await billingService.updateRateCard(editingRateCard._id, payload);
+        toast.success(`Rate card '${rateCardForm.name}' updated successfully`);
+      } else {
+        await billingService.saveRateCard(payload);
+        toast.success(`Rate card '${rateCardForm.name}' created successfully`);
+      }
+
+      setEditingRateCard(null);
+      setShowAddRateCard(false);
+      const updatedList = await billingService.getRateCards();
+      setRateCards(updatedList);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to save rate card");
+    } finally {
+      setIsSavingRateCard(false);
     }
   }
 
@@ -320,7 +422,16 @@ export function ThreePlBillingTab() {
             <Layers className="size-4 text-primary" />
             <h3 className="font-bold text-sm">Active 3PL Rate Cards / Cuadro de Tarifas</h3>
           </div>
-          <span className="text-xs text-muted-foreground">{rateCards.length} rate cards registered</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">{rateCards.length} rate cards registered</span>
+            <button
+              type="button"
+              onClick={handleOpenAddRateCard}
+              className="flex items-center gap-1.5 px-3 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
+            >
+              <Plus className="size-3.5" /> Add Rate Card
+            </button>
+          </div>
         </div>
         <table className="w-full text-sm">
           <thead className="bg-secondary/50 text-xs text-muted-foreground border-b border-border">
@@ -332,6 +443,7 @@ export function ThreePlBillingTab() {
               <th className="text-right px-4 py-3">Monthly Minimum</th>
               <th className="text-center px-4 py-3">20-Day Rule</th>
               <th className="text-center px-4 py-3">Status</th>
+              <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -342,9 +454,9 @@ export function ThreePlBillingTab() {
                   <div className="text-[11px] text-muted-foreground">{rc.client}</div>
                 </td>
                 <td className="px-4 py-3 font-mono text-xs">{rc.warehouse || "ALL"}</td>
-                <td className="px-4 py-3 text-right font-mono">€{(rc.rates?.storage?.palletDayCost || 0.45).toFixed(2)}</td>
-                <td className="px-4 py-3 text-right font-mono">€{(rc.rates?.outboundB2C?.orderPreparationBase || 2.20).toFixed(2)}</td>
-                <td className="px-4 py-3 text-right font-mono">€{(rc.minimums?.monthlyMinimumAmount || 150).toFixed(2)}</td>
+                <td className="px-4 py-3 text-right font-mono">€{(rc.rates?.storage?.palletDayCost || rc.rates?.storage?.perLocationPerMonth || 0.45).toFixed(2)}</td>
+                <td className="px-4 py-3 text-right font-mono">€{(rc.rates?.outboundB2C?.orderPreparationBase || rc.rates?.outboundB2C?.orderFee || 2.20).toFixed(2)}</td>
+                <td className="px-4 py-3 text-right font-mono">€{(rc.minimums?.monthlyMinimumAmount || rc.monthlyMinimum || 150).toFixed(2)}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${rc.twentyDayRuleEnabled !== false ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"}`}>
                     {rc.twentyDayRuleEnabled !== false ? "ENABLED" : "DISABLED"}
@@ -353,11 +465,21 @@ export function ThreePlBillingTab() {
                 <td className="px-4 py-3 text-center">
                   <StatusBadge status={rc.isActive !== false ? "active" : "inactive"} />
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditRateCard(rc)}
+                    className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                    title="Edit 3PL Rates"
+                  >
+                    <Edit3 className="size-3.5" />
+                  </button>
+                </td>
               </tr>
             ))}
             {rateCards.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                <td colSpan={8} className="px-4 py-8 text-center text-xs text-muted-foreground">
                   No custom rate cards defined yet. Standard default rates apply.
                 </td>
               </tr>
@@ -365,6 +487,132 @@ export function ThreePlBillingTab() {
           </tbody>
         </table>
       </div>
+
+      {/* Edit / Add Rate Card Modal */}
+      {(showAddRateCard || Boolean(editingRateCard)) && (
+        <Modal
+          open={true}
+          onClose={() => { if (!isSavingRateCard) { setShowAddRateCard(false); setEditingRateCard(null); } }}
+          title={editingRateCard ? `Edit 3PL Rate Card: ${editingRateCard.name}` : "Create 3PL Rate Card"}
+          subtitle="Configure storage, handling and minimum fees for third-party logistics clients"
+          width="lg"
+          footer={
+            <>
+              <ModalCancel onClose={() => { setShowAddRateCard(false); setEditingRateCard(null); }} />
+              <ModalSubmit onClick={handleSaveRateCard} disabled={isSavingRateCard}>
+                {isSavingRateCard ? "Saving..." : (editingRateCard ? "Update Rates" : "Create Rate Card")}
+              </ModalSubmit>
+            </>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <Row>
+              <Field label="Rate Card Name *" required>
+                <Input
+                  value={rateCardForm.name}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, name: e.target.value })}
+                  placeholder="e.g. Standard 3PL E-Commerce Rates"
+                />
+              </Field>
+              <Field label="3PL Client / Owner *" required>
+                <Select
+                  value={rateCardForm.client}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, client: e.target.value })}
+                >
+                  <option value="">Select client...</option>
+                  {clients.map((c) => (
+                    <option key={c._id} value={c.name}>{c.name}</option>
+                  ))}
+                </Select>
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="Warehouse">
+                <Select
+                  value={rateCardForm.warehouse}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, warehouse: e.target.value })}
+                >
+                  <option value="MIA">MIA</option>
+                  <option value="ALL">ALL (Global)</option>
+                </Select>
+              </Field>
+              <Field label="Client Modality">
+                <Select
+                  value={rateCardForm.modality}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, modality: e.target.value })}
+                >
+                  <option value="RECURRENT">RECURRENT (Permanent storage)</option>
+                  <option value="TEMPORAL">TEMPORAL (Seasonal, 20-day limit)</option>
+                </Select>
+              </Field>
+            </Row>
+
+            <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">
+              Billable Rates & Thresholds
+            </div>
+
+            <Row>
+              <Field label="Monthly Minimum Fee (€)" hint="Guaranteed monthly minimum">
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={rateCardForm.monthlyMinimum}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, monthlyMinimum: Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Storage Rate (€ / Pallet-Day)" hint="Daily pallet holding fee">
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={rateCardForm.storagePalletDayCost}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, storagePalletDayCost: Number(e.target.value) })}
+                />
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="Outbound B2C Base (€)" hint="Base fee per prepared B2C order">
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={rateCardForm.outboundB2COrderBase}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, outboundB2COrderBase: Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Outbound B2B Pallet (€)" hint="Per full pallet picked B2B">
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={rateCardForm.outboundB2BPalletCost}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, outboundB2BPalletCost: Number(e.target.value) })}
+                />
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="20-Day Rule Conversion">
+                <Select
+                  value={rateCardForm.twentyDayRuleEnabled ? "true" : "false"}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, twentyDayRuleEnabled: e.target.value === "true" })}
+                >
+                  <option value="true">Enabled (Auto-converts to Recurrent)</option>
+                  <option value="false">Disabled (Excluded from conversion)</option>
+                </Select>
+              </Field>
+              <Field label="Rate Card Status">
+                <Select
+                  value={rateCardForm.isActive ? "true" : "false"}
+                  onChange={(e) => setRateCardForm({ ...rateCardForm, isActive: e.target.value === "true" })}
+                >
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </Select>
+              </Field>
+            </Row>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

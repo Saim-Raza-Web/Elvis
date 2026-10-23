@@ -58,28 +58,78 @@ router.get('/methods', async (req, res, next) => {
   }
 });
 
-// ── POST /api/v1/shipping/rate-quote — Quote Estimated Shipping Rates ──
+// ── POST /api/v1/shipping/rate-quote — Quote Estimated Shipping Rates (Single or Comparative) ──
 router.post('/rate-quote', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const { carrier, senderPostalCode, recipientPostalCode, destinationCountry, weightKg, serviceLevel } = req.body;
+    const { carrier, senderPostalCode, recipientPostalCode, destinationCountry, weightKg, serviceLevel, compare } = req.body;
 
-    const adapter = carrierRegistry.get(carrier || 'CTT');
-    const quote = await adapter.calculateRate({
-      origin: { postcode: senderPostalCode || '08020', country: 'ES' },
-      destination: { postcode: recipientPostalCode || '28001', country: destinationCountry || 'ES' },
-      destinationCountry: destinationCountry || 'ES',
-      weightKg: Number(weightKg) || 1.0,
-      serviceType: serviceLevel || 'STANDARD'
-    });
+    const destCountry = (destinationCountry || 'ES').toUpperCase();
+    const wKg = Number(weightKg) || 1.0;
+    const sLevel = serviceLevel || 'STANDARD';
 
+    // Single carrier rate quote
+    if (carrier && carrier !== 'ALL' && !compare) {
+      let adapter;
+      try {
+        adapter = carrierRegistry.get(carrier);
+      } catch (err) {
+        return res.status(400).json({ message: `Carrier '${carrier}' is not supported.` });
+      }
+      const quote = await adapter.calculateRate({
+        origin: { postcode: senderPostalCode || '08020', country: 'ES' },
+        destination: { postcode: recipientPostalCode || '28001', country: destCountry },
+        destinationCountry: destCountry,
+        weightKg: wKg,
+        serviceType: sLevel
+      });
+
+      return res.json({
+        carrier: adapter.carrierCode,
+        carrierName: adapter.name,
+        rate: quote.rate,
+        currency: quote.currency || 'EUR',
+        estimatedDeliveryDays: quote.estimatedDeliveryDays || 1,
+        isSandbox: quote.isSandbox || false,
+        isProductionConfigured: adapter.isProductionConfigured()
+      });
+    }
+
+    // Comparative rate quotes across all available carrier adapters
+    const allCarriers = carrierRegistry.listAll();
+    const quotes = await Promise.all(
+      allCarriers.map(async (cInfo) => {
+        try {
+          const adapter = carrierRegistry.get(cInfo.code);
+          const q = await adapter.calculateRate({
+            origin: { postcode: senderPostalCode || '08020', country: 'ES' },
+            destination: { postcode: recipientPostalCode || '28001', country: destCountry },
+            destinationCountry: destCountry,
+            weightKg: wKg,
+            serviceType: sLevel
+          });
+          return {
+            carrier: cInfo.code,
+            carrierName: cInfo.name,
+            rate: q.rate,
+            currency: q.currency || 'EUR',
+            estimatedDeliveryDays: q.estimatedDeliveryDays || 1,
+            isSandbox: q.isSandbox || !adapter.isProductionConfigured(),
+            isProductionConfigured: adapter.isProductionConfigured(),
+            supportedServices: cInfo.supportedServices
+          };
+        } catch (_) {
+          return null;
+        }
+      })
+    );
+
+    const validQuotes = quotes.filter(Boolean).sort((a, b) => a.rate - b.rate);
     res.json({
-      carrier: adapter.carrierCode,
-      carrierName: adapter.name,
-      rate: quote.rate,
-      currency: quote.currency || 'EUR',
-      estimatedDeliveryDays: quote.estimatedDeliveryDays || 1,
-      isSandbox: quote.isSandbox || false
+      success: true,
+      count: validQuotes.length,
+      quotes: validQuotes,
+      recommended: validQuotes[0] || null
     });
   } catch (err) {
     next(err);
@@ -836,44 +886,59 @@ async function sendSignedDocumentEmail(shipment, signature, pdfBuffer, companyId
   }
 }
 
-// ── POST /api/v1/shipping/rate-quote — Compare Carrier Shipping Rates ──
-router.post('/rate-quote', async (req, res, next) => {
-  try {
-    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const { destinationCountry = 'ES', weightKg = 1.0, serviceLevel = 'STANDARD' } = req.body;
-
-    const adapters = [carrierRegistry.get('CTT'), carrierRegistry.get('CORREOS'), carrierRegistry.get('GLS'), carrierRegistry.get('DHL'), carrierRegistry.get('SEUR')];
-    const quotes = await Promise.all(
-      adapters.map(async (adapter) => {
-        try {
-          return await adapter.calculateRate({ weightKg: Number(weightKg) || 1, destinationCountry });
-        } catch (_) {
-          return null;
-        }
-      })
-    );
-
-    res.json({
-      success: true,
-      quotes: quotes.filter(Boolean)
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // ── POST /api/v1/shipping/:id/generate-label — Auto Generate Carrier Label & Tracking ──
-router.post('/:id/generate-label', requireOpsRole, blockOffice, async (req, res, next) => {
+router.post(['/:id/generate-label', '/generate-label'], requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
 
-    const shipment = await Model.findOne({ _id: req.params.id, company: req.user.company });
-    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    const targetId = req.params.id || req.body.shipmentId || req.body.orderId || req.body.order || req.body.packId;
+    if (!targetId) return res.status(400).json({ message: 'Shipment or Order ID is required' });
+
+    let shipment = await Model.findOne({
+      $or: [
+        mongoose.isValidObjectId(targetId) ? { _id: targetId } : null,
+        { shipmentId: targetId },
+        { order: targetId },
+        { packId: targetId }
+      ].filter(Boolean),
+      company: req.user.company
+    });
 
     let orderDoc = null;
-    if (shipment.order) {
+    if (shipment && shipment.order) {
       orderDoc = await Order.findOne({ orderId: shipment.order, company: req.user.company });
+    } else if (!shipment) {
+      // Check if targetId is an Order ID or Order _id
+      orderDoc = await Order.findOne({
+        $or: [
+          mongoose.isValidObjectId(targetId) ? { _id: targetId } : null,
+          { orderId: targetId }
+        ].filter(Boolean),
+        company: req.user.company
+      });
+
+      if (orderDoc) {
+        // Auto-create shipment for this order
+        const newShipmentId = 'SHP-' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+        shipment = await Model.create({
+          shipmentId: newShipmentId,
+          order: orderDoc.orderId,
+          orderId: orderDoc.orderId,
+          orders: [orderDoc.orderId],
+          packId: req.body.packId,
+          customer: orderDoc.customer,
+          carrier: req.body.carrier || 'CTT',
+          tracking: 'Pending',
+          origin: req.body.origin || orderDoc.warehouse || 'MIA',
+          destination: orderDoc.delivery_address?.city || orderDoc.deliveryAddress?.city || 'Madrid',
+          status: 'processing',
+          weight: `${req.body.weightKg || 1.0}kg`,
+          company: req.user.company
+        });
+      }
     }
+
+    if (!shipment) return res.status(404).json({ message: 'Shipment or associated Order not found' });
 
     const recipient = {
       name: shipment.customer || orderDoc?.customer || 'Client Recipient',
@@ -896,15 +961,32 @@ router.post('/:id/generate-label', requireOpsRole, blockOffice, async (req, res,
 
     const requestedCarrier = req.body.carrier || shipment.carrier || null;
     const serviceLevel = req.body.serviceLevel || 'STANDARD';
-    const weightKg = Number(req.body.weightKg || shipment.weight || 1.5);
-    const parcelsCount = Number(req.body.parcelsCount || shipment.parcelsCount || 1);
+    const weightKg = Number(req.body.weightKg || (shipment.weight ? parseFloat(shipment.weight) : 1.5)) || 1.5;
+    const parcelsCount = Number(req.body.parcelsCount || shipment.parcelsCount || 1) || 1;
 
-    const selection = await carrierRegistry.selectCarrierForShipment({
-      destinationCountry: recipient.country,
-      weightKg,
-      serviceLevel,
-      preferredCarrier: requestedCarrier
-    });
+    if (requestedCarrier && requestedCarrier !== 'AUTO') {
+      try {
+        carrierRegistry.get(requestedCarrier);
+      } catch (err) {
+        return res.status(400).json({
+          message: `Carrier '${requestedCarrier}' is not supported. Supported carriers: ${carrierRegistry.listAll().map(c => c.code).join(', ')}`
+        });
+      }
+    }
+
+    let selection;
+    try {
+      selection = await carrierRegistry.selectCarrierForShipment({
+        destinationCountry: recipient.country,
+        weightKg,
+        serviceLevel,
+        preferredCarrier: requestedCarrier
+      });
+    } catch (carrierErr) {
+      return res.status(400).json({
+        message: carrierErr.message || `Carrier '${requestedCarrier}' is not supported.`
+      });
+    }
 
     const carrierResult = await selection.adapter.createShipment({
       shipmentId: shipment.shipmentId || String(shipment._id),
@@ -922,11 +1004,16 @@ router.post('/:id/generate-label', requireOpsRole, blockOffice, async (req, res,
     shipment.carrierShipmentId = carrierResult.carrierShipmentId;
     shipment.shippingCost = carrierResult.cost;
     shipment.labelUrl = `/api/v1/shipping/${shipment._id}/label`;
+    if (shipment.status === 'pending') {
+      shipment.status = 'processing';
+    }
     await shipment.save();
 
     if (orderDoc) {
       orderDoc.tracking = carrierResult.trackingNumber;
+      orderDoc.tracking_number = carrierResult.trackingNumber;
       orderDoc.carrier = carrierResult.carrierCode;
+      orderDoc.shipmentId = shipment.shipmentId;
       await orderDoc.save();
     }
 
@@ -954,6 +1041,8 @@ router.post('/:id/generate-label', requireOpsRole, blockOffice, async (req, res,
 
     res.json({
       success: true,
+      shipmentId: shipment.shipmentId,
+      id: shipment._id,
       trackingNumber: carrierResult.trackingNumber,
       carrier: carrierResult.carrierCode,
       carrierName: carrierResult.carrierName,
@@ -974,7 +1063,13 @@ router.post('/:id/generate-label', requireOpsRole, blockOffice, async (req, res,
 router.get('/:id/label', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const shipment = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    const shipment = await Model.findOne({
+      $or: [
+        mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : null,
+        { shipmentId: req.params.id }
+      ].filter(Boolean),
+      company: req.user.company
+    });
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
 
     const doc = await Document.findOne({
@@ -1017,13 +1112,99 @@ router.get('/:id/label', async (req, res, next) => {
 router.get('/:id/tracking', async (req, res, next) => {
   try {
     if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
-    const shipment = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    const shipment = await Model.findOne({
+      $or: [
+        mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : null,
+        { shipmentId: req.params.id }
+      ].filter(Boolean),
+      company: req.user.company
+    });
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
-    if (!shipment.tracking) return res.status(400).json({ message: 'Shipment has no tracking number assigned yet.' });
+    if (!shipment.tracking || shipment.tracking === 'Pending') {
+      return res.status(400).json({ message: 'Shipment has no tracking number assigned yet. Generate a shipping label first.' });
+    }
+
+    let adapter;
+    try {
+      adapter = carrierRegistry.get(shipment.carrier || 'CTT');
+    } catch (_) {
+      return res.status(400).json({ message: `Carrier '${shipment.carrier}' is not supported for automated tracking.` });
+    }
+
+    const trackingInfo = await adapter.getTrackingStatus(shipment.tracking);
+    res.json({
+      ...trackingInfo,
+      carrierName: adapter.name,
+      isProductionConfigured: adapter.isProductionConfigured(),
+      shipmentStatus: shipment.status
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/v1/shipping/:id/sync-tracking — Sync Authoritative Carrier Status to Shipment ──
+router.post('/:id/sync-tracking', requireOpsRole, blockOffice, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) return res.status(403).json({ message: 'Company context required' });
+    const shipment = await Model.findOne({
+      $or: [
+        mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : null,
+        { shipmentId: req.params.id }
+      ].filter(Boolean),
+      company: req.user.company
+    });
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    if (!shipment.tracking || shipment.tracking === 'Pending') {
+      return res.status(400).json({ message: 'Shipment has no tracking number assigned yet.' });
+    }
 
     const adapter = carrierRegistry.get(shipment.carrier || 'CTT');
     const trackingInfo = await adapter.getTrackingStatus(shipment.tracking);
-    res.json(trackingInfo);
+
+    // Map authoritative carrier tracking status to WMS shipment status
+    let newStatus = shipment.status;
+    const cStatus = (trackingInfo.status || '').toUpperCase();
+    if (['DELIVERED', 'COMPLETED'].includes(cStatus)) {
+      newStatus = 'delivered';
+    } else if (['IN_TRANSIT', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'IN_DELIVERY'].includes(cStatus)) {
+      if (shipment.status === 'pending' || shipment.status === 'processing') {
+        newStatus = 'in_transit';
+      }
+    }
+
+    const previousStatus = shipment.status;
+    if (newStatus !== previousStatus) {
+      shipment.status = newStatus;
+      await shipment.save();
+
+      if (shipment.order) {
+        await Order.findOneAndUpdate(
+          { orderId: shipment.order, company: req.user.company },
+          { $set: { status: newStatus === 'delivered' ? 'delivered' : 'shipped' } }
+        );
+      }
+
+      await ActivityLog.create({
+        logId: 'LOG-SHIP-SYNC-' + Date.now(),
+        action: 'CARRIER_TRACKING_SYNC',
+        module: 'Shipping',
+        user: req.user.email || 'system',
+        company: req.user.company,
+        detail: `Shipment ${shipment.shipmentId} status updated from ${previousStatus} to ${newStatus} based on authoritative carrier status (${trackingInfo.status})`
+      });
+    }
+
+    res.json({
+      success: true,
+      shipmentId: shipment.shipmentId,
+      trackingNumber: shipment.tracking,
+      carrier: adapter.name,
+      carrierStatus: trackingInfo.status,
+      shipmentStatus: shipment.status,
+      statusChanged: newStatus !== previousStatus,
+      events: trackingInfo.events || []
+    });
   } catch (err) {
     next(err);
   }

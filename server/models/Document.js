@@ -33,6 +33,10 @@ const documentSchema = new mongoose.Schema({
   pdfUrl: { type: String, default: '' },
   pdfDataUri: { type: String, default: '' },
   htmlContent: { type: String, default: '' },
+  content: { type: String, default: '' },
+  title: { type: String, default: '' },
+  mimeType: { type: String, default: 'application/pdf' },
+  relatedEntity: { type: mongoose.Schema.Types.Mixed },
   generatedBy: { type: String, default: 'system' },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true }
 }, { timestamps: true });

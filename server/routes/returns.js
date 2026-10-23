@@ -13,6 +13,9 @@ import PutawayTask from '../models/PutawayTask.js';
 import Counter from '../models/Counter.js';
 import IdempotencyRecord from '../models/IdempotencyRecord.js';
 import AuditLog from '../models/AuditLog.js';
+import ActivityLog from '../models/ActivityLog.js';
+import ReturnRefund from '../models/ReturnRefund.js';
+import subscriptionPaymentService from '../services/subscriptionPaymentService.js';
 import { validateOwnerMaster } from '../utils/ownerValidation.js';
 
 const router = express.Router();
@@ -490,6 +493,135 @@ router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
+    next(err);
+  }
+});
+
+// POST /:id/refund - Real Payment Provider Refund Workflow
+router.post('/:id/refund', requireOpsRole, blockOffice, async (req, res, next) => {
+  const idempotencyKey = req.headers['idempotency-key'];
+  if (idempotencyKey) {
+    const existingRefund = await ReturnRefund.findOne({ idempotencyKey, company: req.user.company });
+    if (existingRefund) {
+      return res.json({
+        success: true,
+        message: 'Refund already processed (idempotent replay)',
+        data: existingRefund
+      });
+    }
+  }
+
+  try {
+    if (!req.user || !req.user.company) {
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const item = await Model.findOne({ _id: req.params.id, company: req.user.company });
+    if (!item) {
+      return res.status(404).json({ message: 'Return not found' });
+    }
+
+    // Must not be already fully refunded
+    const totalAlreadyRefunded = item.refundedAmount || 0;
+    const maxRefundable = (item.amount || 0) - totalAlreadyRefunded;
+
+    if (item.status === 'refunded' || maxRefundable <= 0) {
+      return res.status(400).json({ message: 'This return has already been fully refunded' });
+    }
+
+    // Determine refund amount
+    const requestedAmount = req.body.amount !== undefined ? Number(req.body.amount) : maxRefundable;
+    if (isNaN(requestedAmount) || requestedAmount <= 0) {
+      return res.status(400).json({ message: 'Refund amount must be greater than zero' });
+    }
+
+    if (requestedAmount > maxRefundable) {
+      return res.status(400).json({
+        message: `Requested refund (€${requestedAmount.toFixed(2)}) exceeds remaining refundable balance (€${maxRefundable.toFixed(2)})`
+      });
+    }
+
+    // Payment provider verification - NEVER simulate success
+    if (!subscriptionPaymentService.isConfigured()) {
+      return res.status(503).json({
+        code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        message: 'Payment provider is not configured. Real payment credentials (STRIPE_SECRET_KEY) are required to execute a refund.'
+      });
+    }
+
+    // Return must have original payment intent reference from order
+    if (!item.stripePaymentIntentId) {
+      return res.status(422).json({
+        code: 'MISSING_PAYMENT_INTENT',
+        message: 'Return does not have an associated Stripe paymentIntentId from the original order payment. Cannot issue refund without original transaction reference.'
+      });
+    }
+
+    // Execute real refund via payment provider
+    const stripeRefund = await subscriptionPaymentService.createRefund({
+      paymentIntentId: item.stripePaymentIntentId,
+      amountCents: Math.round(requestedAmount * 100),
+      reason: req.body.reason || 'requested_by_customer',
+      idempotencyKey,
+      metadata: {
+        returnId: item.returnId,
+        returnMongoId: item._id.toString(),
+        companyId: req.user.company.toString(),
+        issuedBy: req.user.email || req.user.name || 'system'
+      }
+    });
+
+    // Create persistent refund record
+    const refundRecord = await ReturnRefund.create({
+      returnId: item._id,
+      return: item._id,
+      returnRef: item.returnId || '',
+      company: req.user.company,
+      originalAmount: item.amount || 0,
+      requestedAmount: requestedAmount,
+      amount: requestedAmount,
+      refundId: stripeRefund.id,
+      providerRef: stripeRefund.id,
+      paymentIntentId: item.stripePaymentIntentId,
+      currency: (stripeRefund.currency || 'eur').toUpperCase(),
+      status: stripeRefund.status === 'succeeded' ? 'succeeded' : (stripeRefund.status || 'pending'),
+      reason: req.body.reason || 'Customer Return',
+      idempotencyKey: idempotencyKey || null,
+      rawResponse: stripeRefund
+    });
+
+    // Update return totals and status
+    item.refundedAmount = totalAlreadyRefunded + requestedAmount;
+    if (item.refundedAmount >= (item.amount || 0)) {
+      item.status = 'refunded';
+    }
+    await item.save();
+
+    // Log to ActivityLog
+    await ActivityLog.create({
+      logId: 'ACT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      action: 'RETURN_REFUND',
+      module: 'returns',
+      user: req.user.email || req.user.name || 'system',
+      detail: `Refund of €${requestedAmount.toFixed(2)} issued for return ${item.returnId} (Stripe refund: ${stripeRefund.id})`,
+      company: req.user.company
+    });
+
+    res.json({
+      success: true,
+      message: `Refund of €${requestedAmount.toFixed(2)} processed successfully`,
+      data: {
+        refund: refundRecord,
+        return: item
+      }
+    });
+  } catch (err) {
+    if (err.code === 'PAYMENT_PROVIDER_NOT_CONFIGURED') {
+      return res.status(503).json({
+        code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+        message: err.message
+      });
+    }
     next(err);
   }
 });

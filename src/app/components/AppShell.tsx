@@ -5,7 +5,7 @@ import {
   Building2, Undo2, Users, ReceiptText, BookOpen, BarChart3,
   CreditCard, Settings2, Menu, X, Bell, Search, Sun, Moon,
   Check, Plus, ChevronDown, LogOut, Sparkles, CheckCheck,
-  MapPin, History, ShieldCheck, Globe2, ClipboardList
+  MapPin, History, ShieldCheck, Globe2, ClipboardList, AlertTriangle
 } from "lucide-react";
 import type { Lang } from "../i18n";
 import { useT } from "../i18n";
@@ -19,7 +19,7 @@ export type Page =
   | "dashboard" | "warehouses" | "locations" | "inventory" | "receiving" | "qc" | "putaway" | "transfers" | "picking" | "packing"
   | "orders" | "purchase-orders" | "ecommerce" | "shipping" | "carriers" | "returns" | "incidents"
   | "crm" | "billing" | "accounting" | "compliance" | "reports" | "subscription" | "settings"
-  | "activity" | "admin" | "stock-counts" | "client-portal";
+  | "activity" | "admin" | "stock-counts" | "client-portal" | "recalls";
 
 interface NavItem {
   id: Page;
@@ -45,6 +45,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "stock-counts", label: (nav as any).stockCounts || "Stock Counts", icon: ClipboardList },
         { id: "picking", label: nav.picking, icon: ScanLine },
         { id: "packing", label: nav.packing, icon: PackageOpen },
+        { id: "recalls", label: (nav as any).recalls || "Batch Recalls", icon: AlertTriangle },
       ],
     },
     {
@@ -57,7 +58,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "carriers", label: nav.carriers, icon: Building2 },
         { id: "returns", label: nav.returns, icon: Undo2 },
         { id: "incidents", label: (nav as any).incidents || "Incidents", icon: ShieldCheck },
-        { id: "client-portal", label: "Portal 3PL", icon: Building2 },
+        { id: "client-portal", label: (nav as any).clientPortal || "Portal 3PL", icon: Building2 },
       ],
     },
     {
@@ -66,7 +67,7 @@ function buildNavSections(nav: ReturnType<typeof useT>["nav"]): NavSection[] {
         { id: "crm", label: nav.crm, icon: Users },
         { id: "billing", label: nav.billing, icon: ReceiptText },
         { id: "accounting", label: nav.accounting, icon: BookOpen },
-        { id: "compliance", label: "Tax & Compliance", icon: ShieldCheck },
+        { id: "compliance", label: (nav as any).compliance || "Tax & Compliance", icon: ShieldCheck },
         { id: "reports", label: nav.reports, icon: BarChart3 },
         { id: "subscription", label: nav.subscription, icon: CreditCard },
         { id: "settings", label: nav.settings, icon: Settings2 },

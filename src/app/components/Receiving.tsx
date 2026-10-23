@@ -136,6 +136,8 @@ const STATUS_OPTIONS = [
 ];
 
 export function Receiving() {
+  // Resolve the current authenticated user's email for incident records
+  const _currentUserEmail = (() => { try { return (JSON.parse(localStorage.getItem('user') || '{}')).email || 'system'; } catch { return 'system'; } })();
   const { t } = useLang();
   const tc = t.common as any;
   const tr = t.receiving as any;
@@ -162,6 +164,12 @@ export function Receiving() {
   const [form, setForm] = useState(blankASN());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [proposeLoading, setProposeLoading] = useState(false);
+
+  // Inbound Status Change State
+  const [statusTarget, setStatusTarget] = useState<ASN | null>(null);
+  const [selectedNewStatus, setSelectedNewStatus] = useState<string>("pending");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const { items: pagedAsns, allItems: asns, pagination, page, setPage, reload, isLoading } = usePaginatedList<ASN>(
     asnListService,
@@ -614,7 +622,10 @@ export function Receiving() {
       if (!resolveRes || !resolveRes.found) {
         // Scenario 2: Barcode does not exist in catalog
         setHighlightedSku(null);
-        toast.error(`REJECTED: Product not found / barcode '${term}' not in catalog.`);
+        const notFoundMsg = tr?.rejectedBarcodeNotFound
+          ? tr.rejectedBarcodeNotFound.replace('{term}', term)
+          : `REJECTED: Product not found / barcode '${term}' not in catalog.`;
+        toast.error(notFoundMsg);
         if (receiveTarget) {
           const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
           await incidentsService.create({
@@ -627,9 +638,9 @@ export function Receiving() {
             asnId: receiveTarget.asnId || receiveTarget.asnNumber,
             supplier: receiveTarget.supplier,
             owner: receiveTarget.owner || 'Default Owner',
-            operator: 'admin@demologistics.io',
-            user: 'admin@demologistics.io',
-            reported_by: 'admin@demologistics.io',
+            operator: _currentUserEmail,
+            user: _currentUserEmail,
+            reported_by: _currentUserEmail,
             reason: 'Product not found / barcode not in catalog',
             module: 'Receiving',
             status: 'open',
@@ -660,7 +671,13 @@ export function Receiving() {
       } else {
         // Scenario 1: Known product, but NOT in current ASN
         setHighlightedSku(null);
-        toast.error(`REJECTED: Product '${resolveRes.productName}' (${targetSku}) does not belong to ASN ${receiveTarget?.asnId}.`);
+        const notBelongMsg = tr?.rejectedProductNotBelong
+          ? tr.rejectedProductNotBelong
+              .replace('{product}', resolveRes.productName)
+              .replace('{sku}', targetSku)
+              .replace('{asnId}', receiveTarget?.asnId || '')
+          : `REJECTED: Product '${resolveRes.productName}' (${targetSku}) does not belong to ASN ${receiveTarget?.asnId}.`;
+        toast.error(notBelongMsg);
         if (receiveTarget) {
           const incId = 'INC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
           await incidentsService.create({
@@ -673,9 +690,9 @@ export function Receiving() {
             asnId: receiveTarget.asnId || receiveTarget.asnNumber,
             supplier: receiveTarget.supplier,
             owner: receiveTarget.owner || 'Default Owner',
-            operator: 'admin@demologistics.io',
-            user: 'admin@demologistics.io',
-            reported_by: 'admin@demologistics.io',
+            operator: _currentUserEmail,
+            user: _currentUserEmail,
+            reported_by: _currentUserEmail,
             reason: 'Unexpected SKU',
             module: 'Receiving',
             status: 'open',
@@ -775,6 +792,37 @@ export function Receiving() {
       toast.error(err.response?.data?.message || err.message || "Failed to save ASN");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Status Change Handlers
+  const handleOpenStatusModal = (asn: ASN) => {
+    setStatusTarget(asn);
+    setSelectedNewStatus(asn.status || "pending");
+    setShowCancelConfirm(false);
+  };
+
+  const handleSaveStatusChange = async () => {
+    if (!statusTarget) return;
+    if (selectedNewStatus === statusTarget.status) {
+      setStatusTarget(null);
+      return;
+    }
+    if (selectedNewStatus === "cancelled" && !showCancelConfirm) {
+      setShowCancelConfirm(true);
+      return;
+    }
+    setIsUpdatingStatus(true);
+    try {
+      await receivingService.updateStatus(statusTarget._id, selectedNewStatus);
+      toast.success(`ASN ${statusTarget.asnId || statusTarget.asnNumber} status changed to '${selectedNewStatus}'`);
+      setStatusTarget(null);
+      setShowCancelConfirm(false);
+      reload();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to update ASN status");
+    } finally {
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -923,7 +971,17 @@ export function Receiving() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm font-mono text-primary">{asn.asnId || asn.asnNumber}</span>
-                        <StatusBadge status={asn.status} />
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={asn.status} />
+                          <button
+                            type="button"
+                            onClick={() => handleOpenStatusModal(asn)}
+                            className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground text-[10px] font-semibold flex items-center gap-0.5 border border-border/60 transition-colors"
+                            title="Edit Inbound Status"
+                          >
+                            <Pencil className="size-2.5" /> Status
+                          </button>
+                        </div>
                         {!asn.owner && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
                             Review Required / Legacy - No Owner
@@ -1223,7 +1281,7 @@ export function Receiving() {
       <Modal
         open={showAdd}
         onClose={() => { if (!isSubmitting) { setShowAdd(false); setEditTarget(null); } }}
-        title={editTarget ? `Edit ASN (${editTarget.asnId || editTarget.asnNumber})` : "Create New Inbound ASN"}
+        title={editTarget ? `${tr?.editASN || "Edit ASN"} (${editTarget.asnId || editTarget.asnNumber})` : (tr?.createInboundASN || "Create New Inbound ASN")}
         subtitle={tc?.registerIncomingShippingNoticeAndProductLineItems || "Register incoming shipping notice and product line items"}
         width="xl"
         footer={
@@ -1234,7 +1292,7 @@ export function Receiving() {
             <div className="flex gap-2">
               <ModalCancel onClose={() => { setShowAdd(false); setEditTarget(null); }} />
               <ModalSubmit onClick={handleSaveASN} disabled={isSubmitting}>
-                {isSubmitting ? "Saving..." : editTarget ? "Update ASN" : "Save & Create ASN"}
+                {isSubmitting ? (tc?.saving || "Saving...") : editTarget ? (tr?.updateASN || "Update ASN") : (tr?.saveAndCreateASN || "Save & Create ASN")}
               </ModalSubmit>
             </div>
           </div>
@@ -1521,6 +1579,13 @@ export function Receiving() {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Status:</span>
                 <StatusBadge status={viewTarget.status} />
+                <button
+                  type="button"
+                  onClick={() => { const target = viewTarget; setViewTarget(null); handleOpenStatusModal(target); }}
+                  className="px-2 py-0.5 text-[10px] font-semibold border border-border rounded hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center gap-1"
+                >
+                  <Pencil className="size-2.5" /> Edit Status
+                </button>
               </div>
               <div className="flex gap-2">
                 {(viewTarget.status === 'completed' || viewTarget.deliveryNoteNumber) && (
@@ -1689,6 +1754,105 @@ export function Receiving() {
         >
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-xs text-destructive">
             <strong>Enterprise Audit Rule:</strong> Hard-deleting supply chain records is strictly prohibited. This ASN will be marked as <strong className="underline">cancelled & soft-deleted</strong> in MongoDB while retaining history.
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Change Inbound / Shipment Status Modal ── */}
+      {statusTarget && (
+        <Modal
+          open={true}
+          onClose={() => { if (!isUpdatingStatus) setStatusTarget(null); }}
+          title="Update Inbound Shipment Status"
+          subtitle={`Modify status for ${statusTarget.asnId || statusTarget.asnNumber} (${statusTarget.supplier})`}
+          footer={
+            <div className="flex gap-2 justify-end w-full">
+              <button
+                type="button"
+                onClick={() => setStatusTarget(null)}
+                disabled={isUpdatingStatus}
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg text-sm font-medium hover:bg-secondary/80 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveStatusChange}
+                disabled={isUpdatingStatus || selectedNewStatus === statusTarget.status}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  selectedNewStatus === "cancelled"
+                    ? "bg-destructive text-destructive-foreground hover:opacity-90"
+                    : "bg-primary text-primary-foreground hover:opacity-90"
+                }`}
+              >
+                {isUpdatingStatus ? "Updating..." : selectedNewStatus === "cancelled" && !showCancelConfirm ? "Review Cancellation" : "Confirm Status Change"}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 p-3 bg-muted/40 rounded-xl border border-border text-xs">
+              <div>
+                <span className="text-muted-foreground block">Current Status</span>
+                <span className="font-semibold capitalize text-foreground">{statusTarget.status?.replace(/_/g, " ")}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block">Supplier</span>
+                <span className="font-semibold text-foreground">{statusTarget.supplier}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block">Expected Date</span>
+                <span className="font-semibold text-foreground">{statusTarget.expectedDate ? new Date(statusTarget.expectedDate).toLocaleDateString() : "N/A"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block">Carrier / Dock</span>
+                <span className="font-semibold text-foreground">{statusTarget.carrier || "N/A"} / {statusTarget.receivingDock || "N/A"}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                New Inbound Status <span className="text-destructive">*</span>
+              </label>
+              <select
+                value={selectedNewStatus}
+                onChange={(e) => {
+                  setSelectedNewStatus(e.target.value);
+                  setShowCancelConfirm(false);
+                }}
+                disabled={isUpdatingStatus}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              >
+                <option value="pending">Pending (Awaiting Arrival)</option>
+                <option value="in_progress">In Progress (Goods Receiving Underway)</option>
+                <option value="completed">Completed (Fully Received & Putaway Ready)</option>
+                <option value="completed_with_discrepancies">Completed With Discrepancies</option>
+                <option value="cancelled">Cancelled (Inbound Cancelled)</option>
+              </select>
+            </div>
+
+            {selectedNewStatus === "cancelled" && (
+              <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-destructive font-semibold text-xs">
+                  <AlertTriangle className="w-4 h-4" />
+                  Warning: Inbound Shipment Cancellation
+                </div>
+                <p className="text-xs text-destructive/90">
+                  Setting this shipment to Cancelled will halt any pending receipts. If items were already partially received, stock remaining in staging will require reconciliation.
+                </p>
+                {showCancelConfirm && (
+                  <p className="text-xs font-bold text-destructive">
+                    Click "Confirm Status Change" again to authorize cancellation.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {statusTarget.status === "completed" && selectedNewStatus !== "completed" && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-700 dark:text-amber-400">
+                Notice: This shipment is currently marked completed. State transition rules require Admin authority to reopen completed shipments.
+              </div>
+            )}
           </div>
         </Modal>
       )}

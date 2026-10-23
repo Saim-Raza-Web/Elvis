@@ -19,9 +19,9 @@ const PLANS = [
 const FEATURE_ICONS = [Package, ShoppingCart, Globe, Truck, BarChart3, Shield];
 
 const TESTIMONIALS = [
-  { name: "Sarah Mitchell", role: "COO at NovaDist", avatar: "SM", rating: 5, text: "demologistics reduced our picking errors by 94% in the first month. The real-time inventory sync with our Shopify stores is incredible." },
-  { name: "Carlos Reyes", role: "Founder at LogiMex", avatar: "CR", rating: 5, text: "We scaled from 2 to 8 warehouses without adding any extra admin overhead. The platform just handles it all." },
-  { name: "Emma Dubois", role: "VP Supply Chain at PrimeFlex", avatar: "ED", rating: 5, text: "Finally, a WMS that integrates with our carrier network natively. The auto-select rules save us hours of manual work every day." },
+  { name: "Sarah Mitchell", role: "COO at NovaDist", avatar: "SM", rating: 5, text: "The real-time inventory sync across our warehouses has given our operations team a single source of truth. Picking coordination has never been smoother." },
+  { name: "Carlos Reyes", role: "Founder at LogiMex", avatar: "CR", rating: 5, text: "We expanded our warehouse footprint without adding extra admin overhead. The multi-site support and role-based access made onboarding new locations straightforward." },
+  { name: "Emma Dubois", role: "VP Supply Chain at PrimeFlex", avatar: "ED", rating: 5, text: "The carrier integration and auto-select rules streamlined our shipping operations significantly. Having everything in one platform saves the team real effort every day." },
 ];
 
 interface Props {
@@ -53,7 +53,7 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
             <div className="size-8 rounded-lg bg-primary flex items-center justify-center">
               <Zap className="size-4 text-white" />
             </div>
-            <span className="font-bold text-lg tracking-tight">demologistics</span>
+            <span className="font-bold text-lg tracking-tight">ELVIS WMS</span>
           </div>
 
           {/* Desktop nav links */}
@@ -194,7 +194,7 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
             {/* Fake browser chrome */}
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border/60 bg-card/80">
               <div className="flex gap-1.5"><div className="size-3 rounded-full bg-red-400/70" /><div className="size-3 rounded-full bg-yellow-400/70" /><div className="size-3 rounded-full bg-green-400/70" /></div>
-              <div className="flex-1 mx-4 h-6 rounded bg-secondary/60 flex items-center px-3"><span className="text-[10px] text-muted-foreground">app.demologistics.io/dashboard</span></div>
+              <div className="flex-1 mx-4 h-6 rounded bg-secondary/60 flex items-center px-3"><span className="text-[10px] text-muted-foreground">app.elviswms.io/dashboard</span></div>
             </div>
             {/* Dashboard preview */}
             <div className="p-5 bg-background/50">
@@ -281,8 +281,8 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
       <section id="about" className="py-20 px-4 sm:px-6 bg-card/30 border-y border-border/60">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-black mb-3">Loved by logistics teams</h2>
-            <p className="text-muted-foreground">Real results from real operators</p>
+            <h2 className="text-3xl font-black mb-3">What operators are saying</h2>
+            <p className="text-muted-foreground">Feedback from logistics teams using ELVIS WMS</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {TESTIMONIALS.map((t, i) => (
@@ -384,7 +384,7 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
                 <div className="size-7 rounded-lg bg-primary flex items-center justify-center">
                   <Zap className="size-3.5 text-white" />
                 </div>
-                <span className="font-bold">demologistics</span>
+                <span className="font-bold">ELVIS WMS</span>
               </div>
               <p className="text-sm text-muted-foreground">{h.footer.tagline}</p>
             </div>
@@ -400,7 +400,7 @@ export function HomePage({ lang, setLang, onLogin, onEnterApp }: Props) {
             ))}
           </div>
           <div className="border-t border-border/60 pt-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-sm text-muted-foreground">
-            <span>© {new Date().getFullYear()} demologistics. {h.footer.copy}</span>
+            <span>© {new Date().getFullYear()} ELVIS WMS. {h.footer.copy}</span>
             <div className="flex gap-4">
               {LANGS.map(l => (
                 <button key={l.code} onClick={() => setLang(l.code)} className={`transition-colors ${lang === l.code ? "text-primary font-semibold" : "hover:text-foreground"}`}>

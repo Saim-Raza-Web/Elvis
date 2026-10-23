@@ -23,29 +23,50 @@ export function usePaginatedList<T>(
   const [allItems, setAllItems] = useState<T[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const apiParamsKey = JSON.stringify(apiParams);
   const filterKey = `${apiParamsKey}:${JSON.stringify(deps)}`;
 
+  // Sequence ref to prevent out-of-order stale network responses from overwriting current state
+  const pageReqSeqRef = useRef(0);
+  const allReqSeqRef = useRef(0);
+
   const reloadPage = useCallback(async () => {
+    const currentSeq = ++pageReqSeqRef.current;
     setIsLoading(true);
+    setError(null);
     try {
       const params = { page, limit, ...apiParams };
       const result = await service.getPage(params);
-      setItems(result.data);
-      setPagination(result.pagination);
+      // Discard stale responses on slow or fluctuating PDA network connections
+      if (currentSeq === pageReqSeqRef.current) {
+        setItems(result.data);
+        setPagination(result.pagination);
+      }
+    } catch (err: any) {
+      if (currentSeq === pageReqSeqRef.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
     } finally {
-      setIsLoading(false);
+      if (currentSeq === pageReqSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [service, page, limit, apiParamsKey, ...deps]);
 
   const reloadAll = useCallback(async () => {
     if (!loadAllItems) return;
+    const currentSeq = ++allReqSeqRef.current;
     try {
       const all = await service.getAll({ all: true, ...apiParams });
-      setAllItems(all);
+      if (currentSeq === allReqSeqRef.current) {
+        setAllItems(all);
+      }
     } catch {
-      setAllItems([]);
+      if (currentSeq === allReqSeqRef.current) {
+        setAllItems([]);
+      }
     }
   }, [service, loadAllItems, apiParamsKey, ...deps]);
 
@@ -77,6 +98,7 @@ export function usePaginatedList<T>(
     page,
     setPage,
     isLoading,
+    error,
     reload,
     total: pagination?.total ?? 0,
   };

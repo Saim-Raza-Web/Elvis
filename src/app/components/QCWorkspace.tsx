@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { 
   ShieldCheck, Search, Filter, RefreshCw, CheckCircle2, XCircle, AlertTriangle, 
-  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2, Cpu, Wrench
+  RotateCcw, Clock, Layers, FileText, Eye, Play, ArrowRight, Package, CheckSquare, Camera, Upload, Trash2, Cpu, Wrench, Edit3
 } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
-import { Modal, Field, Input, Select, Row, ModalCancel } from "./Modal";
+import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { qcService } from "../../services/qc.service";
 import { inventoryService } from "../../services/inventory.service";
@@ -114,6 +114,19 @@ export function QCWorkspace() {
   const [rtvAuthNumber, setRtvAuthNumber] = useState("RTV-AUTH-2026-99");
   const [rtvCarrier, setRtvCarrier] = useState("DHL Freight");
   const [productQcProfile, setProductQcProfile] = useState<string>("Standard");
+
+  // Edit Inspection State
+  const [editTarget, setEditTarget] = useState<QuarantineItem | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    inspector: "",
+    notes: "",
+    packagingCondition: "Good",
+    productCondition: "Pass",
+    damageLevel: "None",
+    visualInspection: "Pass",
+    functionalTest: "Pass"
+  });
 
   useEffect(() => {
     if (!inspectTarget) return;
@@ -311,6 +324,50 @@ export function QCWorkspace() {
     }
   };
 
+  // Edit Inspection Handlers
+  const handleOpenEdit = async (item: QuarantineItem) => {
+    setEditTarget(item);
+    try {
+      const detail = await qcService.getById(item._id || item.quarantineId);
+      const insp = detail.inspection || {};
+      setEditForm({
+        inspector: insp.inspector || item.asnNumber || "inspector",
+        notes: insp.notes || "",
+        packagingCondition: insp.packagingCondition || "Good",
+        productCondition: insp.productCondition || "Pass",
+        damageLevel: insp.damageLevel || "None",
+        visualInspection: insp.visualInspection || "Pass",
+        functionalTest: insp.functionalTest || "Pass"
+      });
+    } catch (_) {
+      setEditForm({
+        inspector: "inspector",
+        notes: "",
+        packagingCondition: "Good",
+        productCondition: "Pass",
+        damageLevel: "None",
+        visualInspection: "Pass",
+        functionalTest: "Pass"
+      });
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTarget) return;
+    setIsSavingEdit(true);
+    try {
+      const targetId = editTarget.inspectionId || editTarget.quarantineId || editTarget._id;
+      await qcService.updateInspection(targetId, editForm);
+      toast.success("Quality inspection updated successfully");
+      setEditTarget(null);
+      reload();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to update inspection");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ── KPI Stat Cards ── */}
@@ -435,13 +492,23 @@ export function QCWorkspace() {
                         </button>
                       )}
                       {(item.status === "under_inspection" || item.status === "pending_qc") && (
-                        <button
-                          type="button"
-                          onClick={() => setInspectTarget(item)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all inline-flex items-center gap-1 ml-2"
-                        >
-                          <ShieldCheck className="size-3.5" /> {t.qc.passQC} / {t.qc.failQC}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setInspectTarget(item)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all inline-flex items-center gap-1 ml-2"
+                          >
+                            <ShieldCheck className="size-3.5" /> {t.qc.passQC} / {t.qc.failQC}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(item)}
+                            className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground inline-flex items-center ml-1"
+                            title="Edit Inspection Details"
+                          >
+                            <Edit3 className="size-3.5" />
+                          </button>
+                        </>
                       )}
                       {(item.status === "qc_passed" || item.status === "qc_failed" || item.status === "returned_to_vendor") && (
                         <span className="text-[11px] text-muted-foreground font-mono">{t.status[item.status] || item.status}</span>
@@ -1026,6 +1093,102 @@ export function QCWorkspace() {
                   : 'Rejected stock will remain in quarantine. RTV or disposition workflow required.'}
               </p>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Edit Inspection Modal ── */}
+      {editTarget && (
+        <Modal
+          open={true}
+          onClose={() => { if (!isSavingEdit) setEditTarget(null); }}
+          title={`Edit Inspection: ${editTarget.inspectionId || editTarget.quarantineId}`}
+          subtitle={`SKU: ${editTarget.sku} (${editTarget.productName}) · Lot: ${editTarget.lotNumber || 'N/A'}`}
+          width="lg"
+          footer={
+            <>
+              <ModalCancel onClose={() => setEditTarget(null)} />
+              <ModalSubmit onClick={handleSaveEdit} disabled={isSavingEdit}>
+                {isSavingEdit ? "Saving..." : "Save Changes"}
+              </ModalSubmit>
+            </>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <Row>
+              <Field label="Inspector Name / ID">
+                <Input
+                  value={editForm.inspector}
+                  onChange={(e) => setEditForm({ ...editForm, inspector: e.target.value })}
+                  placeholder="e.g. John Doe (QC Specialist)"
+                />
+              </Field>
+              <Field label="Damage Level">
+                <Select
+                  value={editForm.damageLevel}
+                  onChange={(e) => setEditForm({ ...editForm, damageLevel: e.target.value })}
+                >
+                  <option value="None">None</option>
+                  <option value="Minor">Minor</option>
+                  <option value="Moderate">Moderate</option>
+                  <option value="Severe">Severe</option>
+                </Select>
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="Packaging Condition">
+                <Select
+                  value={editForm.packagingCondition}
+                  onChange={(e) => setEditForm({ ...editForm, packagingCondition: e.target.value })}
+                >
+                  <option value="Good">Good / Intact</option>
+                  <option value="Damaged">Damaged</option>
+                  <option value="Opened">Opened</option>
+                  <option value="Wet">Water / Moisture Damage</option>
+                </Select>
+              </Field>
+              <Field label="Product Condition">
+                <Select
+                  value={editForm.productCondition}
+                  onChange={(e) => setEditForm({ ...editForm, productCondition: e.target.value })}
+                >
+                  <option value="Pass">Pass / Pristine</option>
+                  <option value="Defective">Defective</option>
+                  <option value="Wrong Item">Wrong Item</option>
+                </Select>
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="Visual Inspection">
+                <Select
+                  value={editForm.visualInspection}
+                  onChange={(e) => setEditForm({ ...editForm, visualInspection: e.target.value })}
+                >
+                  <option value="Pass">Pass</option>
+                  <option value="Fail">Fail</option>
+                </Select>
+              </Field>
+              <Field label="Functional Test">
+                <Select
+                  value={editForm.functionalTest}
+                  onChange={(e) => setEditForm({ ...editForm, functionalTest: e.target.value })}
+                >
+                  <option value="Pass">Pass</option>
+                  <option value="Fail">Fail</option>
+                  <option value="N/A">Not Applicable</option>
+                </Select>
+              </Field>
+            </Row>
+
+            <Field label="Inspection Notes & Observations">
+              <Input
+                value={editForm.notes}
+                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                placeholder="Enter detailed inspection observations, defect descriptions, or handling requirements..."
+              />
+            </Field>
           </div>
         </Modal>
       )}

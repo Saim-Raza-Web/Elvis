@@ -93,10 +93,13 @@ export function Returns() {
 
   async function handleRefund(ret: ReturnItem) {
     try {
-      await returnsService.update(ret._id, { status: "refunded" });
-      toast.success(`Return ${ret.id} refunded successfully.`);
+      const res = await (returnsService as any).refund(ret._id, { amount: ret.amount });
+      toast.success(res?.message || `Return ${ret.id} refunded successfully via payment provider.`);
       reload();
-    } catch (err) { toast.error(t.common?.error || "Failed to process refund"); }
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || t.common?.error || "Failed to process refund";
+      toast.error(errorMsg, { duration: 6000 });
+    }
   }
 
   async function handleQCItem(ret: ReturnItem) {

@@ -1,42 +1,47 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Plus } from "lucide-react";
 import { Toaster } from "sonner";
 import { AppShell, PrimaryButton } from "./components/AppShell";
 import type { Page } from "./components/AppShell";
 import { LangProvider, useLang } from "./LangContext";
 import type { Lang } from "./i18n";
-import { HomePage } from "./components/HomePage";
-import { LoginPage } from "./components/LoginPage";
-import { Dashboard } from "./components/Dashboard";
-import { Warehouses } from "./components/Warehouses";
-import { Locations } from "./components/Locations";
-import { Inventory } from "./components/Inventory";
-import { Receiving } from "./components/Receiving";
-import { Transfers } from "./components/Transfers";
-import { Picking } from "./components/Picking";
-import { Packing } from "./components/Packing";
-import { Orders } from "./components/Orders";
-import { PurchaseOrders } from "./components/PurchaseOrders";
-import { Ecommerce } from "./components/Ecommerce";
-import { Shipping } from "./components/Shipping";
-import { Carriers } from "./components/Carriers";
-import { Returns } from "./components/Returns";
-import { CRM } from "./components/CRM";
-import { Billing } from "./components/Billing";
-import { Accounting } from "./components/Accounting";
-import { Compliance } from "./components/Compliance";
-import { Reports } from "./components/Reports";
-import { Subscription } from "./components/Subscription";
-import { Settings } from "./components/Settings";
-import { ActivityLog } from "./components/ActivityLog";
-import { Admin } from "./components/Admin";
-import { Incidents } from "./components/Incidents";
-import { StockCount } from "./components/StockCount";
-import { QCWorkspace } from "./components/QCWorkspace";
-import { PutawayQueue } from "./components/PutawayQueue";
-import { ClientPortal } from "./components/ClientPortal";
 import { authService } from "../services/auth.service";
 import { canAccessPage } from "../utils/roles";
+import { RouteLoadingFallback } from "./components/RouteLoadingFallback";
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
+
+// Lazy-loaded routes for PDA slow-network performance & modular bundle splitting
+const HomePage = lazy(() => import("./components/HomePage").then(m => ({ default: m.HomePage })));
+const LoginPage = lazy(() => import("./components/LoginPage").then(m => ({ default: m.LoginPage })));
+const Dashboard = lazy(() => import("./components/Dashboard").then(m => ({ default: m.Dashboard })));
+const Warehouses = lazy(() => import("./components/Warehouses").then(m => ({ default: m.Warehouses })));
+const Locations = lazy(() => import("./components/Locations").then(m => ({ default: m.Locations })));
+const Inventory = lazy(() => import("./components/Inventory").then(m => ({ default: m.Inventory })));
+const Receiving = lazy(() => import("./components/Receiving").then(m => ({ default: m.Receiving })));
+const Transfers = lazy(() => import("./components/Transfers").then(m => ({ default: m.Transfers })));
+const Picking = lazy(() => import("./components/Picking").then(m => ({ default: m.Picking })));
+const Packing = lazy(() => import("./components/Packing").then(m => ({ default: m.Packing })));
+const Orders = lazy(() => import("./components/Orders").then(m => ({ default: m.Orders })));
+const PurchaseOrders = lazy(() => import("./components/PurchaseOrders").then(m => ({ default: m.PurchaseOrders })));
+const Ecommerce = lazy(() => import("./components/Ecommerce").then(m => ({ default: m.Ecommerce })));
+const Shipping = lazy(() => import("./components/Shipping").then(m => ({ default: m.Shipping })));
+const Carriers = lazy(() => import("./components/Carriers").then(m => ({ default: m.Carriers })));
+const Returns = lazy(() => import("./components/Returns").then(m => ({ default: m.Returns })));
+const CRM = lazy(() => import("./components/CRM").then(m => ({ default: m.CRM })));
+const Billing = lazy(() => import("./components/Billing").then(m => ({ default: m.Billing })));
+const Accounting = lazy(() => import("./components/Accounting").then(m => ({ default: m.Accounting })));
+const Compliance = lazy(() => import("./components/Compliance").then(m => ({ default: m.Compliance })));
+const Reports = lazy(() => import("./components/Reports").then(m => ({ default: m.Reports })));
+const Subscription = lazy(() => import("./components/Subscription").then(m => ({ default: m.Subscription })));
+const Settings = lazy(() => import("./components/Settings").then(m => ({ default: m.Settings })));
+const ActivityLog = lazy(() => import("./components/ActivityLog").then(m => ({ default: m.ActivityLog })));
+const Admin = lazy(() => import("./components/Admin").then(m => ({ default: m.Admin })));
+const Incidents = lazy(() => import("./components/Incidents").then(m => ({ default: m.Incidents })));
+const StockCount = lazy(() => import("./components/StockCount").then(m => ({ default: m.StockCount })));
+const QCWorkspace = lazy(() => import("./components/QCWorkspace").then(m => ({ default: m.QCWorkspace })));
+const PutawayQueue = lazy(() => import("./components/PutawayQueue").then(m => ({ default: m.PutawayQueue })));
+const ClientPortal = lazy(() => import("./components/ClientPortal").then(m => ({ default: m.ClientPortal })));
+const RecallManagement = lazy(() => import("./components/RecallManagement").then(m => ({ default: m.RecallManagement })));
 
 // Screen states
 type Screen = "home" | "login" | "app";
@@ -67,9 +72,11 @@ export default function App() {
     if (urlPage) {
       setCurrentPage(urlPage);
     }
-    if (authService.isAuthenticated()) {
-      setScreen("app");
-    }
+    authService.isAuthenticated().then((authed) => {
+      if (authed) {
+        setScreen("app");
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -94,12 +101,16 @@ export default function App() {
     return (
       <LangProvider lang={lang}>
         <Toaster position="bottom-right" richColors duration={2500} visibleToasts={3} closeButton />
-        <HomePage
-          lang={lang}
-          setLang={setLang}
-          onLogin={() => { setLoginMode("login"); setScreen("login"); }}
-          onEnterApp={() => { setLoginMode("signup"); setScreen("login"); }}
-        />
+        <RouteErrorBoundary fallbackTitle="Home Screen Error">
+          <Suspense fallback={<RouteLoadingFallback pageName="Home" />}>
+            <HomePage
+              lang={lang}
+              setLang={setLang}
+              onLogin={() => { setLoginMode("login"); setScreen("login"); }}
+              onEnterApp={() => { setLoginMode("signup"); setScreen("login"); }}
+            />
+          </Suspense>
+        </RouteErrorBoundary>
       </LangProvider>
     );
   }
@@ -108,13 +119,17 @@ export default function App() {
     return (
       <LangProvider lang={lang}>
         <Toaster position="bottom-right" richColors duration={2500} visibleToasts={3} closeButton />
-        <LoginPage
-          lang={lang}
-          setLang={setLang}
-          initialMode={loginMode}
-          onSuccess={handleLoginSuccess}
-          onBack={() => setScreen("home")}
-        />
+        <RouteErrorBoundary fallbackTitle="Login Error">
+          <Suspense fallback={<RouteLoadingFallback pageName="Login" />}>
+            <LoginPage
+              lang={lang}
+              setLang={setLang}
+              initialMode={loginMode}
+              onSuccess={handleLoginSuccess}
+              onBack={() => setScreen("home")}
+            />
+          </Suspense>
+        </RouteErrorBoundary>
       </LangProvider>
     );
   }
@@ -169,9 +184,9 @@ function AppInner({
     returns: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-create-return'))} icon={Plus}>{t.returns.createReturn}</PrimaryButton>,
     crm: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-add-customer'))} icon={Plus}>{t.crm.addCustomer}</PrimaryButton>,
     picking: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pick'))} icon={Plus}>{t.picking?.startPick || "Start Pick"}</PrimaryButton>,
-    packing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pack'))} icon={Plus}>{t.packing?.startPack || "Start Pack"}</PrimaryButton>,
-    billing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-invoice'))} icon={Plus}>{t.billing?.newInvoice || "New Invoice"}</PrimaryButton>,
-    "stock-counts": <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-count'))} icon={Plus}>{t.inventory?.newCount || "New Session"}</PrimaryButton>,
+    packing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-pack'))} icon={Plus}>{(t.packing as any)?.startPack || "Start Pack"}</PrimaryButton>,
+    billing: <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-invoice'))} icon={Plus}>{(t.billing as any)?.newInvoice || "New Invoice"}</PrimaryButton>,
+    "stock-counts": <PrimaryButton onClick={() => window.dispatchEvent(new CustomEvent('open-new-count'))} icon={Plus}>{(t.inventory as any)?.newCount || "New Session"}</PrimaryButton>,
   };
 
   function renderPage() {
@@ -204,6 +219,7 @@ function AppInner({
       case "incidents": return <Incidents />;
       case "stock-counts": return <StockCount />;
       case "client-portal": return <ClientPortal />;
+      case "recalls": return <RecallManagement />;
       default: return <Dashboard onNavigate={(p) => setCurrentPage(p as Page)} />;
     }
   }
@@ -221,7 +237,11 @@ function AppInner({
       pageActions={pageActions[currentPage]}
       onLogout={onLogout}
     >
-      {renderPage()}
+      <RouteErrorBoundary fallbackTitle={`Error Loading ${p.title}`}>
+        <Suspense fallback={<RouteLoadingFallback pageName={p.title} />}>
+          {renderPage()}
+        </Suspense>
+      </RouteErrorBoundary>
     </AppShell>
   );
 }

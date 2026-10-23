@@ -329,7 +329,42 @@ router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
   try {
     if (!req.user?.company) return res.status(403).json({ message: 'Company context required' });
 
-    const inspection = await QCInspection.findOne({ _id: req.params.id, company: req.user.company });
+    const isObjId = mongoose.Types.ObjectId.isValid(req.params.id);
+    let inspection = await QCInspection.findOne({
+      company: req.user.company,
+      $or: [
+        ...(isObjId ? [{ _id: req.params.id }] : []),
+        { inspectionId: req.params.id },
+        { quarantineId: req.params.id }
+      ]
+    });
+
+    if (!inspection) {
+      // Check if this ID belongs to QuarantineInventory
+      const qItem = await QuarantineInventory.findOne({
+        company: req.user.company,
+        $or: [
+          ...(isObjId ? [{ _id: req.params.id }] : []),
+          { quarantineId: req.params.id }
+        ]
+      });
+
+      if (qItem) {
+        inspection = await QCInspection.findOne({ quarantineId: qItem.quarantineId, company: req.user.company });
+        if (!inspection) {
+          inspection = await QCInspection.create({
+            inspectionId: 'INSP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            quarantineId: qItem.quarantineId,
+            sku: qItem.sku,
+            qty: qItem.quantity || 1,
+            company: req.user.company,
+            warehouse: qItem.warehouse || 'MIA',
+            status: qItem.status === 'pending_qc' ? 'under_inspection' : (qItem.status || 'under_inspection')
+          });
+        }
+      }
+    }
+
     if (!inspection) return res.status(404).json({ message: 'Inspection not found' });
 
     // Block updating completed inspections
@@ -344,7 +379,13 @@ router.put('/:id', requireOpsRole, blockOffice, async (req, res, next) => {
       }
       delete req.body.dynamicFields;
     }
-    Object.assign(inspection, req.body);
+
+    const allowed = { ...req.body };
+    delete allowed._id;
+    delete allowed.company;
+    delete allowed.inspectionId;
+
+    Object.assign(inspection, allowed);
     const updated = await inspection.save();
 
     await logActivity(req, 'INSPECTION_UPDATED', 'QC', `Updated inspection details for ${updated.inspectionId}`);

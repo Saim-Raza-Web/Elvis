@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing, Download, ChevronUp, ChevronDown, Printer, Upload, FileSpreadsheet } from "lucide-react";
+import { Boxes, Search, Plus, Filter, AlertTriangle, TrendingDown, Edit3, Users, Lock, Globe, Package, BellRing, Download, ChevronUp, ChevronDown, Printer, Upload, FileSpreadsheet, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
+import { RecallManagement } from "./RecallManagement";
 import { Modal, Field, Input, Select, Row, ModalCancel, ModalSubmit } from "./Modal";
 import { TablePagination } from "./TablePagination";
 import { BarcodeGenerator } from "./BarcodeGenerator";
@@ -29,6 +30,8 @@ const blankProduct = (): Omit<Product, "_id"> => ({
 
 export function Inventory() {
   const { t } = useLang();
+  const tc = t.common as any;
+  const ti = t.inventory as any;
   const stockTypeTabs = [
     { id: "all", label: t.inventory.allStock, icon: Boxes },
     { id: "available", label: t.inventory.available, icon: Package },
@@ -37,6 +40,7 @@ export function Inventory() {
     { id: "ecommerce", label: t.inventory.ecommerce, icon: Globe },
     { id: "customer", label: t.inventory.customerOwned, icon: Users },
     { id: "replenishment", label: "Replenishment", icon: BellRing },
+    { id: "recalls", label: "Batch Withdrawal", icon: Ban },
   ];
   const [replenishment, setReplenishment] = useState<any[]>([]);
   const [search, setSearch] = useState("");
@@ -199,7 +203,7 @@ export function Inventory() {
 
   const handleExecuteInitialStockLoad = async () => {
     if (!initialStockFile) {
-      toast.error("Selecciona un archivo CSV o Excel");
+      toast.error(ti?.selectCsvOrExcel || "Select a CSV or Excel file");
       return;
     }
     try {
@@ -207,7 +211,7 @@ export function Inventory() {
       setStockErrors([]);
       const targetWh = selectedStockWh || (warehouses[0]?.code || "");
       if (!targetWh) {
-        toast.error("Selecciona o configura un almacén válido");
+        toast.error(ti?.selectValidWarehouse || "Select or configure a valid warehouse");
         setIsSubmittingStock(false);
         return;
       }
@@ -221,7 +225,7 @@ export function Inventory() {
       }
 
       const res = await inventoryService.initialStockLoad(payload);
-      toast.success(res.message || "Carga inicial de stock completada con éxito");
+      toast.success(res.message || ti?.initialStockSuccess || "Initial stock load completed successfully");
       setShowInitialStockModal(false);
       setInitialStockFile(null);
       setStockErrors([]);
@@ -231,7 +235,7 @@ export function Inventory() {
       if (Array.isArray(errData?.errors)) {
         setStockErrors(errData.errors);
       } else {
-        toast.error(errData?.message || err.message || "Error al cargar stock inicial");
+        toast.error(errData?.message || err.message || ti?.initialStockError || "Error loading initial stock");
       }
     } finally {
       setIsSubmittingStock(false);
@@ -281,13 +285,16 @@ export function Inventory() {
           ))}
         </div>
         <SecondaryButton icon={Filter} onClick={() => setFilterLow(!filterLow)}>{filterLow ? t.common.all : t.inventory.lowStock}</SecondaryButton>
-        <SecondaryButton icon={Upload} onClick={() => setShowInitialStockModal(true)}>Carga Inicial</SecondaryButton>
+        <SecondaryButton icon={Ban} onClick={() => setStockTab("recalls")}>Batch Withdrawal</SecondaryButton>
+        <SecondaryButton icon={Upload} onClick={() => setShowInitialStockModal(true)}>{ti?.initialStockLoad || "Initial Stock Load"}</SecondaryButton>
         <SecondaryButton icon={Download} onClick={handleExportCSV}>{t.common?.export || "Export"} CSV</SecondaryButton>
         <PrimaryButton icon={Plus} onClick={openAdd}>{t.inventory.addProduct}</PrimaryButton>
       </div>
 
-      {/* Replenishment Alert View */}
-      {stockTab === "replenishment" ? (
+      {/* View router: Recalls / Replenishment / Standard Stock */}
+      {stockTab === "recalls" ? (
+        <RecallManagement />
+      ) : stockTab === "replenishment" ? (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="flex items-center gap-2 p-4 border-b border-border bg-destructive/5">
             <BellRing className="size-4 text-destructive" />
@@ -363,7 +370,7 @@ export function Inventory() {
                 <td className="px-4 py-3 text-center"><StatusBadge status={p.status} /></td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-1">
-                    <button onClick={() => setBarcodeTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={t.common?.printBarcode || "Print Barcode"}><Printer className="size-3.5" /></button>
+                    <button onClick={() => setBarcodeTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={tc?.printBarcode || "Print Barcode"}><Printer className="size-3.5" /></button>
                     <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground" title={t.common.edit}><Edit3 className="size-3.5" /></button>
                     <button onClick={() => setDeleteTarget(p)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive" title={t.common.delete}><AlertTriangle className="size-3.5" /></button>
                   </div>
@@ -380,21 +387,21 @@ export function Inventory() {
       {/* Add/Edit Modal */}
       {[{ open: showAdd, onClose: () => setShowAdd(false), title: t.inventory.addProduct, cta: t.inventory.addProduct }, { open: !!editTarget, onClose: () => setEditTarget(null), title: t.inventory.editProduct, cta: t.common.save }].map((m) => (
         <Modal key={m.title} open={m.open} onClose={m.onClose} title={m.title} width="lg" footer={<><ModalCancel onClose={m.onClose} /><ModalSubmit onClick={handleSave}>{m.cta}</ModalSubmit></>}>
-          <Row><Field label={t.inventory.sku} required hint={t.inventory.skuHint}><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={t.common?.sKUXXXX || "SKU-XXXX"} /></Field>
+          <Row><Field label={t.inventory.sku} required hint={t.inventory.skuHint}><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} placeholder={tc?.sKUXXXX || "SKU-XXXX"} /></Field>
             <Field label={t.inventory.category}><Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
               {["Widgets","Hardware","Electronics","Industrial","Accessories","Packaging"].map((c) => <option key={c}>{c}</option>)}
             </Select></Field>
           </Row>
-          <Field label={t.inventory.productName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.common?.fullProductName || "Full product name"} /></Field>
+          <Field label={t.inventory.productName} required><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tc?.fullProductName || "Full product name"} /></Field>
           <Row>
-            <Field label={t.common?.manufacturer || "Manufacturer"}><Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder={t.common?.eGSony || "e.g. Sony"} /></Field>
-            <Field label={t.common?.brand || "Brand"}><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder={t.common?.eGPlayStation || "e.g. PlayStation"} /></Field>
+            <Field label={tc?.manufacturer || "Manufacturer"}><Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder={tc?.eGSony || "e.g. Sony"} /></Field>
+            <Field label={tc?.brand || "Brand"}><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder={tc?.eGPlayStation || "e.g. PlayStation"} /></Field>
           </Row>
           <Row>
             <Field label={t.inventory.price}><Input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></Field>
             <Field label={t.common.warehouse}><Select value={form.warehouse} onChange={(e) => setForm({ ...form, warehouse: e.target.value })}>
               {warehouses.map((w) => <option key={w.code} value={w.code}>{w.code}</option>)}
-              {warehouses.length === 0 && <option value="MIA">{t.common?.mIA || "MIA"}</option>}
+              {warehouses.length === 0 && <option value="MIA">{tc?.mIA || "MIA"}</option>}
             </Select></Field>
           </Row>
           <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Barcodes & Case Multipliers</div>
@@ -461,15 +468,15 @@ export function Inventory() {
           </Row>
           <div className="pt-2 pb-1 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border">Stock & Replenishment</div>
           <Row>
-            <Field label={t.common?.qtyAvailable || "Qty available"}><Input type="number" value={form.qty_available} onChange={(e) => setForm({ ...form, qty_available: Number(e.target.value) })} /></Field>
-            <Field label={t.common?.reorderPoint || "Reorder Point"}><Input type="number" value={form.reorder_point} onChange={(e) => setForm({ ...form, reorder_point: Number(e.target.value) })} /></Field>
+            <Field label={tc?.qtyAvailable || "Qty available"}><Input type="number" value={form.qty_available} onChange={(e) => setForm({ ...form, qty_available: Number(e.target.value) })} /></Field>
+            <Field label={tc?.reorderPoint || "Reorder Point"}><Input type="number" value={form.reorder_point} onChange={(e) => setForm({ ...form, reorder_point: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
-            <Field label={t.common?.maxStockIdeal || "Max Stock (Ideal)"}><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} /></Field>
-            <Field label={t.common?.leadTimeDays || "Lead Time (Days)"}><Input type="number" value={form.supplier_lead_time_days} onChange={(e) => setForm({ ...form, supplier_lead_time_days: Number(e.target.value) })} /></Field>
+            <Field label={tc?.maxStockIdeal || "Max Stock (Ideal)"}><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} /></Field>
+            <Field label={tc?.leadTimeDays || "Lead Time (Days)"}><Input type="number" value={form.supplier_lead_time_days} onChange={(e) => setForm({ ...form, supplier_lead_time_days: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
-            <Field label={t.common?.qtyReserved || "Qty reserved"}><Input type="number" value={form.qty_reserved} onChange={(e) => setForm({ ...form, qty_reserved: Number(e.target.value) })} /></Field>
+            <Field label={tc?.qtyReserved || "Qty reserved"}><Input type="number" value={form.qty_reserved} onChange={(e) => setForm({ ...form, qty_reserved: Number(e.target.value) })} /></Field>
             <Field label={t.inventory.blocked}><Input type="number" value={form.qty_blocked} onChange={(e) => setForm({ ...form, qty_blocked: Number(e.target.value) })} /></Field>
           </Row>
           <Row>
@@ -507,12 +514,12 @@ export function Inventory() {
       />
 
       {/* Delete confirmation */}
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={t.common?.deleteProduct || "Delete Product"} width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={tc?.deleteProduct || "Delete Product"} width="sm" footer={<><ModalCancel onClose={() => setDeleteTarget(null)} /><ModalSubmit variant="destructive" onClick={handleDelete}>{t.common.delete}</ModalSubmit></>}>
         <p className="text-sm text-muted-foreground">Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone.</p>
       </Modal>
 
       {/* Barcode Modal */}
-      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title={t.common?.printSKUBarcode || "Print SKU Barcode"} width="sm">
+      <Modal open={!!barcodeTarget} onClose={() => setBarcodeTarget(null)} title={tc?.printSKUBarcode || "Print SKU Barcode"} width="sm">
         {barcodeTarget && (
           <div className="p-4">
             <p className="text-sm text-muted-foreground mb-4 text-center">
@@ -527,14 +534,14 @@ export function Inventory() {
       <Modal
         open={showInitialStockModal}
         onClose={() => { setShowInitialStockModal(false); setInitialStockFile(null); setStockErrors([]); }}
-        title="Carga Inicial de Stock (RF-P19)"
-        subtitle="Importación masiva con validación atómica todo-o-nada"
+        title={ti?.initialStockLoadTitle || ti?.initialStockLoad || "Initial Stock Load (RF-P19)"}
+        subtitle={ti?.initialStockLoadSub || "Bulk import with atomic all-or-nothing validation"}
         width="lg"
         footer={
           <div className="flex justify-end gap-2">
             <ModalCancel onClose={() => { setShowInitialStockModal(false); setInitialStockFile(null); setStockErrors([]); }} />
             <ModalSubmit onClick={handleExecuteInitialStockLoad} disabled={isSubmittingStock || !initialStockFile}>
-              {isSubmittingStock ? "Validando e Importando..." : "Validar y Cargar Stock"}
+              {isSubmittingStock ? (ti?.validatingAndImporting || "Validating & Importing...") : (ti?.validateAndLoadStock || "Validate & Load Stock")}
             </ModalSubmit>
           </div>
         }
@@ -542,7 +549,7 @@ export function Inventory() {
         <div className="space-y-4 p-4">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground max-w-md">
-              Sube una hoja de cálculo <strong>.xlsx</strong> o <strong>.csv</strong> con las existencias iniciales. Si <strong>alguna fila</strong> tiene error (SKU inexistente, ubicación inválida o capacidad excedida), el archivo completo se rechaza con 0 cambios aplicados.
+              {ti?.initialStockInstructions || "Upload a .xlsx or .csv spreadsheet with initial inventory. If any row contains errors (missing SKU, invalid location, exceeded capacity), the entire file is rejected with 0 changes applied."}
             </p>
             <button
               type="button"
@@ -558,16 +565,16 @@ export function Inventory() {
               }}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-secondary/50 hover:bg-secondary text-xs font-bold transition-colors shrink-0"
             >
-              <Download className="size-3.5" /> Plantilla CSV
+              <Download className="size-3.5" /> {ti?.csvTemplate || "CSV Template"}
             </button>
           </div>
 
-          <Field label="Almacén Destino *" required>
+          <Field label={(ti?.targetWarehouse || "Target Warehouse") + " *"} required>
             <Select
               value={selectedStockWh || (warehouses[0]?.code || "")}
               onChange={(e) => setSelectedStockWh(e.target.value)}
             >
-              {warehouses.length === 0 && <option value="">Sin almacenes configurados</option>}
+              {warehouses.length === 0 && <option value="">{ti?.noWarehousesConfigured || "No warehouses configured"}</option>}
               {warehouses.map(w => (
                 <option key={w._id || w.code} value={w.code}>{w.name} ({w.code})</option>
               ))}
@@ -605,13 +612,13 @@ export function Inventory() {
             <label htmlFor="initial-stock-input" className="cursor-pointer flex flex-col items-center gap-1">
               <FileSpreadsheet className="size-8 text-primary opacity-80" />
               <span className="text-xs font-bold text-foreground">
-                {initialStockFile ? initialStockFile.name : "Seleccionar archivo Excel (.xlsx) o CSV"}
+                {initialStockFile ? initialStockFile.name : (ti?.selectFileExcelCsv || "Select Excel file (.xlsx) or CSV")}
               </span>
-              <span className="text-[10px] text-muted-foreground">Columnas requeridas: SKU, Location, Quantity, Lot, ExpiryDate, Owner</span>
+              <span className="text-[10px] text-muted-foreground">{ti?.requiredColumns || "Required columns: SKU, Location, Quantity, Lot, ExpiryDate, Owner"}</span>
             </label>
             {initialStockFile && (
               <div className="text-[11px] text-emerald-600 font-bold">
-                ✓ Archivo cargado: {initialStockFile.name}
+                ✓ {(ti?.fileLoaded || "File loaded")}: {initialStockFile.name}
               </div>
             )}
           </div>
@@ -619,7 +626,7 @@ export function Inventory() {
           {stockErrors.length > 0 && (
             <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-xl space-y-1">
               <div className="font-bold text-xs text-destructive flex items-center gap-1.5">
-                <AlertTriangle className="size-4 shrink-0" /> Errores detectados ({stockErrors.length}) - Carga cancelada:
+                <AlertTriangle className="size-4 shrink-0" /> {(ti?.errorsDetected || "Errors detected ({count}) - Load cancelled:").replace('{count}', String(stockErrors.length))}
               </div>
               <ul className="list-disc list-inside text-[11px] text-destructive space-y-0.5 max-h-36 overflow-y-auto font-mono">
                 {stockErrors.map((err, idx) => <li key={idx}>{err}</li>)}

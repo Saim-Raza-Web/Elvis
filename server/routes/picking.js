@@ -544,6 +544,65 @@ router.put('/batches/:id/cancel', requireOpsRole, async (req, res, next) => {
   }
 });
 
+// ── UPDATE / EDIT a Pick Batch ──
+router.put('/batches/:id', requireOpsRole, async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.company) {
+      return res.status(403).json({ message: 'Company context required' });
+    }
+
+    const batch = await PickBatch.findOne({
+      company: req.user.company,
+      $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { batchId: req.params.id }]
+    });
+
+    if (!batch) {
+      return res.status(404).json({ message: 'Pick batch not found' });
+    }
+
+    if (batch.status === 'completed' || batch.status === 'cancelled') {
+      return res.status(400).json({ message: `Cannot modify batch ${batch.batchId} in terminal state '${batch.status}'.` });
+    }
+
+    const { priority, assignee, status } = req.body;
+
+    if (priority !== undefined) {
+      const allowedPriorities = ['low', 'normal', 'high', 'urgent'];
+      if (!allowedPriorities.includes(priority)) {
+        return res.status(400).json({ message: `Invalid priority. Must be one of: ${allowedPriorities.join(', ')}` });
+      }
+      batch.priority = priority;
+    }
+
+    if (assignee !== undefined) {
+      batch.assignee = String(assignee).trim();
+    }
+
+    if (status !== undefined) {
+      if (!['pending', 'in_progress'].includes(status)) {
+        return res.status(400).json({ message: "Status can only be updated between 'pending' and 'in_progress' via this endpoint. Use complete or cancel endpoints for completion." });
+      }
+      batch.status = status;
+    }
+
+    await batch.save();
+
+    await ActivityLog.create([{
+      logId: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      user: req.user.name || req.user.email || 'system',
+      role: req.user.role || 'warehouse_staff',
+      action: 'BATCH_UPDATED',
+      module: 'PICKING',
+      detail: `Pick batch ${batch.batchId} updated (Priority: ${batch.priority}, Assignee: ${batch.assignee || 'None'}, Status: ${batch.status})`,
+      company: req.user.company
+    }]);
+
+    res.json(batch);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── GET all Pick Tasks (With Owner & Status Filters + Search) ──
 router.get('/', async (req, res, next) => {
   try {

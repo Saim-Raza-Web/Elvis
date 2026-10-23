@@ -33,6 +33,19 @@ export function Suppliers() {
     moq: 1
   });
 
+  // Supplier Product Editing State
+  const [editingProductMapping, setEditingProductMapping] = useState<any | null>(null);
+  const [editMappingForm, setEditMappingForm] = useState({
+    supplierSku: "",
+    supplierProductName: "",
+    purchaseCost: 0,
+    leadTimeDays: 7,
+    moq: 1,
+    isPreferred: false,
+    taxRate: 21
+  });
+  const [isSavingMapping, setIsSavingMapping] = useState(false);
+
   const [form, setForm] = useState({
     name: "",
     taxId: "",
@@ -137,6 +150,39 @@ export function Suppliers() {
       setSupplierProducts(prods);
     } catch (e) {
       toast.error("Failed to unmap product");
+    }
+  };
+
+  const handleOpenEditMapping = (sp: any) => {
+    setEditingProductMapping(sp);
+    setEditMappingForm({
+      supplierSku: sp.supplierSku || "",
+      supplierProductName: sp.supplierProductName || "",
+      purchaseCost: sp.purchaseCost || 0,
+      leadTimeDays: sp.leadTimeDays || 7,
+      moq: sp.moq || 1,
+      isPreferred: Boolean(sp.isPreferred),
+      taxRate: sp.taxRate !== undefined ? sp.taxRate : 21
+    });
+  };
+
+  const handleSaveEditMapping = async () => {
+    if (!selectedSupplier || !editingProductMapping) return;
+    if (!editMappingForm.supplierSku.trim()) {
+      toast.error("Supplier SKU is required");
+      return;
+    }
+    setIsSavingMapping(true);
+    try {
+      await suppliersService.updateProduct(selectedSupplier._id, editingProductMapping._id, editMappingForm);
+      toast.success("Supplier product mapping updated successfully");
+      setEditingProductMapping(null);
+      const prods = await suppliersService.getProducts(selectedSupplier._id);
+      setSupplierProducts(prods);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to update supplier product");
+    } finally {
+      setIsSavingMapping(false);
     }
   };
 
@@ -332,7 +378,10 @@ export function Suppliers() {
                     <td className="px-4 py-3">€{(sp.purchaseCost || 0).toFixed(2)}</td>
                     <td className="px-4 py-3">{sp.leadTimeDays}d</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => handleUnmapProduct(sp._id)} className="text-destructive hover:underline">Unmap</button>
+                      <div className="flex items-center justify-end gap-3">
+                        <button type="button" onClick={() => handleOpenEditMapping(sp)} className="text-primary hover:underline font-medium">Edit</button>
+                        <button type="button" onClick={() => handleUnmapProduct(sp._id)} className="text-destructive hover:underline">Unmap</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -346,6 +395,80 @@ export function Suppliers() {
           </div>
         </div>
       </Modal>
+
+      {/* Edit Supplier Product Mapping Modal */}
+      {editingProductMapping && (
+        <Modal
+          open={true}
+          onClose={() => { if (!isSavingMapping) setEditingProductMapping(null); }}
+          title={`Edit Supplier Product: ${editingProductMapping.productId?.sku || editingProductMapping.supplierSku}`}
+          subtitle={`Supplier: ${selectedSupplier?.name}`}
+          footer={
+            <>
+              <ModalCancel onClose={() => setEditingProductMapping(null)} />
+              <ModalSubmit onClick={handleSaveEditMapping} disabled={isSavingMapping}>
+                {isSavingMapping ? "Saving..." : "Save Product"}
+              </ModalSubmit>
+            </>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <Row>
+              <Field label="Supplier SKU *" required>
+                <Input
+                  value={editMappingForm.supplierSku}
+                  onChange={(e) => setEditMappingForm({ ...editMappingForm, supplierSku: e.target.value })}
+                  placeholder="e.g. SUP-SKU-9901"
+                />
+              </Field>
+              <Field label="Supplier Product Name">
+                <Input
+                  value={editMappingForm.supplierProductName}
+                  onChange={(e) => setEditMappingForm({ ...editMappingForm, supplierProductName: e.target.value })}
+                  placeholder="Supplier catalog title"
+                />
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="Unit Purchase Cost (EUR) *" required>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={editMappingForm.purchaseCost}
+                  onChange={(e) => setEditMappingForm({ ...editMappingForm, purchaseCost: Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Lead Time (Days)">
+                <Input
+                  type="number"
+                  value={editMappingForm.leadTimeDays}
+                  onChange={(e) => setEditMappingForm({ ...editMappingForm, leadTimeDays: Number(e.target.value) })}
+                />
+              </Field>
+            </Row>
+
+            <Row>
+              <Field label="Minimum Order Quantity (MOQ)">
+                <Input
+                  type="number"
+                  value={editMappingForm.moq}
+                  onChange={(e) => setEditMappingForm({ ...editMappingForm, moq: Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Preferred Supplier">
+                <Select
+                  value={editMappingForm.isPreferred ? "true" : "false"}
+                  onChange={(e) => setEditMappingForm({ ...editMappingForm, isPreferred: e.target.value === "true" })}
+                >
+                  <option value="true">Yes (Primary Supplier)</option>
+                  <option value="false">No (Secondary)</option>
+                </Select>
+              </Field>
+            </Row>
+          </div>
+        </Modal>
+      )}
 
       {/* Unmap Product Confirmation Modal */}
       <ConfirmModal

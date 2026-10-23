@@ -8,8 +8,10 @@ import { toast } from "sonner";
 import { PrimaryButton, StatusBadge } from "./AppShell";
 import { clientPortalService, ClientPortalInventoryItem, ClientPortalOrder, ClientPortalAsn } from "../../services/clientPortal.service";
 import { authService } from "../../services/auth.service";
+import { useLang } from "../LangContext";
 
 export function ClientPortal() {
+  const { lang } = useLang();
   const [activeTab, setActiveTab] = useState<'kpis' | 'inventory' | 'orders' | 'asns' | 'billing'>('kpis');
   const [profile, setProfile] = useState<any | null>(null);
   const [kpis, setKpis] = useState<any | null>(null);
@@ -108,11 +110,11 @@ export function ClientPortal() {
       {/* Navigation Tabs */}
       <div className="flex border-b border-border gap-2 pb-1 overflow-x-auto">
         {[
-          { id: 'kpis', label: 'Resumen & KPIs', icon: BarChart3 },
-          { id: 'inventory', label: 'Mi Inventario', icon: Boxes },
-          { id: 'orders', label: 'Mis Pedidos (Outbound)', icon: ShoppingCart },
-          { id: 'asns', label: 'Avisos de Expedición (ASN)', icon: PackageCheck },
-          { id: 'billing', label: 'Liquidación & Tarifas', icon: ReceiptText },
+          { id: 'kpis', label: lang === 'en' ? 'Overview & KPIs' : lang === 'fr' ? 'Aperçu & KPI' : lang === 'it' ? 'Panoramica e KPI' : 'Resumen & KPIs', icon: BarChart3 },
+          { id: 'inventory', label: lang === 'en' ? 'My Inventory' : lang === 'fr' ? 'Mon Inventaire' : lang === 'it' ? 'Il Mio Inventario' : 'Mi Inventario', icon: Boxes },
+          { id: 'orders', label: lang === 'en' ? 'My Orders (Outbound)' : lang === 'fr' ? 'Mes Commandes (Sorties)' : lang === 'it' ? 'I Miei Ordini (Uscita)' : 'Mis Pedidos (Outbound)', icon: ShoppingCart },
+          { id: 'asns', label: lang === 'en' ? 'Shipping Notices (ASN)' : lang === 'fr' ? "Avis d'Expédition (ASN)" : lang === 'it' ? 'Avvisi di Spedizione (ASN)' : 'Avisos de Expedición (ASN)', icon: PackageCheck },
+          { id: 'billing', label: lang === 'en' ? 'Settlement & Tariffs' : lang === 'fr' ? 'Règlement & Tarifs' : lang === 'it' ? 'Liquidazione e Tariffe' : 'Liquidación & Tarifas', icon: ReceiptText },
         ].map((tab) => (
           <button
             key={tab.id}

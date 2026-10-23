@@ -57,6 +57,9 @@ const orderSchema = new mongoose.Schema({
 
   // ── B2C Shipping ──────────────────────────────────
   tracking_number: String,
+  tracking: String,
+  carrier: String,
+  shipmentId: String,
   package_weight: String,
   package_dimensions: String,
 
