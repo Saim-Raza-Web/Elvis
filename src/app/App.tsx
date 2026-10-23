@@ -72,10 +72,14 @@ export default function App() {
     if (urlPage) {
       setCurrentPage(urlPage);
     }
-    authService.isAuthenticated().then((authed) => {
-      if (authed) {
+    // Check authentication silently - don't trigger errors
+    authService.isAuthenticated().then((authenticated) => {
+      if (authenticated) {
         setScreen("app");
       }
+    }).catch(() => {
+      // If auth check fails, stay on home screen
+      setScreen("home");
     });
   }, []);
 
