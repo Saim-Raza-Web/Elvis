@@ -20,19 +20,30 @@ if (process.env.VERCEL || process.env.TRUST_PROXY === 'true' || process.env.TRUS
   app.set('trust proxy', 1);
 }
 
+// Auto-detect preview mode if VERCEL is set but NODE_ENV is not
+if (process.env.VERCEL && !process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'preview';
+}
+
 // Middleware
 app.use(helmet());
 
 // Configure CORS to support credentials (cookies)
 const isProduction = process.env.NODE_ENV === 'production';
+const isPreview = process.env.NODE_ENV === 'preview';
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
+  : isPreview 
+    ? [] // Allow all origins in preview mode for testing
+    : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
+    
+    // In preview mode, allow all origins
+    if (isPreview) return callback(null, true);
     
     // Check if origin is in allowed list
     if (allowedOrigins.indexOf(origin) !== -1) {
