@@ -65,22 +65,24 @@ export default function App() {
     setLangState(newLang);
   };
 
-  // Restore session from localStorage via authService & check URL query params
+  // Restore session from localStorage only - don't call API on initial load
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlPage = params.get("page") as Page | null;
     if (urlPage) {
       setCurrentPage(urlPage);
     }
-    // Check authentication silently - don't trigger errors
-    authService.isAuthenticated().then((authenticated) => {
-      if (authenticated) {
+    // Check localStorage for user session without API call
+    const user = localStorage.getItem('user');
+    if (user) {
+      try {
         setScreen("app");
+      } catch (e) {
+        // Invalid user data, stay on home
+        localStorage.removeItem('user');
+        setScreen("home");
       }
-    }).catch(() => {
-      // If auth check fails, stay on home screen
-      setScreen("home");
-    });
+    }
   }, []);
 
   useEffect(() => {
