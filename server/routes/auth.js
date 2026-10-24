@@ -249,8 +249,19 @@ router.post('/2fa/verify-login', async (req, res, next) => {
         await logTotpEvent(user._id, user.company, 'recovery_code_used', { remainingCodes: updatedUser.totpRecoveryCodes.length });
       }
     } else {
-      // Verify TOTP code
-      const totpSecret = user.getTotpSecret();
+      // Verify TOTP code — getTotpSecret() decrypts with AES-GCM; wrap in
+      // try/catch so a key-mismatch ("Unsupported state") surfaces as a 401
+      // rather than an unhandled 500.
+      let totpSecret;
+      try {
+        totpSecret = user.getTotpSecret();
+      } catch (decryptErr) {
+        console.error('[TOTP] Secret decryption failed — TOTP_ENCRYPTION_KEY mismatch?', decryptErr.message);
+        return res.status(401).json({
+          message: 'Authentication data is corrupt or the server encryption key has changed. Please disable and re-enable 2FA.',
+        });
+      }
+
       verification = await verifyTotpCode(code, totpSecret, user.totpLastUsed);
       
       if (verification.valid) {
@@ -455,7 +466,17 @@ router.post('/2fa/verify', protect, csrfProtection, async (req, res, next) => {
       return res.status(rateLimit.statusCode || 429).json({ message: rateLimit.message });
     }
 
-    const secret = user.getTotpSecret();
+    // Decrypt stored TOTP setup secret — wrap in try/catch so an AES-GCM
+    // key mismatch ("Unsupported state") returns a 400 instead of a 500.
+    let secret;
+    try {
+      secret = user.getTotpSecret();
+    } catch (decryptErr) {
+      console.error('[TOTP] Setup secret decryption failed — TOTP_ENCRYPTION_KEY mismatch?', decryptErr.message);
+      return res.status(400).json({
+        message: 'Stored 2FA secret could not be decrypted. Please restart the 2FA setup.',
+      });
+    }
     const verification = await verifyTotpCode(code, secret, user.totpLastUsed);
 
     if (!verification.valid) {

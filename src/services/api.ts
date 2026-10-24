@@ -3,10 +3,12 @@ import axios, { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'ax
 /**
  * Redirect guard — prevents multiple concurrent 401 responses from
  * each triggering their own window.location.href assignment.
- * Reset automatically on page unload so a fresh load starts clean.
+ * This is a module-level variable; it resets to false automatically on
+ * every full page load (JS modules are re-evaluated on each navigation).
+ * NOTE: do NOT use 'unload' — it is blocked by the Permissions Policy
+ * in modern browsers to enable BFCache optimisation.
  */
 let isRedirecting = false;
-window.addEventListener('unload', () => { isRedirecting = false; });
 
 /**
  * Extended Axios Config for PDA Slow-Network Optimization
