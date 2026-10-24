@@ -30,7 +30,7 @@ app.use(helmet());
 
 // Configure CORS to support credentials (cookies)
 const isProduction = process.env.NODE_ENV === 'production';
-const isPreview = process.env.NODE_ENV === 'preview';
+const isPreview = process.env.NODE_ENV === 'preview' || process.env.VERCEL;
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
   : isPreview 
@@ -42,7 +42,7 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
     
-    // In preview mode, allow all origins
+    // In preview mode or on Vercel, allow all origins
     if (isPreview) return callback(null, true);
     
     // Check if origin is in allowed list
