@@ -1,12 +1,26 @@
 import axios, { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 
 /**
+ * Redirect guard — prevents multiple concurrent 401 responses from
+ * each triggering their own window.location.href assignment.
+ * Reset automatically on page unload so a fresh load starts clean.
+ */
+let isRedirecting = false;
+window.addEventListener('unload', () => { isRedirecting = false; });
+
+/**
  * Extended Axios Config for PDA Slow-Network Optimization
  */
 interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
   _retryCount?: number;
   _skipRetry?: boolean;
   _skipDedupe?: boolean;
+  /**
+   * When true the 401 interceptor will NOT fire window.location.href redirect.
+   * Use this for the session-bootstrap /auth/me call so App.tsx can handle
+   * the rejection gracefully via React state rather than a hard navigation.
+   */
+  _skipRedirectOn401?: boolean;
 }
 
 const api = axios.create({
@@ -98,7 +112,14 @@ api.interceptors.response.use(
     // Handle 401 Unauthorized (session expiry)
     if (error.response?.status === 401) {
       const isAuthRoute = config?.url?.includes('/auth/login') || config?.url?.includes('/auth/register');
-      if (!isAuthRoute) {
+      const skipRedirect = (config as ExtendedAxiosRequestConfig)?._skipRedirectOn401 === true;
+
+      if (!isAuthRoute && !skipRedirect && !isRedirecting) {
+        isRedirecting = true;
+        // Clear localStorage so the session-restore effect in App.tsx
+        // does not immediately re-enter the dashboard → 401 loop.
+        localStorage.removeItem('user');
+        localStorage.removeItem('csrf_token');
         window.location.href = '/';
       }
       return Promise.reject(error);

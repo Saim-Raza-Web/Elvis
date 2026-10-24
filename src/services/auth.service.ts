@@ -41,9 +41,15 @@ export const authService = {
     return user ? JSON.parse(user) : null;
   },
   isAuthenticated: async () => {
-    // Check session by calling /me endpoint
+    // Check session by calling /me endpoint.
+    // _skipRedirectOn401 prevents the 401 interceptor from firing a hard
+    // window.location.href redirect — App.tsx handles the failure gracefully
+    // via React state (setScreen("home")) instead.
     try {
-      const response = await api.get('/auth/me');
+      const response = await api.get('/auth/me', {
+        // @ts-expect-error: extended config field defined in api.ts
+        _skipRedirectOn401: true,
+      });
       // Update user data in localStorage
       if (response.data.user) {
         localStorage.setItem('user', JSON.stringify(response.data.user));
@@ -53,7 +59,8 @@ export const authService = {
       }
       return true;
     } catch (error) {
-      // Session not valid
+      // Session not valid — clear stale local state so the next load
+      // does not re-enter the bootstrap → dashboard → 401 loop.
       localStorage.removeItem('user');
       localStorage.removeItem('csrf_token');
       return false;

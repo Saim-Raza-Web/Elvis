@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { Toaster } from "sonner";
 import { AppShell, PrimaryButton } from "./components/AppShell";
 import type { Page } from "./components/AppShell";
@@ -43,11 +43,15 @@ const PutawayQueue = lazy(() => import("./components/PutawayQueue").then(m => ({
 const ClientPortal = lazy(() => import("./components/ClientPortal").then(m => ({ default: m.ClientPortal })));
 const RecallManagement = lazy(() => import("./components/RecallManagement").then(m => ({ default: m.RecallManagement })));
 
-// Screen states
-type Screen = "home" | "login" | "app";
+// Screen states — "validating" is an exclusive loading gate: the Dashboard
+// cannot mount while session validation is in progress, preventing the
+// Dashboard → 401 → redirect loop for the stale-localStorage + expired-cookie case.
+type Screen = "home" | "login" | "validating" | "app";
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("home");
+  // Start in "validating" — no authenticated content can render until
+  // the server confirms the HttpOnly cookie via GET /api/v1/auth/me.
+  const [screen, setScreen] = useState<Screen>("validating");
   const [loginMode, setLoginMode] = useState<"login" | "signup">("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [isDark, setIsDark] = useState(true);
@@ -65,25 +69,47 @@ export default function App() {
     setLangState(newLang);
   };
 
-  // Restore session from localStorage only - don't call API on initial load
+  // Session bootstrap — the ONLY place that decides whether to enter the app.
+  //
+  // Requirements addressed:
+  //   Req #1: HttpOnly cookie is the source of truth. localStorage user metadata
+  //           is a cache only — it never grants access by itself.
+  //   Req #2: Screen starts as "validating" (loading gate). Dashboard cannot
+  //           mount until this effect resolves. App opens only on 200 from /me.
+  //   Req #4: Works with a valid cookie even if localStorage.user is absent
+  //           (e.g. private browsing, storage cleared between reloads).
+  //
+  // Race-condition safety:
+  //   isAuthenticated() passes _skipRedirectOn401=true so the Axios 401
+  //   interceptor does NOT fire window.location.href during this call.
+  //   App.tsx handles auth failures via React state, not a hard navigation.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlPage = params.get("page") as Page | null;
     if (urlPage) {
       setCurrentPage(urlPage);
     }
-    // Check localStorage for user session without API call
-    const user = localStorage.getItem('user');
-    if (user) {
-      try {
-        setScreen("app");
-      } catch (e) {
-        // Invalid user data, stay on home
-        localStorage.removeItem('user');
-        setScreen("home");
-      }
-    }
-  }, []);
+
+    authService.isAuthenticated()
+      .then((isValid) => {
+        if (isValid) {
+          // Cookie validated by server — enter the app.
+          setScreen("app");
+        } else {
+          // Explicit 401: cookie absent or expired. Stale localStorage already
+          // cleared inside isAuthenticated(). Show home/login.
+          setScreen("home");
+        }
+      })
+      .catch(() => {
+        // Network failure (ECONNABORTED, 502 …). We cannot verify the session.
+        // If there is a cached user entry we open the app optimistically so a
+        // transient outage does not lock the user out; the Dashboard's own error
+        // handling will surface the network problem. If there is no cache, show home.
+        const hasCachedUser = Boolean(localStorage.getItem('user'));
+        setScreen(hasCachedUser ? "app" : "home");
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (isDark) {
@@ -101,6 +127,26 @@ export default function App() {
   function handleLogout() {
     authService.logout();
     setScreen("home");
+  }
+
+  // Loading gate — shown while /auth/me is in flight on every page load.
+  // Nothing behind this screen can call any authenticated API (Req #2).
+  if (screen === "validating") {
+    return (
+      <LangProvider lang={lang}>
+        <div
+          id="session-validating-screen"
+          className="fixed inset-0 flex flex-col items-center justify-center bg-background z-50 gap-4"
+          role="status"
+          aria-label="Verifying session"
+        >
+          <div className="size-16 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20">
+            <Loader2 className="size-8 text-primary animate-spin" />
+          </div>
+          <p className="text-sm text-muted-foreground font-medium">Verifying session…</p>
+        </div>
+      </LangProvider>
+    );
   }
 
   if (screen === "home") {
