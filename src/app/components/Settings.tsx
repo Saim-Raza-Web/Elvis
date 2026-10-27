@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Settings2, Bell, Shield, Users, Key, Save, LockKeyhole, Eye, Pencil, Trash2, Plus, X, Building2, FileText, Upload, Truck, BarChart3, QrCode, Copy, Check, AlertTriangle, Loader2 } from "lucide-react";
 import { useLang } from "../LangContext";
 import { adminService } from "../../services/admin.service";
