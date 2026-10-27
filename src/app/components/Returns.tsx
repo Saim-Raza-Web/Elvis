@@ -144,7 +144,7 @@ export function Returns() {
     }
   }
 
-  const totalRefunded = allItems.filter((r) => r.status === "refunded").reduce((a, r) => a + r.amount, 0);
+  const totalRefunded = allItems.filter((r) => r.status === "refunded").reduce((a, r) => a + (r.amount || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -206,7 +206,7 @@ export function Returns() {
                 <td className="px-4 py-3 font-medium">{r.customer}</td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground text-xs">{r.reason}</td>
                 <td className="px-4 py-3 text-center hidden sm:table-cell">{r.items}</td>
-                <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{r.amount.toFixed(2)}</td>
+                <td className="px-4 py-3 text-right font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>€{(r.amount || 0).toFixed(2)}</td>
                 <td className="px-4 py-3 text-center"><StatusBadge status={r.status} /></td>
                 <td className="px-4 py-3 text-right hidden sm:table-cell text-muted-foreground text-xs">{r.date}</td>
                 <td className="px-4 py-3 text-right">
