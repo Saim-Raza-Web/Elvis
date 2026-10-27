@@ -25,6 +25,12 @@ export class RouteErrorBoundary extends Component<Props, State> {
     console.error("Route chunk loading or render error:", error, errorInfo);
   }
 
+  public componentDidUpdate(prevProps: Props) {
+    if (prevProps.fallbackTitle !== this.props.fallbackTitle && this.state.hasError) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   private handleRetry = () => {
     this.setState({ hasError: false, error: null });
   };

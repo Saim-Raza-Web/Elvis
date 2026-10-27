@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   LayoutDashboard, Warehouse, Boxes, ScanLine, PackageCheck,
   ArrowRightLeft, PackageOpen, ShoppingCart, Globe, Truck,
@@ -401,18 +401,18 @@ export function AppShell({
   );
 }
 
-export function PrimaryButton({ children, icon: Icon, onClick, className = "" }: { children: React.ReactNode; icon?: React.ElementType; onClick?: () => void; className?: string; }) {
+export function PrimaryButton({ children, icon: Icon, onClick, className = "", disabled }: { children: React.ReactNode; icon?: React.ElementType | React.ReactNode; onClick?: (e?: any) => void; className?: string; disabled?: boolean; }) {
   return (
-    <button onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 active:scale-95 transition-all hover-glow ${className}`}>
-      {Icon && <Icon className="size-4" />}{children}
+    <button onClick={onClick} disabled={disabled} className={`inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 active:scale-95 transition-all hover-glow disabled:opacity-50 disabled:cursor-not-allowed ${className}`}>
+      {Icon && (React.isValidElement(Icon) ? Icon : typeof Icon === 'function' ? <Icon className="size-4" /> : null)}{children}
     </button>
   );
 }
 
-export function SecondaryButton({ children, icon: Icon, onClick, className = "" }: { children: React.ReactNode; icon?: React.ElementType; onClick?: () => void; className?: string; }) {
+export function SecondaryButton({ children, icon: Icon, onClick, className = "", disabled }: { children: React.ReactNode; icon?: React.ElementType | React.ReactNode; onClick?: (e?: any) => void; className?: string; disabled?: boolean; }) {
   return (
-    <button onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-semibold hover:bg-secondary active:scale-95 transition-all ${className}`}>
-      {Icon && <Icon className="size-4" />}{children}
+    <button onClick={onClick} disabled={disabled} className={`inline-flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-semibold hover:bg-secondary active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${className}`}>
+      {Icon && (React.isValidElement(Icon) ? Icon : typeof Icon === 'function' ? <Icon className="size-4" /> : null)}{children}
     </button>
   );
 }

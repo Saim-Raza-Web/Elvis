@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { getFetchWithCsrfOptions } from "../../services/api";
 import { PrimaryButton, SecondaryButton, StatusBadge } from "./AppShell";
 import { Modal, Field, Input, Row, ModalCancel, ModalSubmit, ConfirmModal } from "./Modal";
-import { TablePagination } from "./TablePagination";
 import { useLang } from "../LangContext";
 
 type ABCProduct = {
@@ -184,14 +183,14 @@ function ABCClassificationManagerInner() {
           <SecondaryButton
             onClick={fetchABCData}
             disabled={loading}
-            icon={<RefreshCw className="w-4 h-4" />}
+            icon={RefreshCw}
           >
             Refresh
           </SecondaryButton>
           <PrimaryButton
             onClick={handleRecalculate}
             disabled={recalculating}
-            icon={<RefreshCw className={`w-4 h-4 ${recalculating ? 'animate-spin' : ''}`} />}
+            icon={RefreshCw}
           >
             {recalculating ? 'Recalculating...' : 'Recalculate'}
           </PrimaryButton>
@@ -329,8 +328,17 @@ function ABCClassificationManagerInner() {
       {/* Override Modal */}
       {showOverrideModal && selectedProduct && (
         <Modal
+          open={showOverrideModal}
           title={`Set ABC Override for ${selectedProduct.sku}`}
           onClose={() => setShowOverrideModal(false)}
+          footer={
+            <>
+              <ModalCancel onClose={() => setShowOverrideModal(false)} />
+              <ModalSubmit onClick={handleSetOverride}>
+                Set Override
+              </ModalSubmit>
+            </>
+          }
         >
           <div className="space-y-4">
             <Field label="Current Calculated Class">
@@ -362,12 +370,6 @@ function ABCClassificationManagerInner() {
                 placeholder="Why is this override needed?"
               />
             </Field>
-            <Row>
-              <ModalCancel onClick={() => setShowOverrideModal(false)} />
-              <ModalSubmit onClick={handleSetOverride}>
-                Set Override
-              </ModalSubmit>
-            </Row>
           </div>
         </Modal>
       )}
