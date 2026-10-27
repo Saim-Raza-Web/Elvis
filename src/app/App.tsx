@@ -27,21 +27,21 @@ const Ecommerce = lazy(() => import("./components/Ecommerce").then(m => ({ defau
 const Shipping = lazy(() => import("./components/Shipping").then(m => ({ default: m.Shipping })));
 const Carriers = lazy(() => import("./components/Carriers").then(m => ({ default: m.Carriers })));
 const Returns = lazy(() => import("./components/Returns").then(m => ({ default: m.Returns })));
-const CRM = lazy(() => import("./components/CRM").then(m => ({ default: m.CRM })));
-const Billing = lazy(() => import("./components/Billing").then(m => ({ default: m.Billing })));
-const Accounting = lazy(() => import("./components/Accounting").then(m => ({ default: m.Accounting })));
-const Compliance = lazy(() => import("./components/Compliance").then(m => ({ default: m.Compliance })));
-const Reports = lazy(() => import("./components/Reports").then(m => ({ default: m.Reports })));
-const Subscription = lazy(() => import("./components/Subscription").then(m => ({ default: m.Subscription })));
-const Settings = lazy(() => import("./components/Settings").then(m => ({ default: m.Settings })));
-const ActivityLog = lazy(() => import("./components/ActivityLog").then(m => ({ default: m.ActivityLog })));
-const Admin = lazy(() => import("./components/Admin").then(m => ({ default: m.Admin })));
-const Incidents = lazy(() => import("./components/Incidents").then(m => ({ default: m.Incidents })));
-const StockCount = lazy(() => import("./components/StockCount").then(m => ({ default: m.StockCount })));
-const QCWorkspace = lazy(() => import("./components/QCWorkspace").then(m => ({ default: m.QCWorkspace })));
-const PutawayQueue = lazy(() => import("./components/PutawayQueue").then(m => ({ default: m.PutawayQueue })));
-const ClientPortal = lazy(() => import("./components/ClientPortal").then(m => ({ default: m.ClientPortal })));
-const RecallManagement = lazy(() => import("./components/RecallManagement").then(m => ({ default: m.RecallManagement })));
+const CRM = lazy(() => import("./components/CRM").then(m => ({ default: m.default })));
+const Billing = lazy(() => import("./components/Billing").then(m => ({ default: m.default })));
+const Accounting = lazy(() => import("./components/Accounting").then(m => ({ default: m.default })));
+const Compliance = lazy(() => import("./components/Compliance").then(m => ({ default: m.default })));
+const Reports = lazy(() => import("./components/Reports").then(m => ({ default: m.default })));
+const Subscription = lazy(() => import("./components/Subscription").then(m => ({ default: m.default })));
+const Settings = lazy(() => import("./components/Settings").then(m => ({ default: m.default })));
+const ActivityLog = lazy(() => import("./components/ActivityLog").then(m => ({ default: m.default })));
+const Admin = lazy(() => import("./components/Admin").then(m => ({ default: m.default })));
+const Incidents = lazy(() => import("./components/Incidents").then(m => ({ default: m.default })));
+const StockCount = lazy(() => import("./components/StockCount").then(m => ({ default: m.default })));
+const QCWorkspace = lazy(() => import("./components/QCWorkspace").then(m => ({ default: m.default })));
+const PutawayQueue = lazy(() => import("./components/PutawayQueue").then(m => ({ default: m.default })));
+const ClientPortal = lazy(() => import("./components/ClientPortal").then(m => ({ default: m.default })));
+const RecallManagement = lazy(() => import("./components/RecallManagement").then(m => ({ default: m.default })));
 
 // Screen states — "validating" is an exclusive loading gate: the Dashboard
 // cannot mount while session validation is in progress, preventing the

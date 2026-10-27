@@ -18,6 +18,44 @@ import { ConfirmModal, PromptModal } from "./Modal";
 
 type User = { _id: string; name: string; email: string; role: string; createdAt: string; totpEnabled?: boolean; };
 
+// Error Boundary for Settings
+class SettingsErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Settings Error Boundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] bg-card border border-border rounded-lg p-8 text-center">
+          <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+          <h2 className="text-xl font-bold text-foreground mb-2">Error Loading Settings</h2>
+          <p className="text-muted-foreground mb-4 text-sm max-w-md">
+            {this.state.error?.message || 'An unexpected error occurred while loading settings.'}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-all"
+          >
+            Reload App
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 // Two-Factor Auth Section Component
 function TwoFactorAuthSection({ t }: { t: any }) {
   const t2fa = t.settings.twoFactorAuth;
@@ -364,7 +402,7 @@ const roles = ROLE_DEFINITIONS;
 
 const permissionModules = PERMISSION_MODULES;
 
-export function Settings() {
+function Settings() {
   const { t } = useLang();
   const tc = (t.common || {}) as any;
   const settingsTabs = [
@@ -1880,5 +1918,14 @@ export function Settings() {
         variant="destructive"
       />
     </div>
+  );
+}
+
+// Wrap Settings in Error Boundary
+export default function SettingsWithErrorBoundary() {
+  return (
+    <SettingsErrorBoundary>
+      <Settings />
+    </SettingsErrorBoundary>
   );
 }
