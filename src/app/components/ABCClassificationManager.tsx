@@ -29,7 +29,7 @@ type ABCSummary = {
   products: ABCProduct[];
 };
 
-export function ABCClassificationManager() {
+function ABCClassificationManagerInner() {
   const { t } = useLang();
   const [loading, setLoading] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
@@ -42,10 +42,12 @@ export function ABCClassificationManager() {
   const [overrideReason, setOverrideReason] = useState("");
   const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
   const [clearOverrideProduct, setClearOverrideProduct] = useState<ABCProduct | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchABCData = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await fetch("/api/v1/abc-classification", {
         credentials: 'include'
       });
@@ -53,6 +55,7 @@ export function ABCClassificationManager() {
       const result = await res.json();
       setData(result);
     } catch (err: any) {
+      setError(err.message || "Failed to load ABC classification data");
       toast.error(err.message || "Failed to load ABC classification data");
     } finally {
       setLoading(false);
@@ -157,6 +160,20 @@ export function ABCClassificationManager() {
 
   return (
     <div className="space-y-6">
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+            <AlertTriangle className="w-5 h-5" />
+            <span className="font-medium">Error loading ABC classification</span>
+          </div>
+          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{error}</p>
+          <button onClick={fetchABCData} className="mt-2 text-sm text-red-600 dark:text-red-400 underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -377,6 +394,15 @@ export function ABCClassificationManager() {
         confirmText="Clear Override"
         variant="destructive"
       />
+    </div>
+  );
+}
+
+// Wrapper component with error boundary
+export function ABCClassificationManager() {
+  return (
+    <div className="bg-card border border-border rounded-lg p-4">
+      <ABCClassificationManagerInner />
     </div>
   );
 }
