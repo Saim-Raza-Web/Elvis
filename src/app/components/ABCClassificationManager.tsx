@@ -186,19 +186,19 @@ export function ABCClassificationManager() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-lg p-4">
             <div className="text-sm text-muted-foreground">Total Products</div>
-            <div className="text-2xl font-bold">{data.totalProducts}</div>
+            <div className="text-2xl font-bold">{data.totalProducts || 0}</div>
           </div>
           <div className="bg-card border border-border rounded-lg p-4">
             <div className="text-sm text-muted-foreground">Class A (Top 80%)</div>
-            <div className="text-2xl font-bold text-green-600">{data.counts.A}</div>
+            <div className="text-2xl font-bold text-green-600">{data.counts?.A || 0}</div>
           </div>
           <div className="bg-card border border-border rounded-lg p-4">
             <div className="text-sm text-muted-foreground">Class B (80-95%)</div>
-            <div className="text-2xl font-bold text-yellow-600">{data.counts.B}</div>
+            <div className="text-2xl font-bold text-yellow-600">{data.counts?.B || 0}</div>
           </div>
           <div className="bg-card border border-border rounded-lg p-4">
             <div className="text-sm text-muted-foreground">Class C (Bottom 5%)</div>
-            <div className="text-2xl font-bold text-red-600">{data.counts.C}</div>
+            <div className="text-2xl font-bold text-red-600">{data.counts?.C || 0}</div>
           </div>
         </div>
       )}
@@ -252,25 +252,25 @@ export function ABCClassificationManager() {
             </thead>
             <tbody>
               {filteredProducts.map((product) => (
-                <tr key={product._id} className="border-t border-border">
-                  <td className="px-4 py-3 text-sm font-mono">{product.sku}</td>
-                  <td className="px-4 py-3 text-sm">{product.name}</td>
-                  <td className="px-4 py-3 text-sm">{product.category}</td>
+                <tr key={product._id || product.sku} className="border-t border-border">
+                  <td className="px-4 py-3 text-sm font-mono">{product.sku || '—'}</td>
+                  <td className="px-4 py-3 text-sm">{product.name || '—'}</td>
+                  <td className="px-4 py-3 text-sm">{product.category || '—'}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium ${getClassColor(product.calculatedClass)}`}>
-                      {product.calculatedClass}
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium ${getClassColor(product.calculatedClass || 'C')}`}>
+                      {product.calculatedClass || 'C'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium ${getClassColor(product.effectiveClass)}`}>
-                      {product.effectiveClass}
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium ${getClassColor(product.effectiveClass || 'C')}`}>
+                      {product.effectiveClass || 'C'}
                       {product.hasOverride && <AlertTriangle className="w-3 h-3" />}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm">{product.volume.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-sm">{(product.volume || 0).toLocaleString()}</td>
                   <td className="px-4 py-3 text-sm">
                     {product.hasOverride ? (
-                      <span className="text-purple-600 font-medium">{product.override}</span>
+                      <span className="text-purple-600 font-medium">{product.override || '—'}</span>
                     ) : (
                       <span className="text-muted-foreground">None</span>
                     )}
