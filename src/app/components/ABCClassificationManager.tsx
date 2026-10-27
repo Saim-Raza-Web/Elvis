@@ -235,6 +235,8 @@ export function ABCClassificationManager() {
       {/* Products Table */}
       {loading ? (
         <div className="text-center py-8 text-muted-foreground">Loading ABC classification data...</div>
+      ) : !data || !data.products ? (
+        <div className="text-center py-8 text-muted-foreground">No ABC data available</div>
       ) : (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           <table className="w-full">
